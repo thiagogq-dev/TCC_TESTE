@@ -44,6 +44,6 @@ if __name__ == "__main__":
 
         for repo in repos:
             repo_name = repo.split("/")[1]
-            find_pd(json_file, f"pyszz_v2/repos_dir/{repo_name}")
+            find_pd(json_file, f"repos_dir/{repo_name}")
 
     remove_empty_bug_hashs(json_file)
