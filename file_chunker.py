@@ -5,7 +5,7 @@ def split_json_file(input_file, output_prefix, max_items_per_file=100):
         data = json.load(f)
 
     if not isinstance(data, list):
-        raise ValueError("O arquivo JSON deve conter uma lista de itens")
+        raise ValueError("The input file does not contain a JSON list.")
 
     chunks = [data[i:i + max_items_per_file] for i in range(0, len(data), max_items_per_file)]
 
@@ -13,8 +13,8 @@ def split_json_file(input_file, output_prefix, max_items_per_file=100):
         output_file = f"{output_prefix}_{idx + 1}.json"
         with open(output_file, 'w') as f:
             json.dump(chunk, f, indent=4)
-        print(f"Arquivo {output_file} criado com {len(chunk)} itens.")
-
+        print(f"File {output_file} created with {len(chunk)} items.")
+              
 input_file = './json/issues_data.json'  
-output_prefix = './json/issues_data'  
+output_prefix = './json/raw_data'  
 split_json_file(input_file, output_prefix)

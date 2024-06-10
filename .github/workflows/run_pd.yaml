@@ -1,4 +1,4 @@
-name: Process Issue Data
+name: Run PyDriller
 
 on:
   workflow_dispatch:
@@ -18,8 +18,7 @@ jobs:
     - name: List JSON files
       id: list-json-files
       run: |
-        files=$(ls json/*.json | jq -R -s -c 'split("\n")[:-1]')
-        echo files=$files
+        files=$(ls json/bics/bics*.json | jq -R -s -c 'split("\n")[:-1]')
         echo "json_files=$files" >> $GITHUB_OUTPUT
 
   run-script:
@@ -33,17 +32,10 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4.1.6
 
-    - name: Clone pyszz_v2
-      uses: actions/checkout@v4.1.6
-      with:
-        repository: 'thiagogquinto/pyszz_v2'
-        path: 'pyszz_v2'
-        ref: 'tcc_version'
-
-    - name: Clone JabRef to pyszz_v2/repos_dir
+    - name: Clone JabRef
       run: |
-        mkdir -p pyszz_v2/repos_dir
-        cd pyszz_v2/repos_dir
+        mkdir -p repos_dir
+        cd repos_dir
         git clone https://github.com/JabRef/jabref.git
       
     - name: Set up Python
@@ -51,24 +43,20 @@ jobs:
       with:
         python-version: '3.x'
 
-    - name: Run pyszz_v2
-      working-directory: pyszz_v2/
+    - name: Install dependencies
       run: |
-        echo "$(basename ${{ matrix.file }})"
-        cp ../${{ matrix.file }} issues_data.json
-        bash run_docker.sh issues_data.json conf/rszz.yml /repos_dir/
+        python -m pip install --upgrade pip
+        pip install pydriller
 
-    - name: Bring out file to main folder
-      working-directory: pyszz_v2/
+    - name: Run PyDriller
       run: |
-        filename=$(basename ${{ matrix.file }})
-        cp out/bics.json ../json/bics/bics_$filename
-  
+        python run_pd.py ${{ matrix.file }}
+
     - name: Commit and push
       run: |
         git config --global user.email "thiagogquinto.dev@gmail.com"
         git config --global user.name "Thiago Quinto"
         git pull 
-        git add json/bics_*.json
-        git commit -m "Add bics files"
+        git add .
+        git commit -m "Add bics by PyDriller"
         git push
