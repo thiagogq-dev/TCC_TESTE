@@ -15,6 +15,6 @@ def split_json_file(input_file, output_prefix, max_items_per_file=100):
             json.dump(chunk, f, indent=4)
         print(f"File {output_file} created with {len(chunk)} items.")
               
-input_file = './json/issues_data.json'  
-output_prefix = './json/raw_data'  
+input_file = './json/raw_data/issues.json'  
+output_prefix = './json/raw_data/issues'  
 split_json_file(input_file, output_prefix)

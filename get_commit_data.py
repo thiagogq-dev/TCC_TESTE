@@ -97,5 +97,5 @@ with open("bug_fix_commits/bics.json") as f:
         else:
             os.makedirs(f"{d['repo_name']}/{fix_commit}")
 
-        commit_data("fix", "pyszz_v2/repos_dir/jabref", fix_commit, [], folder_path=f"{d['repo_name']}/{fix_commit}")
-        commit_data("bic", "pyszz_v2/repos_dir/jabref", bic, [], folder_path=f"{d['repo_name']}/{fix_commit}")
+        commit_data("fix", "repos_dir/jabref", fix_commit, [], folder_path=f"commit_data/{d['repo_name']}/{fix_commit}")
+        commit_data("bic", "repos_dir/jabref", bic, [], folder_path=f"commit_data/{d['repo_name']}/{fix_commit}")

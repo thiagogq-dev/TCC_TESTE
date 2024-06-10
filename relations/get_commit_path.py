@@ -1,7 +1,6 @@
 import json
-import os
 
-with open('./bug_fix_commits/bics.json') as f:
+with open('../json/consolidated_data.json.json') as f:
     bics = json.load(f)
     path = []
 

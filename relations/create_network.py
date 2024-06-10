@@ -21,6 +21,9 @@ net = Network(
 )
 
 for item in data:
+
+    if len(item["Fix in BIC pyszz"]) == 0 and len(item["Fix in BIC pydriller"]) == 0:
+        continue
     fix_commit = item["fix_commit"]
     net.add_node(fix_commit, label=fix_commit, color=generate_ramdom_color(), title="teste")
 

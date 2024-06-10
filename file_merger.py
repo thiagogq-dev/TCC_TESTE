@@ -1,7 +1,7 @@
 import json
 import glob
 
-json_files = glob.glob('./json/bics_issues_data_*.json')
+json_files = glob.glob('./json/bics/issues_*.json')
 
 combined_data = []
 
