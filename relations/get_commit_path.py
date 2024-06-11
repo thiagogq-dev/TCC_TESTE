@@ -1,6 +1,6 @@
 import json
 
-with open('../json/consolidated_data.json.json') as f:
+with open('../json/consolidated_data.json') as f:
     bics = json.load(f)
     path = []
 
