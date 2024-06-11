@@ -5,9 +5,12 @@ import os
 from utils.utils import remove_null_prs, get_pull_request_language
 
 API_TOKEN = os.getenv("API_TOKEN")
+print(API_TOKEN)
 
 def check_issue_pr(pr_urls, headers, repo):
     prs = []
+
+    print(pr_urls)
 
     for url in pr_urls:
         response = requests.get(url, headers=headers)
