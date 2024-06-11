@@ -36,7 +36,7 @@ def plot_confusion_matrix(tp, fp, tn, fn, output_file, quadrant_colors):
     plt.savefig(output_file)
     plt.close()
 
-with open('./PRANALYZER/commit_analizer.csv', mode='r') as file:
+with open('./csv/commit_analizer.csv', mode='r') as file:
     reader = csv.reader(file)
     next(reader)
 
