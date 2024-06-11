@@ -4,6 +4,9 @@ import requests
 import csv
 from PRAnalizer import PRAnalizer
 
+if not os.path.exists("../csv"):
+    os.makedirs("../csv")
+
 if os.path.exists("../csv/commit_analizer.csv"):
     os.remove("../csv/commit_analizer.csv")
 
