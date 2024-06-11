@@ -55,12 +55,10 @@ with open('./csv/commit_analizer.csv', mode='r') as file:
         else:
             none += 1
 
-
-
 tp = bic_fix
 fp = bic
 tn = none
 fn = fix
 
-output_file = "./images/confusion_matrix.png"
+output_file = "./confusion_matrix.png"
 plot_confusion_matrix(tp, fp, tn, fn, output_file, quadrant_colors=('yellow', 'red', 'green', 'orange'))
