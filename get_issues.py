@@ -44,7 +44,7 @@ def check_issue_pr(pr_urls, headers, repo):
     
 def get_data(url, repo_name, repo, full_data):
     headers = {
-        'Authorization': 'token ' + API_TOKEN,
+        'Authorization': f'token {API_TOKEN}'
     }
     pages_remaining = True
 

@@ -127,6 +127,10 @@ def get_pull_request_language(repo, headers, pr_number):
     url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files"
     response = requests.get(url, headers=headers)
     data = response.json()
+
+    if data["message"] == "Not Found" or data["status"] == "404":
+        return None
+
     file_changes = defaultdict(int)
     for file in data:
         file_extension = file["filename"].split(".")[-1]
