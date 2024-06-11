@@ -126,10 +126,11 @@ def remove_non_existing_commits(filename):
 def get_pull_request_language(repo, headers, pr_number):
     url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files"
     response = requests.get(url, headers=headers)
-    data = response.json()
 
-    if data["message"] == "Not Found" or data["status"] == "404":
+    if response.status_code != 200:
         return None
+
+    data = response.json()
 
     file_changes = defaultdict(int)
     for file in data:
