@@ -23,5 +23,5 @@ with open('../json/consolidated_data.json') as f:
             "Fix in BIC pydriller": bic_pd
         })
 
-    with open('./relations/commit_path.json', 'w') as f:
+    with open('commit_path.json', 'w') as f:
         json.dump(path, f, indent=4)
