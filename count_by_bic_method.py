@@ -19,7 +19,7 @@ def write_csv(count_pyszz, count_pd, count_matched):
 
         writer.writerow({'Number of caught by PYSZZ': count_pyszz, 'Number of caught by PyDriller': count_pd, 'Number of caught by both': count_matched})
 
-with open('./json/bics.json') as f:
+with open('./json/consolidated_data.json') as f:
     bics = json.load(f)
 
     count_pyszz = 0

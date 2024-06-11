@@ -17,7 +17,7 @@ def write_csv(commit_hash, count_pyszz, count_pd, filename):
 
         writer.writerow({'Commit Hash': commit_hash, 'Count in pyszz': count_pyszz, 'Count in pd': count_pd})
 
-with open('./json/bics.json') as f:
+with open('./json/consolidated_data.json') as f:
     bics = json.load(f)
 
     for data in bics:
