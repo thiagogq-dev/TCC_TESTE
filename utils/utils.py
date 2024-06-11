@@ -1,5 +1,7 @@
 import subprocess
 import json
+import requests
+from collections import defaultdict
 
 def match_bics(bics, bics2):
     matched = []
@@ -40,6 +42,7 @@ def format(filename):
             "Issue Creation Date": item["issue_created_at"],
             "Issue Closing Date": item["issue_closed_at"],
             "PR Title": item["pr_title"],
+            "PR Language": item["pr_language"],
             "PR Created By": item["pr_created_by"],
             "PR Number": item["pr_number"],
             "PR URL": item["pr_html_url"],
@@ -58,6 +61,7 @@ def format(filename):
 def remove_null_prs(json_file):
     check_pr_fields = [
         "pr_title",
+        "pr_language",
         "pr_created_at",
         "pr_merged_at",
         "pr_html_url",
@@ -119,3 +123,24 @@ def remove_non_existing_commits(filename):
     with open(filename, 'w') as f:
         json.dump(new_data, f, indent=4)
 
+def get_pull_request_language(repo, headers, pr_number):
+    url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files"
+    response = requests.get(url, headers=headers)
+    data = response.json()
+    file_changes = defaultdict(int)
+    for file in data:
+        file_extension = file["filename"].split(".")[-1]
+        file_changes[file_extension] += file["additions"] + file["deletions"] + file["changes"]
+
+    if max(file_changes, key=file_changes.get) == "js":
+        return "Javascript"
+    elif max(file_changes, key=file_changes.get) == "rb":
+        return "Ruby"
+    elif max(file_changes, key=file_changes.get) == "py":
+        return "Python"
+    elif max(file_changes, key=file_changes.get) == "java":
+        return "JAVA"
+    else:
+        return "JAVA"
+
+    return max(file_changes, key=file_changes.get) 
