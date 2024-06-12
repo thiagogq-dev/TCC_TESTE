@@ -123,6 +123,7 @@ def get_issues(repos):
             if current_end_date > today:
                 current_end_date = today
             url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed%20created:{current_start_date}..{current_end_date}&per_page=100'
+            print(url)
             full_data = get_data(url, repo_name, repo, full_data)
             current_start_date = current_end_date + datetime.timedelta(days=1)
 
