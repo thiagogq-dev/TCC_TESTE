@@ -1,6 +1,7 @@
 import requests
 import json
 import os
+import datetime
 
 from utils.utils import remove_null_prs, get_pull_request_language
 
@@ -9,8 +10,6 @@ print(API_TOKEN)
 
 def check_issue_pr(pr_urls, headers, repo):
     prs = []
-
-    print(pr_urls)
 
     for url in pr_urls:
         response = requests.get(url, headers=headers)
@@ -71,6 +70,9 @@ def get_data(url, repo_name, repo, full_data):
             else:
                 pr_title, pr_language, pr_created_by, pr_created_at, pr_merged_at, pr_html_url, pr_number, pr_merge_commit_sha, pr_last_commit_sha = check_issue_pr(issue_pr_urls, headers, repo)
 
+            # if pr_title == None or pr_language == None or pr_created_by == None or pr_created_at == None or pr_merged_at == None or pr_html_url == None or pr_number == None or pr_merge_commit_sha == None or pr_last_commit_sha == None:
+                # continue
+
             full_data.append({
                 "repo_name": repo_name,
                 "repo_url": repo,
@@ -105,25 +107,60 @@ def get_issues(repos):
     for repo in repos:
         repo_name = repo.split("/")[1]
 
-        # url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&per_page=100'
         url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=created&order=asc&per_page=100'
-        full_data = get_data(url, repo_name, repo, full_data)
-        last_item_desc = full_data[-1]["issue_created_at"]
+        response = requests.get(url)
+        data = response.json()["items"]
+        start_date = data[0]["created_at"].split("T")[0]
+        today = datetime.datetime.now().date()
+        today.strftime('%Y-%m-%d')
+        
+        delta = datetime.timedelta(days=30)
+        start_date =  datetime.datetime.strptime(start_date, '%Y-%m-%d').date()
+        current_start_date = start_date
 
-        url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=created&order=desc&per_page=100'
-        full_data = get_data(url, repo_name, repo, full_data)
-        first_item_desc = full_data[-1]["issue_created_at"]
+        while current_start_date < today:
+            current_end_date = current_start_date + delta
+            if current_end_date > today:
+                current_end_date = today
+            url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed%20created:{current_start_date}..{current_end_date}&per_page=100'
+            full_data = get_data(url, repo_name, repo, full_data)
+            current_start_date = current_end_date + datetime.timedelta(days=1)
 
-        start_date = min(last_item_desc, first_item_desc)
-        end_date = max(last_item_desc, first_item_desc)
 
-        url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed%20created:{start_date}..{end_date}&sort=created&order=asc&per_page=100'
-        full_data = get_data(url, repo_name, repo, full_data)
+        # url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&per_page=100'
+        # Using the created data to get the issues
+        # url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=created&order=asc&per_page=100'
+        # full_data = get_data(url, repo_name, repo, full_data)
+        # last_item_desc = full_data[-1]["issue_created_at"]
+
+        # url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=created&order=desc&per_page=100'
+        # full_data = get_data(url, repo_name, repo, full_data)
+        # first_item_desc = full_data[-1]["issue_created_at"]
+
+        # start_date = min(last_item_desc, first_item_desc)
+        # end_date = max(last_item_desc, first_item_desc)
+
+        # url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed%20created:{start_date}..{end_date}&sort=created&order=asc&per_page=100'
+        # full_data = get_data(url, repo_name, repo, full_data)
+
+        # # Using the updated data to get the issues
+        # url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=updated&order=asc&per_page=100'
+        # full_data = get_data(url, repo_name, repo, full_data)
+
+        # url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=updated&order=desc&per_page=100'
+        # full_data = get_data(url, repo_name, repo, full_data)
+
+        # # Using the number of comments data to get the issues
+        # url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=comments&order=asc&per_page=100'
+        # full_data = get_data(url, repo_name, repo, full_data)
+
+        # url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=comments&order=desc&per_page=100'
+        # full_data = get_data(url, repo_name, repo, full_data)
 
         full_data = [dict(t) for t in {tuple(d.items()) for d in full_data}]
 
-    if not os.path.exists("json"):
-        os.makedirs("json")
+    if not os.path.exists("json/raw_data"):
+        os.makedirs("json/raw_data")
 
     with open('./json/raw_data/issues.json', 'w') as f:
         json.dump(full_data, f)
