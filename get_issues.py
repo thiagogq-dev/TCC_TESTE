@@ -5,8 +5,30 @@ import datetime
 
 from utils.utils import remove_null_prs, get_pull_request_language
 
-API_TOKEN = os.getenv("API_TOKEN")
-print(API_TOKEN)
+API_TOKENS = [
+    os.getenv('API_TOKEN_1'),
+    os.getenv('API_TOKEN_2'),
+    os.getenv('API_TOKEN_3'),
+    os.getenv('API_TOKEN_4'),
+    os.getenv('API_TOKEN_5'),
+    os.getenv('API_TOKEN_6'),
+]
+token_index = 0
+
+def get_headers():
+    return {
+        'Authorization': f'token {API_TOKENS[token_index]}'
+    }
+
+def switch_token():
+    global token_index
+    token_index = (token_index + 1) % len(API_TOKENS)
+
+def check_rate_limit(headers):
+    response = requests.get('https://api.github.com/rate_limit', headers=headers)
+    rate_limit = response.json()["rate"]["remaining"]
+    reset_time = response.json()["rate"]["reset"]
+    return rate_limit, reset_time
 
 def check_issue_pr(pr_urls, headers, repo):
     prs = []
@@ -43,12 +65,18 @@ def check_issue_pr(pr_urls, headers, repo):
     
 def get_data(url, repo_name, repo, full_data):
     headers = {
-        'Authorization': f'token {API_TOKEN}'
+        'Authorization': f'token {API_TOKENS[0]}'
     }
     pages_remaining = True
 
     while pages_remaining:
+        print(url)
         response = requests.get(url, headers=headers)
+        if "items" not in response.json():
+            print(url)
+            print(response.json())
+
+        print(response.json()["total_count"])
         data = response.json()["items"]
         read = 0
         for issue in data:
@@ -114,7 +142,7 @@ def get_issues(repos):
         today = datetime.datetime.now().date()
         today.strftime('%Y-%m-%d')
         
-        delta = datetime.timedelta(days=30)
+        delta = datetime.timedelta(days=365)
         start_date =  datetime.datetime.strptime(start_date, '%Y-%m-%d').date()
         current_start_date = start_date
 
