@@ -72,16 +72,12 @@ def get_data(url, repo_name, repo, full_data):
     while pages_remaining:
         print(url)
         response = requests.get(url, headers=headers)
-        if "items" not in response.json():
-            print(url)
-            print(response.json())
-
         print(response.json()["total_count"])
         data = response.json()["items"]
-        read = 0
+        # read = 0
         for issue in data:
-            read += 1
-            print(f'{read}/{len(data)}')
+            # read += 1
+            # print(f'{read}/{len(data)}')
             timeline_url = issue["timeline_url"]
             timeline_response = requests.get(timeline_url, headers=headers)
 
@@ -151,8 +147,8 @@ def get_issues(repos):
             if current_end_date > today:
                 current_end_date = today
             url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed%20created:{current_start_date}..{current_end_date}&per_page=100'
-            print(url)
             full_data = get_data(url, repo_name, repo, full_data)
+            print(len(full_data))
             current_start_date = current_end_date + datetime.timedelta(days=1)
 
 
