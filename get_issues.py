@@ -35,6 +35,9 @@ def check_issue_pr(pr_urls, headers, repo):
 
     for url in pr_urls:
         response = requests.get(url, headers=headers)
+        if response.status_code == 403:
+            headers = get_headers()
+            response = requests.get(url, headers=headers)
         if response.json()["merged_at"] == None:
             continue
         else:
@@ -64,18 +67,19 @@ def check_issue_pr(pr_urls, headers, repo):
         return None, None, None, None, None, None, None, None, None
     
 def get_data(url, repo_name, repo, full_data):
-    headers = {
-        'Authorization': f'token {API_TOKENS[0]}'
-    }
+    headers = get_headers()
+
     pages_remaining = True
-
     count_no_prs = 0
-
     show_total_count = True
 
     while pages_remaining:
         print(url)
         response = requests.get(url, headers=headers)
+        if response.status_code == 403:
+            switch_token()
+            headers = get_headers()
+            response = requests.get(url, headers=headers)
         if show_total_count:
             print(response.json()["total_count"])
             show_total_count = False
@@ -86,6 +90,10 @@ def get_data(url, repo_name, repo, full_data):
             # print(f'{read}/{len(data)}')
             timeline_url = issue["timeline_url"]
             timeline_response = requests.get(timeline_url, headers=headers)
+            if timeline_response.status_code == 403:
+                switch_token()
+                headers = get_headers()
+                timeline_response = requests.get(timeline_url, headers=headers)
 
             issue_pr_urls = []
             
@@ -142,6 +150,7 @@ def get_issues(repos):
         url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=created&order=asc&per_page=100'
         response = requests.get(url)
         data = response.json()["items"]
+        
         start_date = data[0]["created_at"].split("T")[0]
         today = datetime.datetime.now().date()
         today.strftime('%Y-%m-%d')
