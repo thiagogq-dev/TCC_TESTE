@@ -69,10 +69,16 @@ def get_data(url, repo_name, repo, full_data):
     }
     pages_remaining = True
 
+    count_no_prs = 0
+
+    show_total_count = True
+
     while pages_remaining:
         print(url)
         response = requests.get(url, headers=headers)
-        print(response.json()["total_count"])
+        if show_total_count:
+            print(response.json()["total_count"])
+            show_total_count = False
         data = response.json()["items"]
         # read = 0
         for issue in data:
@@ -90,6 +96,7 @@ def get_data(url, repo_name, repo, full_data):
                             issue_pr_urls.append(event["source"]["issue"]["pull_request"]["url"])
 
             if len(issue_pr_urls) == 0:
+                count_no_prs += 1
                 continue
             else:
                 pr_title, pr_language, pr_created_by, pr_created_at, pr_merged_at, pr_html_url, pr_number, pr_merge_commit_sha, pr_last_commit_sha = check_issue_pr(issue_pr_urls, headers, repo)
@@ -122,6 +129,7 @@ def get_data(url, repo_name, repo, full_data):
         else:
             pages_remaining = False
 
+    print(f'No PRs: {count_no_prs}')
     return full_data        
 
    
@@ -148,9 +156,7 @@ def get_issues(repos):
                 current_end_date = today
             url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed%20created:{current_start_date}..{current_end_date}&per_page=100'
             full_data = get_data(url, repo_name, repo, full_data)
-            print(len(full_data))
             current_start_date = current_end_date + datetime.timedelta(days=1)
-
 
         # url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&per_page=100'
         # Using the created data to get the issues
@@ -195,4 +201,4 @@ with open('repos_name.txt') as f:
     repos = [x.strip() for x in repos]
 
 get_issues(repos)
-remove_null_prs("json/raw_data/issues.json")
+# remove_null_prs("json/raw_data/issues.json")
