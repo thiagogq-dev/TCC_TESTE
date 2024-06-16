@@ -35,9 +35,11 @@ def check_issue_pr(pr_urls, headers, repo):
 
     for url in pr_urls:
         response = requests.get(url, headers=headers)
+
         if response.status_code == 403:
             headers = get_headers()
             response = requests.get(url, headers=headers)
+
         if response.json()["merged_at"] == None:
             continue
         else:
@@ -104,6 +106,8 @@ def get_data(url, repo_name, repo, full_data):
                             issue_pr_urls.append(event["source"]["issue"]["pull_request"]["url"])
 
             if len(issue_pr_urls) == 0:
+                with open("./null_prs.txt", "a") as f:
+                    f.write(f'{issue["html_url"]}\n')
                 count_no_prs += 1
                 continue
             else:
@@ -210,4 +214,4 @@ with open('repos_name.txt') as f:
     repos = [x.strip() for x in repos]
 
 get_issues(repos)
-# remove_null_prs("json/raw_data/issues.json")
+remove_null_prs("json/raw_data/issues.json")
