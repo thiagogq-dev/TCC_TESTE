@@ -130,9 +130,10 @@ def get_data(url, repo_name, repo, full_data):
                     if "issue" in event["source"]:
                         if "pull_request" in event["source"]["issue"]:
                             issue_pr_urls.append(event["source"]["issue"]["pull_request"]["url"])
-                else:
-                    if event["event"] == "closed" and event["commit_id"] != None:
-                        commits_hashes.append(event["commit_id"])
+            
+            if len(issue_pr_urls) == 0:
+                if event["event"] == "closed" and event["commit_id"] != None:
+                    commits_hashes.append(event["commit_id"])
 
             if len(commits_hashes) > 0:
                 for commit_id in commits_hashes:
