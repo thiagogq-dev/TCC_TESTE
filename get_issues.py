@@ -15,6 +15,34 @@ API_TOKENS = [
 ]
 token_index = 0
 
+def check_commit_pr(commit_id, repo):
+    prs = []
+
+    headers = get_headers()
+    response = requests.get(f'https://api.github.com/repos/{repo}/commits/{commit_id}/pulls', headers=headers)
+    if response.status_code == 403:
+        switch_token()
+        headers = get_headers()
+        response = requests.get(f'https://api.github.com/repos/{repo}/commits/{commit_id}/pulls', headers=headers)
+
+    for pr in response.json():
+        if pr["state"] == "closed":
+            prs.append(
+                {
+                    "number": pr["number"],
+                    "closed_at": pr["closed_at"],
+                }
+            )
+
+    if len(prs) == 0:
+        return None
+    else:
+        pr = prs[0]
+        for i in range(1, len(prs)):
+            if prs[i]["closed_at"] > pr["closed_at"]:
+                pr = prs[i]
+        return pr["number"]
+
 def get_headers():
     return {
         'Authorization': f'token {API_TOKENS[token_index]}'
@@ -86,10 +114,7 @@ def get_data(url, repo_name, repo, full_data):
             print(response.json()["total_count"])
             show_total_count = False
         data = response.json()["items"]
-        # read = 0
         for issue in data:
-            # read += 1
-            # print(f'{read}/{len(data)}')
             timeline_url = issue["timeline_url"]
             timeline_response = requests.get(timeline_url, headers=headers)
             if timeline_response.status_code == 403:
@@ -98,12 +123,22 @@ def get_data(url, repo_name, repo, full_data):
                 timeline_response = requests.get(timeline_url, headers=headers)
 
             issue_pr_urls = []
+            commits_hashes = []
             
             for event in timeline_response.json():
                 if "source" in event:
                     if "issue" in event["source"]:
                         if "pull_request" in event["source"]["issue"]:
                             issue_pr_urls.append(event["source"]["issue"]["pull_request"]["url"])
+                else:
+                    if event["event"] == "closed" and event["commit_id"] != None:
+                        commits_hashes.append(event["commit_id"])
+
+            if len(commits_hashes) > 0:
+                for commit_id in commits_hashes:
+                    pr_number = check_commit_pr(commit_id, repo)
+                    if pr_number != None:
+                        issue_pr_urls.append(f'https://api.github.com/repos/{repo}/pulls/{pr_number}')
 
             if len(issue_pr_urls) == 0:
                 with open("./null_prs.txt", "a") as f:
@@ -171,36 +206,6 @@ def get_issues(repos):
             full_data = get_data(url, repo_name, repo, full_data)
             current_start_date = current_end_date + datetime.timedelta(days=1)
 
-        # url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&per_page=100'
-        # Using the created data to get the issues
-        # url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=created&order=asc&per_page=100'
-        # full_data = get_data(url, repo_name, repo, full_data)
-        # last_item_desc = full_data[-1]["issue_created_at"]
-
-        # url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=created&order=desc&per_page=100'
-        # full_data = get_data(url, repo_name, repo, full_data)
-        # first_item_desc = full_data[-1]["issue_created_at"]
-
-        # start_date = min(last_item_desc, first_item_desc)
-        # end_date = max(last_item_desc, first_item_desc)
-
-        # url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed%20created:{start_date}..{end_date}&sort=created&order=asc&per_page=100'
-        # full_data = get_data(url, repo_name, repo, full_data)
-
-        # # Using the updated data to get the issues
-        # url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=updated&order=asc&per_page=100'
-        # full_data = get_data(url, repo_name, repo, full_data)
-
-        # url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=updated&order=desc&per_page=100'
-        # full_data = get_data(url, repo_name, repo, full_data)
-
-        # # Using the number of comments data to get the issues
-        # url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=comments&order=asc&per_page=100'
-        # full_data = get_data(url, repo_name, repo, full_data)
-
-        # url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=comments&order=desc&per_page=100'
-        # full_data = get_data(url, repo_name, repo, full_data)
-
         full_data = [dict(t) for t in {tuple(d.items()) for d in full_data}]
 
     if not os.path.exists("json/raw_data"):
@@ -215,3 +220,5 @@ with open('repos_name.txt') as f:
 
 get_issues(repos)
 remove_null_prs("json/raw_data/issues.json")
+
+# https://api.github.com/repos/JabRef/jabref/issues/1663/timeline
