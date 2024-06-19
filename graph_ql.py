@@ -23,7 +23,7 @@ def define_query(issue_number, repo, query_type):
     if query_type == "closed":
         query = f'''
             {{
-                repository(name: {owner}, owner: {name}) {{
+                repository(name: {name}, owner: {owner}) {{
                     issue(number: {issue_number}) {{
                         timelineItems(itemTypes: CLOSED_EVENT, last: 1) {{
                             nodes {{
@@ -73,7 +73,7 @@ def define_query(issue_number, repo, query_type):
     elif query_type == "cross_reference":
         query = f'''
             {{
-                repository(name: "jabref", owner: "Jabref") {{
+                repository(name: {name}, owner: {owner}) {{
                     issue(number: {issue_number}) {{
                         timelineItems(itemTypes: CROSS_REFERENCED_EVENT, last: 1) {{
                             nodes {{
