@@ -13,8 +13,8 @@ API_TOKENS = [
     os.getenv('API_TOKEN_5'),
     os.getenv('API_TOKEN_6'),
 ]
-token_index = 0
 
+token_index = 0
 graph_ql_url = 'https://api.github.com/graphql'
 
 def define_query(issue_number, repo, query_type):
@@ -23,7 +23,7 @@ def define_query(issue_number, repo, query_type):
     if query_type == "closed":
         query = f'''
             {{
-                repository(name: {name}, owner: {owner}) {{
+                repository(name: "{name}", owner: "{owner}") {{
                     issue(number: {issue_number}) {{
                         timelineItems(itemTypes: CLOSED_EVENT, last: 1) {{
                             nodes {{
@@ -73,7 +73,7 @@ def define_query(issue_number, repo, query_type):
     elif query_type == "cross_reference":
         query = f'''
             {{
-                repository(name: {name}, owner: {owner}) {{
+                repository(name: "{name}", owner: "{owner}") {{
                     issue(number: {issue_number}) {{
                         timelineItems(itemTypes: CROSS_REFERENCED_EVENT, last: 1) {{
                             nodes {{
@@ -126,7 +126,9 @@ def check_rate_limit(headers):
     response = requests.get('https://api.github.com/rate_limit', headers=headers)
     rate_limit = response.json()["rate"]["remaining"]
     reset_time = response.json()["rate"]["reset"]
-    return rate_limit, reset_time
+    
+    if rate_limit == 0:
+        switch_token()
 
 def get_data(url, repo_name, repo, full_data):
     headers = get_headers()
@@ -155,8 +157,10 @@ def get_data(url, repo_name, repo, full_data):
                 pr_merged_at = closer['mergedAt']
                 pr_html_url = closer['url']
                 pr_merge_commit_sha = closer['mergeCommit']['oid']
-                pr_last_commit_sha = None
-                pr_language = get_pull_request_language(pr_html_url)
+                check_rate_limit(headers)
+                headers = get_headers()
+                pr_language = get_pull_request_language(repo, headers, pr_number)
+                # pr_last_commit_sha = None
             elif closer['__typename'] == 'Commit':
                 pr_number = closer['associatedPullRequests']['nodes'][0]['number']
                 pr_title = closer['associatedPullRequests']['nodes'][0]['title']
@@ -165,10 +169,12 @@ def get_data(url, repo_name, repo, full_data):
                 pr_merged_at = closer['associatedPullRequests']['nodes'][0]['mergedAt']
                 pr_html_url = closer['associatedPullRequests']['nodes'][0]['url']
                 pr_merge_commit_sha = closer['associatedPullRequests']['nodes'][0]['mergeCommit']['oid']
-                pr_last_commit_sha = closer['oid']
-                pr_language = get_pull_request_language(pr_html_url)
+                check_rate_limit(headers)
+                headers = get_headers()
+                pr_language = get_pull_request_language(repo, headers, pr_number)
+                # pr_last_commit_sha = closer['oid']
             else:
-                define_query(issue_number, repo, "cross_reference")
+                query = define_query(issue_number, repo, "cross_reference")
                 data = execute_query(query, headers)
                 pr_number = data['data']['repository']['issue']['timelineItems']['nodes'][0]['source']['number']
                 pr_title = data['data']['repository']['issue']['timelineItems']['nodes'][0]['source']['title']
@@ -177,7 +183,10 @@ def get_data(url, repo_name, repo, full_data):
                 pr_merged_at = data['data']['repository']['issue']['timelineItems']['nodes'][0]['source']['mergedAt']
                 pr_html_url = data['data']['repository']['issue']['timelineItems']['nodes'][0]['source']['url']
                 pr_merge_commit_sha = data['data']['repository']['issue']['timelineItems']['nodes'][0]['source']['mergeCommit']['oid']
-
+                check_rate_limit(headers)
+                headers = get_headers()
+                pr_language = get_pull_request_language(repo, headers, pr_number)
+                # pr_last_commit_sha = None
             if data["data"]["repository"]["issue"]["timelineItems"]["nodes"] == []:
                 continue
 
@@ -200,8 +209,8 @@ def get_data(url, repo_name, repo, full_data):
                 "pr_html_url": pr_html_url,
                 "pr_created_at": pr_created_at,
                 "pr_merged_at": pr_merged_at,
-                "fix_commit_hash": pr_merge_commit_sha,
-                "pr_last_commit_sha": pr_last_commit_sha
+                "fix_commit_hash": pr_merge_commit_sha
+                # "pr_last_commit_sha": pr_last_commit_sha
             })
 
         if 'next' in response.links: 
