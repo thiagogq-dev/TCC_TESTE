@@ -3,6 +3,54 @@ import json
 import requests
 from collections import defaultdict
 
+def get_commit_that_references_pr(repo_path, pr_number, headers):
+
+    owner, name = repo_path.split("/")
+    graphql_url = 'https://api.github.com/graphql'
+
+    query3 = f'''
+    {{
+        repository(name: "{name}", owner: "{owner}") {{
+            pullRequest(number: {pr_number}) {{
+                timelineItems(itemTypes: REFERENCED_EVENT, last: 100) {{
+                    nodes {{
+                        ... on ReferencedEvent {{
+                            commit {{
+                                oid
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+        }}
+    }}
+    '''
+
+    response = requests.post(graphql_url, json={'query': query3}, headers=headers)
+    data = response.json()
+    return data["data"]["repository"]["pullRequest"]["timelineItems"]["nodes"][0]["commit"]["oid"]
+
+        
+def get_commit_pr(repo_path, commit_hash):
+    url = f"https://api.github.com/repos/{repo_path}/commits/{commit_hash}/pulls"
+    response = requests.get(url)
+    data = response.json()
+
+    prs = []
+
+    for pr in data:
+        if pr["state"] == "closed":
+            prs.append({
+                "merged_at": pr["merged_at"],
+                "merge_commit_sha": pr["merge_commit_sha"]
+            })
+
+    if len(prs) == 0:
+        return None
+    
+    pr = max(prs, key=lambda x: x["merged_at"]) 
+    return pr["merge_commit_sha"]
+
 def match_bics(bics, bics2):
     matched = []
 

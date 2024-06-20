@@ -3,7 +3,7 @@ import json
 import os
 import datetime
 
-from utils.utils import remove_null_prs, get_pull_request_language
+from utils.utils import remove_null_prs, get_pull_request_language, get_commit_pr, get_commit_that_references_pr
 
 API_TOKENS = [
     os.getenv('API_TOKEN_1'),
@@ -37,6 +37,13 @@ def define_query(issue_number, repo, query_type):
                                             createdAt
                                             mergedAt
                                             url
+                                            commits(last: 1) {{
+                                                nodes {{
+                                                    commit {{
+                                                        oid
+                                                    }}
+                                                }}
+                                            }}
                                             mergeCommit {{
                                                 oid
                                             }}
@@ -61,6 +68,13 @@ def define_query(issue_number, repo, query_type):
                                                     createdAt
                                                     mergedAt
                                                     url
+                                                    commits(last: 1) {{
+                                                        nodes {{
+                                                            commit {{
+                                                                oid
+                                                            }}
+                                                        }}
+                                                    }}
                                                     mergeCommit {{
                                                         oid
                                                     }}
@@ -95,6 +109,13 @@ def define_query(issue_number, repo, query_type):
                                             createdAt
                                             mergedAt
                                             url
+                                            commits(last: 1) {{
+                                                nodes {{
+                                                    commit {{
+                                                        oid
+                                                    }}
+                                                }}
+                                            }}
                                             mergeCommit {{
                                                 oid
                                             }}
@@ -172,7 +193,13 @@ def get_data(url, repo_name, repo, full_data):
                     pr_created_at = pr['source']['createdAt']
                     pr_merged_at = pr['source']['mergedAt']
                     pr_html_url = pr['source']['url']
-                    pr_merge_commit_sha = pr['source']['mergeCommit']['oid']
+                    if pr['source']['mergeCommit'] == None:
+                        check_rate_limit(headers)
+                        headers = get_headers()
+                        merge_commit = get_commit_that_references_pr(repo, pr_number, headers)
+                        pr_merge_commit_sha = merge_commit
+                    else:
+                        pr_merge_commit_sha = pr['source']['mergeCommit']['oid']
                     check_rate_limit(headers)
                     headers = get_headers()
                     pr_language = get_pull_request_language(repo, headers, pr_number)
@@ -189,7 +216,11 @@ def get_data(url, repo_name, repo, full_data):
                 pr_created_at = closer['createdAt']
                 pr_merged_at = closer['mergedAt']
                 pr_html_url = closer['url']
-                pr_merge_commit_sha = closer['mergeCommit']['oid']
+                if closer['mergeCommit'] == None:
+                    merge_commit = get_commit_pr(repo, closer['commits']['nodes'][0]['commit']['oid'])
+                    pr_merge_commit_sha = merge_commit
+                else:
+                    pr_merge_commit_sha = closer['mergeCommit']['oid']
                 check_rate_limit(headers)
                 headers = get_headers()
                 pr_language = get_pull_request_language(repo, headers, pr_number)
@@ -211,7 +242,11 @@ def get_data(url, repo_name, repo, full_data):
                     pr_created_at = closer['associatedPullRequests']['nodes'][0]['createdAt']
                     pr_merged_at = closer['associatedPullRequests']['nodes'][0]['mergedAt']
                     pr_html_url = closer['associatedPullRequests']['nodes'][0]['url']
-                    pr_merge_commit_sha = closer['associatedPullRequests']['nodes'][0]['mergeCommit']['oid']
+                    if closer['associatedPullRequests']['nodes'][0]['mergeCommit'] == None:
+                        merge_commit = get_commit_pr(repo, closer['associatedPullRequests']['nodes'][0]['commits']['nodes'][0]['commit']['oid'])
+                        pr_merge_commit_sha = merge_commit
+                    else:
+                        pr_merge_commit_sha = closer['associatedPullRequests']['nodes'][0]['mergeCommit']['oid']
                     check_rate_limit(headers)
                     headers = get_headers()
                     pr_language = get_pull_request_language(repo, headers, pr_number)
