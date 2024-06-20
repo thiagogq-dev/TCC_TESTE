@@ -46,6 +46,14 @@ def define_query(issue_number, repo, query_type):
                                         }}
                                         ... on Commit {{
                                             oid
+                                            committedDate
+                                            messageHeadline
+                                            url
+                                            author {{
+                                                user {{
+                                                    login
+                                                }}
+                                            }}
                                             associatedPullRequests(first: 1) {{
                                                 nodes {{
                                                     number
@@ -75,7 +83,7 @@ def define_query(issue_number, repo, query_type):
             {{
                 repository(name: "{name}", owner: "{owner}") {{
                     issue(number: {issue_number}) {{
-                        timelineItems(itemTypes: CROSS_REFERENCED_EVENT, last: 1) {{
+                        timelineItems(itemTypes: CROSS_REFERENCED_EVENT, last: 100) {{
                             nodes {{
                                 ... on CrossReferencedEvent {{
                                     createdAt
@@ -144,12 +152,37 @@ def get_data(url, repo_name, repo, full_data):
         data = response.json()["items"]
         for issue in data:
             issue_number = issue["number"]
+            print(f"Getting data from issue {issue_number} in {repo_name}") 
 
             query = define_query(issue_number, repo, "closed")
             data = execute_query(query, headers)
             closer = data['data']['repository']['issue']['timelineItems']['nodes'][0]['closer']
-            
-            if closer['__typename'] == 'PullRequest':
+
+            if closer == None:
+                query = define_query(issue_number, repo, "cross_reference")
+                data = execute_query(query, headers)
+                merged_prs = [node for node in data['data']['repository']['issue']['timelineItems']['nodes'] if node['source']['__typename'] == 'PullRequest' and node['source']['mergedAt'] is not None]
+                merged_prs.sort(key=lambda x: x['source']['mergedAt'], reverse=True)
+                if len(merged_prs) > 0:
+                    # print(f"merged_prs: {merged_prs}")
+                    pr = merged_prs[0]
+                    pr_number = pr['source']['number']
+                    pr_title = pr['source']['title']
+                    pr_created_by = pr['source']['author']['login']
+                    pr_created_at = pr['source']['createdAt']
+                    pr_merged_at = pr['source']['mergedAt']
+                    pr_html_url = pr['source']['url']
+                    pr_merge_commit_sha = pr['source']['mergeCommit']['oid']
+                    check_rate_limit(headers)
+                    headers = get_headers()
+                    pr_language = get_pull_request_language(repo, headers, pr_number)
+                    # pr_last_commit_sha = None
+                else:
+                    print(f"Missing data for issue {issue_number} in {repo_name}")
+                    with open("./missing_issues.txt", "a") as f:
+                        f.write(f"{repo_name} - {issue['number']}\n")
+                    continue
+            elif closer['__typename'] == 'PullRequest':
                 pr_number = closer['number']
                 pr_title = closer['title']
                 pr_created_by = closer['author']['login']
@@ -162,33 +195,38 @@ def get_data(url, repo_name, repo, full_data):
                 pr_language = get_pull_request_language(repo, headers, pr_number)
                 # pr_last_commit_sha = None
             elif closer['__typename'] == 'Commit':
-                pr_number = closer['associatedPullRequests']['nodes'][0]['number']
-                pr_title = closer['associatedPullRequests']['nodes'][0]['title']
-                pr_created_by = closer['associatedPullRequests']['nodes'][0]['author']['login']
-                pr_created_at = closer['associatedPullRequests']['nodes'][0]['createdAt']
-                pr_merged_at = closer['associatedPullRequests']['nodes'][0]['mergedAt']
-                pr_html_url = closer['associatedPullRequests']['nodes'][0]['url']
-                pr_merge_commit_sha = closer['associatedPullRequests']['nodes'][0]['mergeCommit']['oid']
-                check_rate_limit(headers)
-                headers = get_headers()
-                pr_language = get_pull_request_language(repo, headers, pr_number)
-                # pr_last_commit_sha = closer['oid']
+                if len(closer['associatedPullRequests']['nodes']) == 0:
+                    pr_created_by = closer['author']['user']['login']
+                    pr_merged_at = closer['committedDate']
+                    pr_merge_commit_sha = closer['oid']
+                    pr_title = closer['messageHeadline']
+                    pr_html_url = closer['url']
+                    pr_number = None
+                    pr_created_at = None
+                    pr_language = None
+                else:
+                    pr_number = closer['associatedPullRequests']['nodes'][0]['number']
+                    pr_title = closer['associatedPullRequests']['nodes'][0]['title']
+                    pr_created_by = closer['associatedPullRequests']['nodes'][0]['author']['login']
+                    pr_created_at = closer['associatedPullRequests']['nodes'][0]['createdAt']
+                    pr_merged_at = closer['associatedPullRequests']['nodes'][0]['mergedAt']
+                    pr_html_url = closer['associatedPullRequests']['nodes'][0]['url']
+                    pr_merge_commit_sha = closer['associatedPullRequests']['nodes'][0]['mergeCommit']['oid']
+                    check_rate_limit(headers)
+                    headers = get_headers()
+                    pr_language = get_pull_request_language(repo, headers, pr_number)
+                    # pr_last_commit_sha = closer['oid']
             else:
-                query = define_query(issue_number, repo, "cross_reference")
-                data = execute_query(query, headers)
-                pr_number = data['data']['repository']['issue']['timelineItems']['nodes'][0]['source']['number']
-                pr_title = data['data']['repository']['issue']['timelineItems']['nodes'][0]['source']['title']
-                pr_created_by = data['data']['repository']['issue']['timelineItems']['nodes'][0]['source']['author']['login']
-                pr_created_at = data['data']['repository']['issue']['timelineItems']['nodes'][0]['source']['createdAt']
-                pr_merged_at = data['data']['repository']['issue']['timelineItems']['nodes'][0]['source']['mergedAt']
-                pr_html_url = data['data']['repository']['issue']['timelineItems']['nodes'][0]['source']['url']
-                pr_merge_commit_sha = data['data']['repository']['issue']['timelineItems']['nodes'][0]['source']['mergeCommit']['oid']
-                check_rate_limit(headers)
-                headers = get_headers()
-                pr_language = get_pull_request_language(repo, headers, pr_number)
-                # pr_last_commit_sha = None
-            if data["data"]["repository"]["issue"]["timelineItems"]["nodes"] == []:
+                print(f"Missing data for issue {issue_number} in {repo_name}")
+                with open("./missing_issues.txt", "a") as f:
+                    f.write(f"{repo_name} - {issue['number']}\n")
                 continue
+            
+            # if data["data"]["repository"]["issue"]["timelineItems"]["nodes"] == []:
+            #     print(f"Missing data for issue {issue_number} in {repo_name}")
+            #     with open("./missing_issues.txt", "a") as f:
+            #         f.write(f"{repo_name} - {issue['number']}\n")
+            #     continue
 
             # if pr_title == None or pr_language == None or pr_created_by == None or pr_created_at == None or pr_merged_at == None or pr_html_url == None or pr_number == None or pr_merge_commit_sha == None or pr_last_commit_sha == None:
                 # continue
