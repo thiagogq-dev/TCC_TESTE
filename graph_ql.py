@@ -213,8 +213,9 @@ def get_data(url, repo_name, repo, full_data):
                 pr_number = closer['number']
                 pr_title = closer['title']
                 if closer['author'] == None:
-                    print(f"Issue - {issue_number} - {repo_name} With PR - {pr_number} has no author")
-                pr_created_by = closer['author']['login']
+                    pr_created_by = "ghost"
+                else:
+                    pr_created_by = closer['author']['login']
                 pr_created_at = closer['createdAt']
                 pr_merged_at = closer['mergedAt']
                 pr_html_url = closer['url']
