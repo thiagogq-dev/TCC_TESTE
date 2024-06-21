@@ -12,6 +12,9 @@ API_TOKENS = [
     os.getenv('API_TOKEN_4'),
     os.getenv('API_TOKEN_5'),
     os.getenv('API_TOKEN_6'),
+    os.getenv('API_TOKEN_7'),
+    os.getenv('API_TOKEN_8'),
+    os.getenv('API_TOKEN_9'),
 ]
 
 token_index = 0
