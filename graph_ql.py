@@ -140,6 +140,12 @@ def execute_query(query, headers):
         switch_token()
         headers = get_headers()
         response = requests.post(graph_ql_url, headers=headers, json={'query': query})
+
+    response_data = response.json()
+    if 'errors' in response_data:
+        print(f"GraphQL query error: {response_data['errors']}")
+        return None
+
     return response.json()
 
 def get_headers():
