@@ -139,17 +139,18 @@ def define_query(issue_number, repo, query_type):
 
 def execute_query(query, headers):
     response = requests.post(graph_ql_url, headers=headers, json={'query': query})
+
     if response.status_code == 403:
         switch_token()
         headers = get_headers()
         response = requests.post(graph_ql_url, headers=headers, json={'query': query})
 
-    response_data = response.json()
-    if 'errors' in response_data:
-        print(f"GraphQL query error: {response_data['errors']}")
-        return None
-
     return response.json()
+
+def check_data(data):
+    if "errors" in data:
+        return True
+    return False
 
 def get_headers():
     return {
@@ -186,11 +187,23 @@ def get_data(url, repo_name, repo, full_data):
 
             query = define_query(issue_number, repo, "closed")
             data = execute_query(query, headers)
+
+            if check_data(data):
+                print(data)
+                print(headers)
+                break
+
             closer = data['data']['repository']['issue']['timelineItems']['nodes'][0]['closer']
 
             if closer == None:
                 query = define_query(issue_number, repo, "cross_reference")
                 data = execute_query(query, headers)
+
+                if check_data(data):
+                    print(data)
+                    print(headers)
+                    break
+
                 merged_prs = [node for node in data['data']['repository']['issue']['timelineItems']['nodes'] if node['source']['__typename'] == 'PullRequest' and node['source']['mergedAt'] is not None]
                 merged_prs.sort(key=lambda x: x['source']['mergedAt'], reverse=True)
                 if len(merged_prs) > 0:
