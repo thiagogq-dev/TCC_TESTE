@@ -175,15 +175,19 @@ def get_data(url, repo_name, repo, full_data):
     pages_remaining = True
 
     while pages_remaining:
+        print(f"Getting data from {url}")
         response = requests.get(url, headers=headers)
         if response.status_code == 403:
             switch_token()
             headers = get_headers()
             response = requests.get(url, headers=headers)
         data = response.json()["items"]
+        read = 0
         for issue in data:
+            read += 1
             issue_number = issue["number"]
             print(f"Getting data from issue {issue_number} in {repo_name}") 
+            print(f"Read {read} issues of {len(data)}")
 
             query = define_query(issue_number, repo, "closed")
             data = execute_query(query, headers)
