@@ -273,6 +273,10 @@ def get_data(url, repo_name, repo, full_data):
                     pr = merged_prs[0]
                     pr_number = pr['source']['number']
                     pr_title = pr['source']['title']
+                    if pr['source']['author'] == None:
+                        print("PR without author")
+                        print(f"Issue: {issue_number}")
+                        print(pr_number)
                     pr_created_by = pr['source']['author']['login']
                     pr_created_at = pr['source']['createdAt']
                     pr_merged_at = pr['source']['mergedAt']
