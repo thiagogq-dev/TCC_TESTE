@@ -256,6 +256,8 @@ def get_data(url, repo_name, repo, full_data):
                 # pr_last_commit_sha = None
             elif closer['__typename'] == 'Commit':
                 if len(closer['associatedPullRequests']['nodes']) == 0:
+                    print("Commit without associated PR")
+                    print(f"Issue: {issue_number} in {repo_name}")
                     pr_created_by = closer['author']['user']['login']
                     pr_merged_at = closer['committedDate']
                     pr_merge_commit_sha = closer['oid']
