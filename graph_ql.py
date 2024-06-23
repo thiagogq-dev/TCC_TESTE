@@ -274,10 +274,9 @@ def get_data(url, repo_name, repo, full_data):
                     pr_number = pr['source']['number']
                     pr_title = pr['source']['title']
                     if pr['source']['author'] == None:
-                        print("PR without author")
-                        print(f"Issue: {issue_number}")
-                        print(pr_number)
-                    pr_created_by = pr['source']['author']['login']
+                        pr_created_by = "ghost"
+                    else:
+                        pr_created_by = pr['source']['author']['login']
                     pr_created_at = pr['source']['createdAt']
                     pr_merged_at = pr['source']['mergedAt']
                     pr_html_url = pr['source']['url']
@@ -304,8 +303,6 @@ def get_data(url, repo_name, repo, full_data):
                 pr_number = closer['number']
                 pr_title = closer['title']
                 if closer['author'] == None:
-                    log_message("PR without author", "error")
-                    log_message(f"Issue: {issue_number}", "error")
                     pr_created_by = "ghost"
                 else:
                     pr_created_by = closer['author']['login']
