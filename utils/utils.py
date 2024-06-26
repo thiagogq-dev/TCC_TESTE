@@ -4,9 +4,9 @@ import re
 import requests
 
 # COMMITS MANIPULATION
-def check_commit_existence(repo_path, commit_hash):
+def check_commit_existence(repo_path, commit_hash, headers):
     url = f"https://api.github.com/repos/{repo_path}/commits/{commit_hash}"
-    response = requests.get(url)
+    response = requests.get(url, headers=headers)
 
     if response.status_code == 422:
         return False
@@ -160,9 +160,9 @@ def get_commit_that_references_pr(repo_path, pr_number, headers):
     return data["data"]["repository"]["pullRequest"]["timelineItems"]["nodes"][0]["commit"]["oid"]
 
 
-def get_commit_pr(repo_path, commit_hash):
+def get_commit_pr(repo_path, commit_hash, headers):
     url = f"https://api.github.com/repos/{repo_path}/commits/{commit_hash}/pulls"
-    response = requests.get(url)
+    response = requests.get(url, headers=headers)
     data = response.json()
 
     prs = []

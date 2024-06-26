@@ -286,7 +286,7 @@ def get_data(url, repo_name, repo, full_data):
                     else:
                         pr_merge_commit_sha = pr['source']['mergeCommit']['oid']
 
-                    if not check_commit_existence(repo, pr_merge_commit_sha):
+                    if not check_commit_existence(repo, pr_merge_commit_sha, headers):
                         pr_merge_commit_sha = get_commit_that_references_pr(repo, pr_number, headers)
 
                     check_rate_limit(headers)
@@ -309,12 +309,12 @@ def get_data(url, repo_name, repo, full_data):
                 if closer['mergeCommit'] is None:
                     log_message("PR without merge commit", "error")
                     log_message(f"Issue: {issue_number}", "error")
-                    merge_commit = get_commit_pr(repo, closer['commits']['nodes'][0]['commit']['oid'])
+                    merge_commit = get_commit_pr(repo, closer['commits']['nodes'][0]['commit']['oid'], headers)
                     pr_merge_commit_sha = merge_commit
                 else:
                     pr_merge_commit_sha = closer['mergeCommit']['oid']
 
-                if not check_commit_existence(repo, pr_merge_commit_sha):
+                if not check_commit_existence(repo, pr_merge_commit_sha, headers):
                     pr_merge_commit_sha = get_commit_that_references_pr(repo, pr_number, headers)
 
                 check_rate_limit(headers)
@@ -343,12 +343,12 @@ def get_data(url, repo_name, repo, full_data):
                     if closer['associatedPullRequests']['nodes'][0]['mergeCommit'] is None:
                         log_message("PR without merge commit - COMMIT", "error")
                         log_message(f"Issue: {issue_number} in {repo_name}", "error")
-                        merge_commit = get_commit_pr(repo, closer['associatedPullRequests']['nodes'][0]['commits']['nodes'][0]['commit']['oid'])
+                        merge_commit = get_commit_pr(repo, closer['associatedPullRequests']['nodes'][0]['commits']['nodes'][0]['commit']['oid'], headers)
                         pr_merge_commit_sha = merge_commit
                     else:
                         pr_merge_commit_sha = closer['associatedPullRequests']['nodes'][0]['mergeCommit']['oid']
 
-                    if not check_commit_existence(repo, pr_merge_commit_sha):
+                    if not check_commit_existence(repo, pr_merge_commit_sha, headers):
                         pr_merge_commit_sha = get_commit_that_references_pr(repo, pr_number, headers)
 
                     check_rate_limit(headers)
