@@ -4,7 +4,7 @@ import os
 import datetime
 import logging
 
-from utils.utils import remove_null_prs, get_pull_request_language, get_commit_pr, get_commit_that_references_pr
+from utils.utils import check_commit_existence, get_commit_that_references_pr, get_commit_that_references_issue, get_commit_pr, get_pull_request_language, remove_null_prs 
 
 if not os.path.exists("logs"):
     os.makedirs("logs")
@@ -52,7 +52,6 @@ def log_message(message, level):
         error_log.error(message)
     elif level == "warning":
         warning_log.warning(message)
-
 
 API_TOKENS = [
     os.getenv('API_TOKEN_1'),
@@ -223,7 +222,6 @@ def get_data(url, repo_name, repo, full_data):
     headers = get_headers()
 
     pages_remaining = True
-    count_no_prs = 0
     show_total_count = True
 
     while pages_remaining:
@@ -238,7 +236,6 @@ def get_data(url, repo_name, repo, full_data):
         if show_total_count:
             total_count = response.json()["total_count"]
             log_message(f"Total count: {total_count}", "info")
-            # print(f"Total count: {total_count}")
             show_total_count = False
 
         data = response.json()["items"]
@@ -246,7 +243,6 @@ def get_data(url, repo_name, repo, full_data):
         for issue in data:
             read += 1
             log_message(f"Reading issue {read}/{len(data)}", "info")
-            # print(f"{read}/{len(data)}")
             issue_number = issue["number"]
 
             query = define_query(issue_number, repo, "closed")
@@ -259,7 +255,7 @@ def get_data(url, repo_name, repo, full_data):
 
             closer = query_response['data']['repository']['issue']['timelineItems']['nodes'][0]['closer']
 
-            if closer == None:
+            if closer is None:
                 query = define_query(issue_number, repo, "cross_reference")
                 query_response = execute_query(query, headers)
 
@@ -273,14 +269,14 @@ def get_data(url, repo_name, repo, full_data):
                     pr = merged_prs[0]
                     pr_number = pr['source']['number']
                     pr_title = pr['source']['title']
-                    if pr['source']['author'] == None:
+                    if pr['source']['author'] is None:
                         pr_created_by = "ghost"
                     else:
                         pr_created_by = pr['source']['author']['login']
                     pr_created_at = pr['source']['createdAt']
                     pr_merged_at = pr['source']['mergedAt']
                     pr_html_url = pr['source']['url']
-                    if pr['source']['mergeCommit'] == None:
+                    if pr['source']['mergeCommit'] is None:
                         log_message("PR without merge commit - CROSS_REFERENCE_EVENT", "error")
                         log_message(f"Issue: {issue_number}", "error")
                         check_rate_limit(headers)
@@ -289,33 +285,38 @@ def get_data(url, repo_name, repo, full_data):
                         pr_merge_commit_sha = merge_commit
                     else:
                         pr_merge_commit_sha = pr['source']['mergeCommit']['oid']
+
+                    if not check_commit_existence(repo, pr_merge_commit_sha):
+                        pr_merge_commit_sha = get_commit_that_references_pr(repo, pr_number, headers)
+
                     check_rate_limit(headers)
                     headers = get_headers()
                     pr_language = get_pull_request_language(repo, headers, pr_number)
                     # pr_last_commit_sha = None
                 else:
-                    log_message("Missing data for issue", "warning")
-                    log_message(f"Issue: {issue_number} in {repo_name}", "warning")
-                    # with open("./missing_issues.txt", "a") as f:
-                    #     f.write(f"{repo_name} - {issue['number']}\n")
+                    log_message(f"Missing data for issue {issue_number} in {repo_name}", "warning")
                     continue
             elif closer['__typename'] == 'PullRequest':
                 pr_number = closer['number']
                 pr_title = closer['title']
-                if closer['author'] == None:
+                if closer['author'] is None:
                     pr_created_by = "ghost"
                 else:
                     pr_created_by = closer['author']['login']
                 pr_created_at = closer['createdAt']
                 pr_merged_at = closer['mergedAt']
                 pr_html_url = closer['url']
-                if closer['mergeCommit'] == None:
+                if closer['mergeCommit'] is None:
                     log_message("PR without merge commit", "error")
                     log_message(f"Issue: {issue_number}", "error")
                     merge_commit = get_commit_pr(repo, closer['commits']['nodes'][0]['commit']['oid'])
                     pr_merge_commit_sha = merge_commit
                 else:
                     pr_merge_commit_sha = closer['mergeCommit']['oid']
+
+                if not check_commit_existence(repo, pr_merge_commit_sha):
+                    pr_merge_commit_sha = get_commit_that_references_pr(repo, pr_number, headers)
+
                 check_rate_limit(headers)
                 headers = get_headers()
                 pr_language = get_pull_request_language(repo, headers, pr_number)
@@ -339,22 +340,34 @@ def get_data(url, repo_name, repo, full_data):
                     pr_created_at = closer['associatedPullRequests']['nodes'][0]['createdAt']
                     pr_merged_at = closer['associatedPullRequests']['nodes'][0]['mergedAt']
                     pr_html_url = closer['associatedPullRequests']['nodes'][0]['url']
-                    if closer['associatedPullRequests']['nodes'][0]['mergeCommit'] == None:
+                    if closer['associatedPullRequests']['nodes'][0]['mergeCommit'] is None:
                         log_message("PR without merge commit - COMMIT", "error")
                         log_message(f"Issue: {issue_number} in {repo_name}", "error")
                         merge_commit = get_commit_pr(repo, closer['associatedPullRequests']['nodes'][0]['commits']['nodes'][0]['commit']['oid'])
                         pr_merge_commit_sha = merge_commit
                     else:
                         pr_merge_commit_sha = closer['associatedPullRequests']['nodes'][0]['mergeCommit']['oid']
+
+                    if not check_commit_existence(repo, pr_merge_commit_sha):
+                        pr_merge_commit_sha = get_commit_that_references_pr(repo, pr_number, headers)
+
                     check_rate_limit(headers)
                     headers = get_headers()
                     pr_language = get_pull_request_language(repo, headers, pr_number)
                     # pr_last_commit_sha = closer['oid']
+            elif get_commit_that_references_issue(repo, issue_number, headers) is not None:
+                commit = get_commit_that_references_issue(repo, issue_number, headers)
+                pr_number = None
+                pr_title = commit['messageHeadline']
+                pr_created_by = commit['author']['user']['login']
+                pr_created_at = commit['committedDate']
+                pr_merged_at = None
+                pr_html_url = commit['url']
+                pr_merge_commit_sha = commit['oid']
+                pr_language = None
+                # pr_last_commit_sha = None
             else:
                 log_message(f"Missing data for issue {issue_number} in {repo_name}", "warning")
-                # print(f"Missing data for issue {issue_number} in {repo_name}")
-                # with open("./missing_issues.txt", "a") as f:
-                #     f.write(f"{repo_name} - {issue['number']}\n")
                 continue
             
             full_data.append({
@@ -400,7 +413,7 @@ def get_issues(repos):
         today.strftime('%Y-%m-%d')
         
         delta = datetime.timedelta(days=365)
-        start_date = "2020-08-07"
+        # start_date = "2020-08-07"
         start_date =  datetime.datetime.strptime(start_date, '%Y-%m-%d').date()
         current_start_date = start_date
 
@@ -425,4 +438,3 @@ with open('repos_name.txt') as f:
     repos = [x.strip() for x in repos]
 
 get_issues(repos)
-remove_null_prs("json/raw_data/issues.json")

@@ -1,10 +1,139 @@
-import subprocess
-import json
-import requests
 from collections import defaultdict
+import json
+import re
+import requests
+
+# COMMITS MANIPULATION
+def check_commit_existence(repo_path, commit_hash):
+    url = f"https://api.github.com/repos/{repo_path}/commits/{commit_hash}"
+    response = requests.get(url)
+
+    if response.status_code == 422:
+        return False
+
+    return True
+
+
+def get_commit_that_references_issue(repo_path, issue_number, headers):
+    owner, name = repo_path.split("/")
+    graphql_url = 'https://api.github.com/graphql'
+
+    query = f'''
+    {{
+        repository(name: "{name}", owner: "{owner}") {{
+            issue(number: {issue_number}) {{
+                timelineItems(itemTypes: REFERENCED_EVENT, last: 1) {{
+                    nodes {{
+                        ... on ReferencedEvent {{
+                            commit {{
+                                oid
+                                url
+                                committedDate
+                                messageHeadline
+                                author {{
+                                    user {{
+                                        login
+                                    }}
+                                }}
+                                associatedPullRequests(first: 1) {{
+                                    nodes {{
+                                        number
+                                        title
+                                        createdAt
+                                        mergedAt
+                                        url
+                                        mergeCommit {{
+                                            oid
+                                        }}
+                                        author {{
+                                            login
+                                        }}
+                                    }}
+                                }}
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+        }}
+    }}
+    '''
+
+    response = requests.post(graphql_url, json={'query': query}, headers=headers)
+    data = response.json()
+
+    if 'data' in data and data['data']['repository']['issue']['timelineItems']['nodes'] != []:
+        return data['data']['repository']['issue']['timelineItems']['nodes'][0]['commit']
+    return None
+
+
+def get_pr_from_issue_comments(repo_path, issue_number, headers):
+    
+    owner, name = repo_path.split("/")
+    url = 'https://api.github.com/graphql'
+
+    query = f"""
+    {{
+        repository(owner: "{owner}", name: "{name}") {{
+            issue(number: {issue_number}) {{
+            title
+                comments(last: 100) {{
+                    edges {{
+                        node {{
+                            body
+                        }}
+                    }}
+                }}
+            }}
+        }}
+    }}
+    """
+
+    response = requests.post(url, json={'query': query}, headers=headers)
+    data = response.json()
+
+    possible_prs = []
+
+    for comment in data["data"]["repository"]["issue"]["comments"]["edges"]:
+        pr = re.findall(r"#\d+", comment["node"]["body"])
+        possible_prs.extend(pr)
+
+    possible_prs = list(set(possible_prs))
+
+    for pr in possible_prs:
+        pr_number = pr.replace("#", "")
+
+    pr_query = f"""
+    {{
+      repository(owner: "{owner}", name: "{name}") {{
+        pullRequest(number: {pr_number}) {{
+          state
+          merged
+          createdAt
+          mergedAt
+          mergeCommit {{
+            oid
+          }}
+          url
+          title
+          author {{
+            login 
+          }}
+        }}
+      }}
+    }}
+    """
+
+    pr_response = requests.post(url, json={'query': pr_query}, headers=headers)
+    pr_data = pr_response.json()
+
+    if 'data' in pr_data and pr_data['data']['repository']['pullRequest']['state'] == "MERGED" or pr_data['data']['repository']['pullRequest']['merged']:
+        return pr_data['data']['repository']['pullRequest']
+    else:
+        return None
+
 
 def get_commit_that_references_pr(repo_path, pr_number, headers):
-
     owner, name = repo_path.split("/")
     graphql_url = 'https://api.github.com/graphql'
 
@@ -12,7 +141,7 @@ def get_commit_that_references_pr(repo_path, pr_number, headers):
     {{
         repository(name: "{name}", owner: "{owner}") {{
             pullRequest(number: {pr_number}) {{
-                timelineItems(itemTypes: REFERENCED_EVENT, last: 100) {{
+                timelineItems(itemTypes: REFERENCED_EVENT, last: 1) {{
                     nodes {{
                         ... on ReferencedEvent {{
                             commit {{
@@ -30,7 +159,7 @@ def get_commit_that_references_pr(repo_path, pr_number, headers):
     data = response.json()
     return data["data"]["repository"]["pullRequest"]["timelineItems"]["nodes"][0]["commit"]["oid"]
 
-        
+
 def get_commit_pr(repo_path, commit_hash):
     url = f"https://api.github.com/repos/{repo_path}/commits/{commit_hash}/pulls"
     response = requests.get(url)
@@ -51,6 +180,37 @@ def get_commit_pr(repo_path, commit_hash):
     pr = max(prs, key=lambda x: x["merged_at"]) 
     return pr["merge_commit_sha"]
 
+
+def get_pr_that_mentions_issue(repo_path, issue_number, headers):
+    owner, name = repo_path.split("/")
+    graphql_url = 'https://api.github.com/graphql'
+
+    query = f'''
+    {{
+        repository(name: "{name}", owner: "{owner}") {{
+            issue(number: {issue_number}) {{
+                timelineItems(itemTypes: MENTIONED_EVENT, last: 1) {{
+                    nodes {{
+                        ... on ReferencedEvent {{
+                            subject {{
+                                __typename
+                                ... on PullRequest {{
+                                    number
+                                }}
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+        }}
+    }}
+    '''
+
+    response = requests.post(graphql_url, json={'query': query}, headers=headers)
+    data = response.json()
+    return data["data"]["repository"]["issue"]["timelineItems"]["nodes"][0]["subject"]["number"]
+
+
 def match_bics(bics, bics2):
     matched = []
 
@@ -60,15 +220,52 @@ def match_bics(bics, bics2):
 
     return matched
 
-# with open("bug_fix_commits/bics_copy.json") as f:
-#     data = json.load(f)
 
-#     for d in data:
-#         bics = data["inducing_commit_hash_pyszz"]
-#         bics2 = data["inducing_commit_hash_pd"]
-#         d["matched"] = match_bics(bics, bics2)
-#         matched = match_bics(bics, bics2)
-#         print(matched)
+# SELECT THE MAIN LANGUAGE OF THE PULL REQUEST
+def get_pull_request_language(repo, headers, pr_number):
+    url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files"
+    response = requests.get(url, headers=headers)
+
+    if response.status_code != 200:
+        return None
+
+    data = response.json()
+
+    file_changes = defaultdict(int)
+    for file in data:
+        file_extension = file["filename"].split(".")[-1]
+        file_changes[file_extension] += file["additions"] + file["deletions"] + file["changes"]
+
+    if max(file_changes, key=file_changes.get) == "js":
+        return "Javascript"
+    elif max(file_changes, key=file_changes.get) == "rb":
+        return "Ruby"
+    elif max(file_changes, key=file_changes.get) == "py":
+        return "Python"
+    elif max(file_changes, key=file_changes.get) == "java":
+        return "JAVA"
+    else:
+        return "JAVA"
+
+    return max(file_changes, key=file_changes.get) 
+
+
+# JSON MANIPULATION
+def remove_duplicates(input_file, output_file):
+    with open(input_file, 'r') as f:
+        data = json.load(f)
+    
+    seen = set()
+    unique_data = []
+
+    for item in data:
+        identifier = json.dumps(item, sort_keys=True)
+        if identifier not in seen:
+            seen.add(identifier)
+            unique_data.append(item)
+
+    with open(output_file, 'w') as f:
+        json.dump(unique_data, f, indent=4)
 
 
 def format(filename):
@@ -106,22 +303,13 @@ def format(filename):
     with open(filename, 'w') as f:
         json.dump(formatted_data, f, indent=4)
 
-def remove_null_prs(json_file):
-    check_pr_fields = [
-        "pr_title",
-        "pr_language",
-        "pr_created_at",
-        "pr_merged_at",
-        "pr_html_url",
-        "pr_number",
-        "fix_commit_hash"
-    ]   
 
+def remove_null_prs(json_file):
     with open(json_file) as f:
         data = json.load(f)
         to_remove = []
         for d in data:
-            if any(d[field] is None for field in check_pr_fields):
+            if d["fix_commit_hash"] is None:
                 to_remove.append(d)
 
         for d in to_remove:
@@ -129,6 +317,7 @@ def remove_null_prs(json_file):
             
     with open(json_file, 'w') as f:
         json.dump(data, f, indent=4)
+
 
 def remove_empty_bug_hashs(json_file):
     with open(json_file) as f:
@@ -143,24 +332,7 @@ def remove_empty_bug_hashs(json_file):
             
     with open(json_file, 'w') as f:
         json.dump(data, f, indent=4)
-
-
-def commit_exists(repo_path, commit_hash):
-    try:
-        result = subprocess.run(
-            ['git', 'cat-file', '-t', commit_hash],
-            cwd=repo_path,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        if result.stdout.strip() == 'commit':
-            return True
-        else:
-            return False
-    except Exception as e:
-        print(f"Erro ao verificar o commit: {e}")
-        return False
+    
     
 def remove_non_existing_commits(filename):
     with open(filename) as f:
@@ -170,30 +342,3 @@ def remove_non_existing_commits(filename):
 
     with open(filename, 'w') as f:
         json.dump(new_data, f, indent=4)
-
-def get_pull_request_language(repo, headers, pr_number):
-    url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files"
-    response = requests.get(url, headers=headers)
-
-    if response.status_code != 200:
-        return None
-
-    data = response.json()
-
-    file_changes = defaultdict(int)
-    for file in data:
-        file_extension = file["filename"].split(".")[-1]
-        file_changes[file_extension] += file["additions"] + file["deletions"] + file["changes"]
-
-    if max(file_changes, key=file_changes.get) == "js":
-        return "Javascript"
-    elif max(file_changes, key=file_changes.get) == "rb":
-        return "Ruby"
-    elif max(file_changes, key=file_changes.get) == "py":
-        return "Python"
-    elif max(file_changes, key=file_changes.get) == "java":
-        return "JAVA"
-    else:
-        return "JAVA"
-
-    return max(file_changes, key=file_changes.get) 
