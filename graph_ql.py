@@ -413,7 +413,7 @@ def get_issues(repos):
         today.strftime('%Y-%m-%d')
         
         delta = datetime.timedelta(days=365)
-        # start_date = "2020-08-07"
+        start_date = "2020-08-07"
         start_date =  datetime.datetime.strptime(start_date, '%Y-%m-%d').date()
         current_start_date = start_date
 
