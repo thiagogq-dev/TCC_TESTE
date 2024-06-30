@@ -158,7 +158,7 @@ def get_commit_that_references_pr(repo_path, pr_number, headers):
     response = requests.post(graphql_url, json={'query': query3}, headers=headers)
     data = response.json()
 
-    if 'timelineItems' not in data['data']['repository']['pullRequest']:
+    if data is None or 'data' not in data or 'repository' not in data['data'] or 'pullRequest' not in data['data']['repository'] or 'timelineItems' not in data['data']['repository']['pullRequest']:
         print(f"PR {pr_number} does not reference any commit")
         print(data)
     if 'data' in data and data['data']['repository']['pullRequest']['timelineItems']['nodes'] != []:
