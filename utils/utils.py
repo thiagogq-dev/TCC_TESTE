@@ -157,9 +157,11 @@ def get_commit_that_references_pr(repo_path, pr_number, headers):
 
     response = requests.post(graphql_url, json={'query': query3}, headers=headers)
     data = response.json()
-    
-    print(data)
 
+    if 'errors' in data:
+        print(f"Error in get_commit_that_references_pr for {pr_number}")
+        print(data)
+        return None
     if 'data' in data and data['data']['repository']['pullRequest']['timelineItems']['nodes'] != []:
         return data['data']['repository']['pullRequest']['timelineItems']['nodes'][0]['commit']
     return None
