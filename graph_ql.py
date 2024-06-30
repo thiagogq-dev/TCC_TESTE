@@ -425,7 +425,7 @@ def get_issues(repos):
             full_data = get_data(url, repo_name, repo, full_data)
             current_start_date = current_end_date + datetime.timedelta(days=1)
 
-        full_data = [dict(t) for t in {tuple(d.items()) for d in full_data}]
+        # full_data = [dict(t) for t in {tuple(d.items()) for d in full_data}]
 
     if not os.path.exists("json/raw_data"):
         os.makedirs("json/raw_data")
