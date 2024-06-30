@@ -242,8 +242,8 @@ def get_data(url, repo_name, repo, full_data):
         read = 0
         for issue in data:
             read += 1
-            log_message(f"Reading issue {read}/{len(data)}", "info")
             issue_number = issue["number"]
+            log_message(f"Reading issue {issue_number} - {read}/{len(data)}", "info")
 
             query = define_query(issue_number, repo, "closed")
             query_response = execute_query(query, headers)
@@ -413,7 +413,7 @@ def get_issues(repos):
         today.strftime('%Y-%m-%d')
         
         delta = datetime.timedelta(days=365)
-        # start_date = "2020-08-07"
+        # start_date = "2016-08-04"
         start_date =  datetime.datetime.strptime(start_date, '%Y-%m-%d').date()
         current_start_date = start_date
 

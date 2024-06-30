@@ -157,8 +157,9 @@ def get_commit_that_references_pr(repo_path, pr_number, headers):
 
     response = requests.post(graphql_url, json={'query': query3}, headers=headers)
     data = response.json()
-    return data["data"]["repository"]["pullRequest"]["timelineItems"]["nodes"][0]["commit"]["oid"]
-
+    if 'data' in data and data['data']['repository']['pullRequest']['timelineItems']['nodes'] != []:
+        return data['data']['repository']['pullRequest']['timelineItems']['nodes'][0]['commit']
+    return None
 
 def get_commit_pr(repo_path, commit_hash, headers):
     url = f"https://api.github.com/repos/{repo_path}/commits/{commit_hash}/pulls"
