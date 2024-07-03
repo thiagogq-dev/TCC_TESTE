@@ -2,6 +2,7 @@ from collections import defaultdict
 import json
 import re
 import requests
+from pydriller import Git, Repository
 
 # COMMITS MANIPULATION
 def check_commit_existence(repo_path, commit_hash, headers):
@@ -9,6 +10,16 @@ def check_commit_existence(repo_path, commit_hash, headers):
     response = requests.get(url, headers=headers)
 
     if response.status_code == 422:
+        return False
+
+    return True
+
+def check_commit_existence_pd(repo_path, commit_hash):
+    gr = Git(repo_path)
+    try:
+        commit = gr.get_commit(commit_hash)
+    except Exception as e:
+        print(f"Error: {e}")
         return False
 
     return True
@@ -163,7 +174,7 @@ def get_commit_that_references_pr(repo_path, pr_number, headers):
         print(data)
         return None
     if 'data' in data and data['data']['repository']['pullRequest']['timelineItems']['nodes'] != []:
-        return data['data']['repository']['pullRequest']['timelineItems']['nodes'][0]['commit']
+        return data['data']['repository']['pullRequest']['timelineItems']['nodes'][0]['commit']['oid']
     return None
 
 def get_commit_pr(repo_path, commit_hash, headers):
@@ -310,7 +321,7 @@ def format(filename):
         json.dump(formatted_data, f, indent=4)
 
 
-def remove_null_prs(json_file):
+def remove_null_fixes(json_file):
     with open(json_file) as f:
         data = json.load(f)
         to_remove = []

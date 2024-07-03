@@ -4,7 +4,7 @@ import os
 import datetime
 import logging
 
-from utils.utils import check_commit_existence, get_commit_that_references_pr, get_commit_that_references_issue, get_commit_pr, get_pull_request_language, remove_null_prs 
+from utils.utils import check_commit_existence, check_commit_existence_pd, get_commit_that_references_pr, get_commit_that_references_issue, get_commit_pr, get_pull_request_language, remove_null_prs 
 
 if not os.path.exists("logs"):
     os.makedirs("logs")
@@ -286,8 +286,11 @@ def get_data(url, repo_name, repo, full_data):
                     else:
                         pr_merge_commit_sha = pr['source']['mergeCommit']['oid']
 
-                    if not check_commit_existence(repo, pr_merge_commit_sha, headers):
+                    if not check_commit_existence_pd(f"./repos_dir/{repo}", pr_merge_commit_sha):
                         pr_merge_commit_sha = get_commit_that_references_pr(repo, pr_number, headers)
+
+                    # if not check_commit_existence(repo, pr_merge_commit_sha, headers):
+                    #     pr_merge_commit_sha = get_commit_that_references_pr(repo, pr_number, headers)
 
                     check_rate_limit(headers)
                     headers = get_headers()
@@ -314,8 +317,11 @@ def get_data(url, repo_name, repo, full_data):
                 else:
                     pr_merge_commit_sha = closer['mergeCommit']['oid']
 
-                if not check_commit_existence(repo, pr_merge_commit_sha, headers):
+                if not check_commit_existence_pd(f"./repos_dir/{repo}", pr_merge_commit_sha):
                     pr_merge_commit_sha = get_commit_that_references_pr(repo, pr_number, headers)
+
+                # if not check_commit_existence(repo, pr_merge_commit_sha, headers):
+                #     pr_merge_commit_sha = get_commit_that_references_pr(repo, pr_number, headers)
 
                 check_rate_limit(headers)
                 headers = get_headers()
@@ -348,8 +354,11 @@ def get_data(url, repo_name, repo, full_data):
                     else:
                         pr_merge_commit_sha = closer['associatedPullRequests']['nodes'][0]['mergeCommit']['oid']
 
-                    if not check_commit_existence(repo, pr_merge_commit_sha, headers):
+                    if not check_commit_existence_pd(f"./repos_dir/{repo}", pr_merge_commit_sha):
                         pr_merge_commit_sha = get_commit_that_references_pr(repo, pr_number, headers)
+
+                    # if not check_commit_existence(repo, pr_merge_commit_sha, headers):
+                    #     pr_merge_commit_sha = get_commit_that_references_pr(repo, pr_number, headers)
 
                     check_rate_limit(headers)
                     headers = get_headers()
@@ -403,6 +412,10 @@ def get_issues(repos):
 
     for repo in repos:
         repo_name = repo.split("/")[1]
+
+        # clone repo
+        if not os.path.exists(f"repos_dir/{repo}"):
+            os.system(f"git clone https://github.com/{repo}.git repos_dir/{repo}")
 
         url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=created&order=asc&per_page=100'
         response = requests.get(url)
