@@ -4,7 +4,7 @@ import os
 import datetime
 import logging
 
-from utils.utils import check_commit_existence, check_commit_existence_pd, get_commit_that_references_pr, get_commit_that_references_issue, get_commit_pr, get_pull_request_language, remove_null_prs 
+from utils.utils import check_commit_existence, check_commit_existence_pd, get_commit_that_references_pr, get_commit_that_references_issue, get_commit_pr, get_pull_request_language 
 
 if not os.path.exists("logs"):
     os.makedirs("logs")
