@@ -144,7 +144,7 @@ def get_pr_from_issue_comments(repo_path, issue_number, headers):
         return None
 
 
-def get_commit_that_references_pr(repo_path, pr_number, headers):
+def get_commit_that_references_pr(repo_path, pr_number, headers, issue):
     owner, name = repo_path.split("/")
     graphql_url = 'https://api.github.com/graphql'
 
@@ -170,7 +170,7 @@ def get_commit_that_references_pr(repo_path, pr_number, headers):
     data = response.json()
 
     if 'errors' in data:
-        print(f"Error in get_commit_that_references_pr for {pr_number}")
+        print(f"Error in get_commit_that_references_pr for {pr_number} - issue {issue}")
         print(data)
         return None
     if 'data' in data and data['data']['repository']['pullRequest']['timelineItems']['nodes'] != []:
