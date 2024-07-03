@@ -11,14 +11,22 @@ def find_pd(json_file, repo):
             if d["repo_name"] == repo_dir_name:
                 bics = pd_finder(d["fix_commit_hash"], repo)
                 d["inducing_commit_hash_pd"] = bics
-                d["matched"] = match_bics(d["inducing_commit_hash_pyszz"], bics)
+                if bics == "-":
+                    d["matched"] = []
+                else:
+                    d["matched"] = match_bics(d["inducing_commit_hash_pyszz"], bics)
 
     with open(json_file, 'w') as f:
         json.dump(data, f, indent=4)
 
 def pd_finder(fix_commit, repo):
     gr = Git(repo)
-    commit = gr.get_commit(fix_commit)
+    try:
+        commit = gr.get_commit(fix_commit)
+    except Exception as e:
+        print(f"Error: {e}")
+        return "-"
+    # commit = gr.get_commit(fix_commit)
     buggy_commits = gr.get_commits_last_modified_lines(commit)
 
     only_hash = []
