@@ -336,17 +336,43 @@ def remove_null_fixes(json_file):
         json.dump(data, f, indent=4)
 
 
+def is_empty_or_dash(value):
+    if value == [] or value == "-":
+        return True
+    return False
+
 def remove_empty_bug_hashs(json_file):
     with open(json_file) as f:
         data = json.load(f)
         to_remove = []
+        remover = 0
         for d in data:
-            if d["inducing_commit_hash_pyszz"] == [] and d["inducing_commit_hash_pd"] == []:
+            if is_empty_or_dash(d["inducing_commit_hash_pyszz"]) and is_empty_or_dash(d["inducing_commit_hash_pd"]):
+                remover += 1
                 to_remove.append(d)
+
+        print(f"Removed {remover} items")
 
         for d in to_remove:
             data.remove(d)
             
+    with open(json_file, 'w') as f:
+        json.dump(data, f, indent=4)
+
+def update_matched(json_file):
+    with open(json_file) as f:
+        data = json.load(f)
+
+    for d in data:
+        if d["matched"] == []:
+            if not is_empty_or_dash(d["inducing_commit_hash_pyszz"]) and not is_empty_or_dash(d["inducing_commit_hash_pd"]):
+                d["matched"] =d["inducing_commit_hash_pyszz"]
+            elif is_empty_or_dash(d["inducing_commit_hash_pyszz"]) and not is_empty_or_dash(d["inducing_commit_hash_pd"]):
+                value = d["inducing_commit_hash_pd"][0]
+                d["matched"] = [value]
+            elif not is_empty_or_dash(d["inducing_commit_hash_pyszz"]) and is_empty_or_dash(d["inducing_commit_hash_pd"]):
+                d["matched"] = d["inducing_commit_hash_pyszz"]
+
     with open(json_file, 'w') as f:
         json.dump(data, f, indent=4)
     
