@@ -29,7 +29,6 @@ net = Network(
 )
 
 for item in data:
-
     # if len(item["Fix in BIC pyszz"]) == 0 and len(item["Fix in BIC pydriller"]) == 0:
     #     continue
     if len(item["Fix in BIC"]) == 0:

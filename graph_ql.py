@@ -248,6 +248,8 @@ def get_data(url, repo_name, repo, full_data):
             query = define_query(issue_number, repo, "closed")
             query_response = execute_query(query, headers)
 
+            issue_labels = [label["name"] for label in issue["labels"]]
+
             if check_data(query_response):
                 print(data)
                 print(headers)
@@ -277,8 +279,8 @@ def get_data(url, repo_name, repo, full_data):
                     pr_merged_at = pr['source']['mergedAt']
                     pr_html_url = pr['source']['url']
                     if pr['source']['mergeCommit'] is None:
-                        log_message("PR without merge commit - CROSS_REFERENCE_EVENT", "error")
-                        log_message(f"Issue: {issue_number}", "error")
+                        log_message(f"PR {pr_number} without merge commit - Issue {issue_number}", "error")
+                        # log_message(f"Issue: {issue_number}", "error")
                         check_rate_limit(headers)
                         headers = get_headers()
                         merge_commit = get_commit_that_references_pr(repo, pr_number, headers, issue_number)
@@ -310,8 +312,8 @@ def get_data(url, repo_name, repo, full_data):
                 pr_merged_at = closer['mergedAt']
                 pr_html_url = closer['url']
                 if closer['mergeCommit'] is None:
-                    log_message("PR without merge commit", "error")
-                    log_message(f"Issue: {issue_number}", "error")
+                    log_message(f"PR {pr_number} without merge commit - Issue {issue_number}", "error")
+                    # log_message(f"Issue: {issue_number}", "error")
                     merge_commit = get_commit_pr(repo, closer['commits']['nodes'][0]['commit']['oid'], headers)
                     pr_merge_commit_sha = merge_commit
                 else:
@@ -329,8 +331,8 @@ def get_data(url, repo_name, repo, full_data):
                 # pr_last_commit_sha = None
             elif closer['__typename'] == 'Commit':
                 if len(closer['associatedPullRequests']['nodes']) == 0:
-                    log_message("Commit without associated PR", "error")
-                    log_message(f"Issue: {issue_number} in {repo_name}", "error")
+                    log_message(f"Commit of issue {issue_number} without associated PR", "error")
+                    # log_message(f"Issue: {issue_number} in {repo_name}", "error")
                     pr_created_by = closer['author']['user']['login']
                     pr_merged_at = closer['committedDate']
                     pr_merge_commit_sha = closer['oid']
@@ -382,8 +384,9 @@ def get_data(url, repo_name, repo, full_data):
             full_data.append({
                 "repo_name": repo_name,
                 "repo_url": repo,
-                "issue_created_by": issue["user"]["login"],
                 "issue_title": issue["title"],
+                "issue_created_by": issue["user"]["login"],
+                "issue_labels": issue_labels,
                 "issue_number": issue["number"],
                 "issue_html_url": issue["html_url"],
                 "issue_created_at": issue["created_at"],
@@ -426,7 +429,7 @@ def get_issues(repos):
         today.strftime('%Y-%m-%d')
         
         delta = datetime.timedelta(days=365)
-        start_date = "2020-08-07"
+        # start_date = "2020-08-07"
         start_date =  datetime.datetime.strptime(start_date, '%Y-%m-%d').date()
         current_start_date = start_date
 
