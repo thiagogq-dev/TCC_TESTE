@@ -268,6 +268,7 @@ def get_data(url, repo_name, repo, full_data):
                 merged_prs.sort(key=lambda x: x['source']['mergedAt'], reverse=True)
 
                 if len(merged_prs) > 0:
+                    search_type = 'CRPSS-REFERENCED'
                     pr = merged_prs[0]
                     pr_number = pr['source']['number']
                     pr_title = pr['source']['title']
@@ -302,6 +303,7 @@ def get_data(url, repo_name, repo, full_data):
                     log_message(f"Missing data for issue {issue_number} in {repo_name}", "warning")
                     continue
             elif closer['__typename'] == 'PullRequest':
+                search_type = 'CLOSED'
                 pr_number = closer['number']
                 pr_title = closer['title']
                 if closer['author'] is None:
@@ -330,6 +332,7 @@ def get_data(url, repo_name, repo, full_data):
                 pr_language = get_pull_request_language(repo, headers, pr_number)
                 # pr_last_commit_sha = None
             elif closer['__typename'] == 'Commit':
+                search_type = 'CLOSED'
                 if len(closer['associatedPullRequests']['nodes']) == 0:
                     log_message(f"Commit of issue {issue_number} without associated PR", "error")
                     # log_message(f"Issue: {issue_number} in {repo_name}", "error")
@@ -376,6 +379,7 @@ def get_data(url, repo_name, repo, full_data):
                 pr_html_url = commit['url']
                 pr_merge_commit_sha = commit['oid']
                 pr_language = None
+                search_type = 'REFERENCED'
                 # pr_last_commit_sha = None
             else:
                 log_message(f"Missing data for issue {issue_number} in {repo_name}", "warning")
@@ -398,7 +402,8 @@ def get_data(url, repo_name, repo, full_data):
                 "pr_html_url": pr_html_url,
                 "pr_created_at": pr_created_at,
                 "pr_merged_at": pr_merged_at,
-                "fix_commit_hash": pr_merge_commit_sha
+                "fix_commit_hash": pr_merge_commit_sha,
+                "search_type": search_type
                 # "pr_last_commit_sha": pr_last_commit_sha
             })
 
