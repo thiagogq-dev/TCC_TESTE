@@ -268,7 +268,7 @@ def get_data(url, repo_name, repo, full_data):
                 merged_prs.sort(key=lambda x: x['source']['mergedAt'], reverse=True)
 
                 if len(merged_prs) > 0:
-                    search_type = 'CRPSS-REFERENCED'
+                    search_type = 'CROSS-REFERENCED'
                     pr = merged_prs[0]
                     pr_number = pr['source']['number']
                     pr_title = pr['source']['title']
@@ -421,7 +421,6 @@ def get_issues(repos):
     for repo in repos:
         repo_name = repo.split("/")[1]
 
-        # clone repo
         if not os.path.exists(f"repos_dir/{repo}"):
             os.system(f"git clone https://github.com/{repo}.git repos_dir/{repo}")
 
