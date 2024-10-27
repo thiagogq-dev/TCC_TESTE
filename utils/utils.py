@@ -385,3 +385,11 @@ def remove_non_existing_commits(filename):
 
     with open(filename, 'w') as f:
         json.dump(new_data, f, indent=4)
+
+
+def indent_file(filename):
+    with open(filename) as f:
+        data = json.load(f)
+
+    with open(filename, "w") as f:
+        json.dump(data, f, indent=4)
