@@ -2,6 +2,7 @@ import json
 from pydriller import Git, Repository
 from utils.utils import match_bics, remove_empty_bug_hashs
 import sys
+import os
 
 def find_pd(json_file, repo):
     with open(json_file) as f:
@@ -16,7 +17,9 @@ def find_pd(json_file, repo):
                 else:
                     d["matched"] = match_bics(d["inducing_commit_hash_pyszz"], bics)
 
-    with open(json_file, 'w') as f:
+    os.makedirs("./json/final_processed", exist_ok=True)
+    file_name = json_file.split("/")[-1]    
+    with open(f"./json/final_processed/{file_name}", 'w') as f:
         json.dump(data, f, indent=4)
 
 def pd_finder(fix_commit, repo):
