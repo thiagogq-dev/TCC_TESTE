@@ -17,9 +17,11 @@ def find_pd(json_file, repo):
                 else:
                     d["matched"] = match_bics(d["inducing_commit_hash_pyszz"], bics)
 
-    os.makedirs("./json/final_processed", exist_ok=True)
-    file_name = json_file.split("/")[-1]    
-    with open(f"./json/final_processed/{file_name}", 'w') as f:
+    # os.makedirs("./json/final_processed", exist_ok=True)
+    # file_name = json_file.split("/")[-1]    
+    # with open(f"./json/final_processed/{file_name}", 'w') as f:
+    #     json.dump(data, f, indent=4)
+    with open(json_file, 'w') as f:
         json.dump(data, f, indent=4)
 
 def pd_finder(fix_commit, repo):
