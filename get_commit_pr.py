@@ -58,6 +58,7 @@ def process_file(file_path):
     with open(file_path) as f:
         data = json.load(f)
         for record in data:
+            print(f'Processing {record["fix_commit_hash"]}')
             commit_pr = get_commit_pr(record["fix_commit_hash"])
             record["pr_url"] = commit_pr
     
