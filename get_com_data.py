@@ -8,8 +8,8 @@ def get_commit_pr(commit_hash):
     for commit in Repository("repos_dir/jabref", single=commit_hash).traverse_commits():
         commit_author = commit.author.name
         commiter = commit.committer.name 
-        commit_date = commit.author_date
-        committer_data = commit.committer_date
+        commit_date = commit.author_date.isoformat()
+        committer_data = commit.committer_date.isoformat()
         modified_files = [mod.filename for mod in commit.modified_files]
         deletions = commit.deletions
         insertions = commit.insertions
