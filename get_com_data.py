@@ -25,7 +25,7 @@ def process_file(file_path):
         data = json.load(f)
         
         for record in data:
-            commit_hash = record["commit_hash"]
+            commit_hash = record["fix_commit_hash"]
             commit_author, commiter, commit_date, committer_data, modified_files, deletions, insertions, lines, dmm_unit_size, dmm_unit_complexity, dmm_unit_interfacing = get_commit_pr(commit_hash)
             record["commit_author"] = commit_author
             record["commiter"] = commiter
