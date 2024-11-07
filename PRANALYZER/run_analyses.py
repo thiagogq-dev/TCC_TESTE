@@ -5,7 +5,7 @@ from PRAnalizer import PRAnalizer
 import sys
 from pydriller import Git, Repository
 
-repo_url = "repos/jabref"
+repo_url = "repos_dir/jabref"
 
 def check_test_changes(tests):
     test_changes = tests['removed'] + tests['added'] + tests['others']
