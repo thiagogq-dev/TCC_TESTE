@@ -91,7 +91,7 @@ def process_file(file_path):
         
         for record in data:
             fix = record["fix_commit_hash"]
-            fix_analyses = run_pr_analizer(fix, "JAVA", record["repo_url"])
+            fix_analyses = run_pr_analizer(fix, "JAVA", "JabRef/jabref")
             test_changes = fix_analyses['tests']
             record["test_changes"] = check_test_changes(test_changes)
 
