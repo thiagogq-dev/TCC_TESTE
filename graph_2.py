@@ -205,7 +205,7 @@ def get_data(url, repo_name, repo, full_data):
             issue_number = issue["number"]
             log_message(f"Reading issue {issue_number} - {read}/{len(data)}", "info")
 
-            query = define_query(issue_number, repo, "closed")
+            query = define_query(issue_number, repo)
             query_response = execute_query(query, headers)
 
             issue_labels = [label["name"] for label in issue["labels"]]
