@@ -384,7 +384,7 @@ def update_matched_v2(pyszz, pd, matched):
         if not is_empty_or_dash(pyszz) and not is_empty_or_dash(pd):
             result = pyszz
         elif is_empty_or_dash(pyszz) and not is_empty_or_dash(pd):
-            result = pd[0]
+            result = [pd[0]]
         elif not is_empty_or_dash(pyszz) and is_empty_or_dash(pd):
             result = pyszz
     else:
@@ -441,6 +441,6 @@ def merge_files(folder_path):
 
 
     print(f'Combined data has {len(combined_data)} items')
-    with open('./json/final_processed/combined/final.json', 'w') as f:
+    with open('./json/raw_data/final.json', 'w') as f:
         json.dump(combined_data, f, indent=4)
 
