@@ -1,6 +1,6 @@
 import json
 from pydriller import Git, Repository
-from utils.utils import match_bics, remove_empty_bug_hashs
+from utils.utils import match_bics, remove_empty_bug_hashs, update_matched_v2
 import sys
 import os
 
@@ -16,6 +16,12 @@ def find_pd(json_file, repo):
                     d["matched"] = []
                 else:
                     d["matched"] = match_bics(d["inducing_commit_hash_pyszz"], bics)
+
+            d["matched"] = update_matched_v2(d["inducing_commit_hash_pyszz"], d["inducing_commit_hash_pd"], d["matched"])
+
+            d.pop("inducing_commit_hash_pyszz", None)
+            d.pop("inducing_commit_hash_pd", None)
+
 
     # os.makedirs("./json/final_processed", exist_ok=True)
     # file_name = json_file.split("/")[-1]    

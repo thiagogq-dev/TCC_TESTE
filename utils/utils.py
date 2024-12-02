@@ -2,6 +2,7 @@ from collections import defaultdict
 import json
 import re
 import requests
+import glob
 from pydriller import Git, Repository
 
 # COMMITS MANIPULATION
@@ -375,6 +376,22 @@ def update_matched(json_file):
 
     with open(json_file, 'w') as f:
         json.dump(data, f, indent=4)
+
+
+def update_matched_v2(pyszz, pd, matched):
+    result = []
+    if matched == []:
+        if not is_empty_or_dash(pyszz) and not is_empty_or_dash(pd):
+            result = pyszz
+        elif is_empty_or_dash(pyszz) and not is_empty_or_dash(pd):
+            result = pd[0]
+        elif not is_empty_or_dash(pyszz) and is_empty_or_dash(pd):
+            result = pyszz
+    else:
+        result = matched
+
+    return result
+    
     
     
 def remove_non_existing_commits(filename):
@@ -393,3 +410,37 @@ def indent_file(filename):
 
     with open(filename, "w") as f:
         json.dump(data, f, indent=4)
+
+def split_json_file(input_file, output_prefix, max_items_per_file=100):
+    with open(input_file, 'r') as f:
+        data = json.load(f)
+
+    if not isinstance(data, list):
+        raise ValueError("The input file does not contain a JSON list.")
+
+    chunks = [data[i:i + max_items_per_file] for i in range(0, len(data), max_items_per_file)]
+
+    for idx, chunk in enumerate(chunks):
+        output_file = f"{output_prefix}_{idx + 1}.json"
+        with open(output_file, 'w') as f:
+            json.dump(chunk, f, indent=4)
+        print(f"File {output_file} created with {len(chunk)} items.")
+              
+
+
+def merge_files(folder_path):
+    json_files = glob.glob(folder_path)
+
+    combined_data = []
+
+    for file in json_files:
+        with open(file, 'r') as f:
+            data = json.load(f)
+            print(f'Processing {file} with {len(data)} items')
+            combined_data.extend(data)
+
+
+    print(f'Combined data has {len(combined_data)} items')
+    with open('./json/final_processed/combined/final.json', 'w') as f:
+        json.dump(combined_data, f, indent=4)
+
