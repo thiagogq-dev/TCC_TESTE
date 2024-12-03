@@ -428,7 +428,7 @@ def split_json_file(input_file, output_prefix, max_items_per_file=100):
               
 
 
-def merge_files(folder_path):
+def merge_files(folder_path, output_path):
     json_files = glob.glob(folder_path)
 
     combined_data = []
@@ -441,6 +441,6 @@ def merge_files(folder_path):
 
 
     print(f'Combined data has {len(combined_data)} items')
-    with open('./json/raw_data/final.json', 'w') as f:
+    with open(output_path, 'w') as f:
         json.dump(combined_data, f, indent=4)
 
