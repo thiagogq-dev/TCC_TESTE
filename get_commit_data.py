@@ -1,101 +1,52 @@
-from pydriller import Git, Repository
+import requests
 import json
+import sys
 import os
+from pydriller import Git, Repository
 
-def commit_data(commit_type, repo, commit_hash1, commit_hash2, folder_path):
+def get_commit_data(commit_hash):
+    for commit in Repository("repos_dir/jabref", single=commit_hash).traverse_commits():
+        commit_author = commit.author.name
+        commiter = commit.committer.name 
+        commit_date = commit.author_date.isoformat()
+        committer_data = commit.committer_date.isoformat()
+        modified_files = [mod.filename for mod in commit.modified_files]
+        deletions = commit.deletions
+        insertions = commit.insertions
+        lines = commit.lines
+        dmm_unit_size = commit.dmm_unit_size
+        dmm_unit_complexity = commit.dmm_unit_complexity
+        dmm_unit_interfacing = commit.dmm_unit_interfacing
 
-    if commit_type == "fix":
-        for commit in Repository(repo, single=commit_hash1).traverse_commits():
+        return commit_author, commiter, commit_date, committer_data, modified_files, deletions, insertions, lines, dmm_unit_size, dmm_unit_complexity, dmm_unit_interfacing
 
-            if not os.path.exists(f"{folder_path}/{commit_type}/{commit_hash1}"):
-                os.makedirs(f"{folder_path}/{commit_type}/{commit_hash1}")
+def process_file(file_path):
+    with open(file_path) as f:
+        data = json.load(f)
+        
+        for record in data:
+            commit_hash = record["fix_commit_hash"]
+            commit_author, commiter, commit_date, committer_data, modified_files, deletions, insertions, lines, dmm_unit_size, dmm_unit_complexity, dmm_unit_interfacing = get_commit_data(commit_hash)
+            record["commit_author"] = commit_author
+            record["commiter"] = commiter
+            record["commit_date"] = commit_date
+            record["committer_data"] = committer_data
+            record["modified_files"] = modified_files
+            record["deletions"] = deletions
+            record["insertions"] = insertions
+            record["lines"] = lines
+            record["dmm_unit_size"] = dmm_unit_size
+            record["dmm_unit_complexity"] = dmm_unit_complexity
+            record["dmm_unit_interfacing"] = dmm_unit_interfacing
 
-            with open(f"{folder_path}/{commit_type}/{commit_hash1}/data.txt", "w") as f:
-                f.write(f"Author: {commit.author.name} - {commit.author.email}\n")
-                f.write(f"Message: {commit.msg}\n\n")
-                f.write(f"Commit date: {commit.committer_date}\n")
-
-                mod_names = [mod.filename for mod in commit.modified_files]
-                
-                f.write(f"Modified files: {mod_names}\n")
-                f.write(f"Number of deleted lines: {commit.deletions}\n")
-                f.write(f"Number of added lines: {commit.insertions}\n")
-                f.write(f"Number of modified lines: {commit.lines}\n")
-                f.write(f"Number of modified files: {commit.files}\n")
-
-                for mf in commit.modified_files:
-                    with open(f"{folder_path}/{commit_type}/{commit_hash1}/{mf.filename}.txt", "w") as f:
-                        f.write(f"Change type: {mf.change_type}\n\n")
-                        f.write(f"Diff:\n {mf.diff}\n\n")
-                        f.write(f"Source code:\n {mf.source_code}\n\n")
-                        f.write(f"Source code before:\n {mf.source_code_before}\n\n")
-    else:   
-
-        if commit_hash1 != []:
-            for commit in Repository(repo, only_commits=commit_hash1).traverse_commits():
-
-                if not os.path.exists(f"{folder_path}/{commit_type}/pydriller/{commit.hash}"):
-                    os.makedirs(f"{folder_path}/{commit_type}/pydriller/{commit.hash}")
-
-                with open(f"{folder_path}/{commit_type}/pydriller/{commit.hash}/data.txt", "w") as f:
-                    f.write(f"Author: {commit.author.name} - {commit.author.email}\n")
-                    f.write(f"Message: {commit.msg}\n\n")
-                    f.write(f"Commit date: {commit.committer_date}\n")
-
-                    mod_names = [mod.filename for mod in commit.modified_files]
-                    
-                    f.write(f"Modified files: {mod_names}\n")
-                    f.write(f"Number of deleted lines: {commit.deletions}\n")
-                    f.write(f"Number of added lines: {commit.insertions}\n")
-                    f.write(f"Number of modified lines: {commit.lines}\n")
-                    f.write(f"Number of modified files: {commit.files}\n")
-
-                    for mf in commit.modified_files:
-                        with open(f"{folder_path}/{commit_type}/pydriller/{commit.hash}/{mf.filename}.txt", "w") as f:
-                            f.write(f"Change type: {mf.change_type}\n\n")
-                            f.write(f"Diff:\n {mf.diff}\n\n")
-                            f.write(f"Source code:\n {mf.source_code}\n\n")
-                            f.write(f"Source code before:\n {mf.source_code_before}\n\n")
-
-        if commit_hash2 != []:
-            for commit in Repository(repo, only_commits=commit_hash2).traverse_commits():
-
-                if not os.path.exists(f"{folder_path}/{commit_type}/pyszz/{commit.hash}"):
-                    os.makedirs(f"{folder_path}/{commit_type}/pyszz/{commit.hash}")
-
-                with open(f"{folder_path}/{commit_type}/pyszz/{commit.hash}/data.txt", "w") as f:
-                    f.write(f"Author: {commit.author.name} - {commit.author.email}\n")
-                    f.write(f"Message: {commit.msg}\n\n")
-                    f.write(f"Commit date: {commit.committer_date}\n")
-
-                    mod_names = [mod.filename for mod in commit.modified_files]
-                    
-                    f.write(f"Modified files: {mod_names}\n")
-                    f.write(f"Number of deleted lines: {commit.deletions}\n")
-                    f.write(f"Number of added lines: {commit.insertions}\n")
-                    f.write(f"Number of modified lines: {commit.lines}\n")
-
-                    for mf in commit.modified_files:
-                        with open(f"{folder_path}/{commit_type}/pyszz/{commit.hash}/{mf.filename}.txt", "w") as f:
-                            f.write(f"Change type: {mf.change_type}\n\n")
-                            f.write(f"Diff:\n {mf.diff}\n\n")
-                            f.write(f"Source code:\n {mf.source_code}\n\n")
-                            f.write(f"Source code before:\n {mf.source_code_before}\n\n")
-
-with open("bug_fix_commits/bics.json") as f:
-    data = json.load(f)
-    seen = 0
-    for d in data:
-        fix_commit = d["fix_commit_hash"]
-        # bic_pyszz = d["inducing_commit_hash_pyszz"]
-        # bic_pd= d["inducing_commit_hash_pd"]
-
-        bic = d["matched"]
-
-        if os.path.exists(f"{d['repo_name']}/{fix_commit}"):
-            continue
-        else:
-            os.makedirs(f"{d['repo_name']}/{fix_commit}")
-
-        commit_data("fix", "repos_dir/jabref", fix_commit, [], folder_path=f"commit_data/{d['repo_name']}/{fix_commit}")
-        commit_data("bic", "repos_dir/jabref", bic, [], folder_path=f"commit_data/{d['repo_name']}/{fix_commit}")
+    with open(file_path, "w") as f:
+        json.dump(data, f, indent=4)
+           
+    
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Usage: python get_commit_pr.py <file_path>")
+        sys.exit(1)
+    
+    file_path = sys.argv[1]
+    process_file(file_path)
