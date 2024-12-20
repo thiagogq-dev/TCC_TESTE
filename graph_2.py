@@ -289,7 +289,7 @@ def get_data(url, repo_name, repo, full_data):
                 "issue_labels": issue_labels,
                 "issue_number": issue["number"],
                 "issue_html_url": issue["html_url"],
-                "issue_created_at": issue["created_at"],
+                "earliest_issue_date": issue["created_at"],
                 "issue_closed_at": issue["closed_at"],
                 "pr_title": pr_title,
                 "pr_language": pr_language,
@@ -299,7 +299,6 @@ def get_data(url, repo_name, repo, full_data):
                 "pr_created_at": pr_created_at,
                 "pr_merged_at": pr_merged_at,
                 "fix_commit_hash": pr_merge_commit_sha,
-                "search_type": search_type
             })
 
         if 'next' in response.links: 
