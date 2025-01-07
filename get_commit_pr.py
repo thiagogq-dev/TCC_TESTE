@@ -60,7 +60,7 @@ def process_file(file_path):
         for record in data:
             print(f'Processing {record["fix_commit_hash"]}')
             commit_pr = get_commit_pr(record["fix_commit_hash"])
-            record["pr_url"] = commit_pr
+            record["pr_html_url"] = commit_pr
     
     with open(file_path, 'w') as f:
         json.dump(data, f, indent=4)
