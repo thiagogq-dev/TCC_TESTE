@@ -58,6 +58,7 @@ def run_pr_analizer(data, file_type):
 
 
 def process_file(file_path):
+    global attempted_tokens
     with open(file_path) as f:
         data = json.load(f)
         
