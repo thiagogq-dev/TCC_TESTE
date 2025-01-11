@@ -3,7 +3,6 @@ import os
 import csv
 from PRAnalizer import PRAnalizer
 import sys
-from pydriller import Git, Repository
 import requests
 
 API_TOKENS = [
