@@ -41,7 +41,7 @@ def check_test_changes(tests):
 def run_pr_analizer(data, file_type):
     analizer = PRAnalizer(file_type)
     dadosDoPR  = analizer.retornaEstrutura();
-
+    print(data)
     for file in data['files']:
         itensAlterados = file['patch']
         aux = itensAlterados.split("\n")
