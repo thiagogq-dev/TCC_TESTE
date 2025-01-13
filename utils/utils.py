@@ -365,14 +365,18 @@ def update_matched(json_file):
         data = json.load(f)
 
     for d in data:
-        if d["matched"] == []:
-            if not is_empty_or_dash(d["inducing_commit_hash_pyszz"]) and not is_empty_or_dash(d["inducing_commit_hash_pd"]):
-                d["matched"] =d["inducing_commit_hash_pyszz"]
-            elif is_empty_or_dash(d["inducing_commit_hash_pyszz"]) and not is_empty_or_dash(d["inducing_commit_hash_pd"]):
-                value = d["inducing_commit_hash_pd"][0]
-                d["matched"] = [value]
-            elif not is_empty_or_dash(d["inducing_commit_hash_pyszz"]) and is_empty_or_dash(d["inducing_commit_hash_pd"]):
-                d["matched"] = d["inducing_commit_hash_pyszz"]
+        if not is_empty_or_dash(d["inducing_commit_hash_pyszz"]) and not is_empty_or_dash(d["inducing_commit_hash_pd"]):
+            d["matched"] =d["inducing_commit_hash_pyszz"]
+        elif is_empty_or_dash(d["inducing_commit_hash_pyszz"]) and not is_empty_or_dash(d["inducing_commit_hash_pd"]):
+            value = d["inducing_commit_hash_pd"][0]
+            d["matched"] = [value]
+        elif not is_empty_or_dash(d["inducing_commit_hash_pyszz"]) and is_empty_or_dash(d["inducing_commit_hash_pd"]):
+            d["matched"] = d["inducing_commit_hash_pyszz"]
+        else:
+            d["matched"] = []
+
+        d.pop("inducing_commit_hash_pyszz", None)
+        d.pop("inducing_commit_hash_pd", None)
 
     with open(json_file, 'w') as f:
         json.dump(data, f, indent=4)
@@ -429,8 +433,8 @@ def split_json_file(input_file, output_prefix, max_items_per_file=100):
 
 
 def merge_files(folder_path, output_path):
-    json_files = glob.glob(folder_path)
-
+    json_files = glob.glob(folder_path + "/*.json")
+    
     combined_data = []
 
     for file in json_files:
