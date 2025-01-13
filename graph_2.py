@@ -221,7 +221,6 @@ def get_data(url, repo_name, repo, full_data):
                     log_message(f"Missing data for issue {issue_number} in {repo_name}", "warning")
                     continue
             elif closer['__typename'] == 'PullRequest':
-                search_type = 'CLOSED'
                 pr_number = closer['number']
                 pr_title = closer['title']
                 if closer['author'] is None:
@@ -240,12 +239,13 @@ def get_data(url, repo_name, repo, full_data):
 
                 if not check_commit_existence_pd(f"./repos_dir/{repo}", pr_merge_commit_sha):
                     pr_merge_commit_sha = get_commit_that_references_pr(repo, pr_number, headers, issue_number)
+                
+                tipo = "PR"
 
                 check_rate_limit(headers)
                 headers = get_headers()
                 pr_language = get_pull_request_language(repo, headers, pr_number)
             elif closer['__typename'] == 'Commit':
-                search_type = 'CLOSED'
                 if len(closer['associatedPullRequests']['nodes']) == 0:
                     log_message(f"Commit of issue {issue_number} without associated PR", "error")
                     pr_created_by = closer['author']['user']['login']
@@ -256,6 +256,7 @@ def get_data(url, repo_name, repo, full_data):
                     pr_number = None
                     pr_created_at = None
                     pr_language = None
+                    tipo = "Commit"
                 else:
                     pr_number = closer['associatedPullRequests']['nodes'][0]['number']
                     pr_title = closer['associatedPullRequests']['nodes'][0]['title']
@@ -263,16 +264,12 @@ def get_data(url, repo_name, repo, full_data):
                     pr_created_at = closer['associatedPullRequests']['nodes'][0]['createdAt']
                     pr_merged_at = closer['associatedPullRequests']['nodes'][0]['mergedAt']
                     pr_html_url = closer['associatedPullRequests']['nodes'][0]['url']
-                    if closer['associatedPullRequests']['nodes'][0]['mergeCommit'] is None:
-                        log_message("PR without merge commit - COMMIT", "error")
-                        log_message(f"Issue: {issue_number} in {repo_name}", "error")
-                        merge_commit = get_commit_pr(repo, closer['associatedPullRequests']['nodes'][0]['commits']['nodes'][0]['commit']['oid'], headers)
-                        pr_merge_commit_sha = merge_commit
-                    else:
-                        pr_merge_commit_sha = closer['associatedPullRequests']['nodes'][0]['mergeCommit']['oid']
+                    pr_merge_commit_sha = closer['oid']  
+                    tipo = "Commit"
 
                     if not check_commit_existence_pd(f"./repos_dir/{repo}", pr_merge_commit_sha):
                         pr_merge_commit_sha = get_commit_that_references_pr(repo, pr_number, headers, issue_number)
+                        tipo = "Commit NF - PR"
 
                     check_rate_limit(headers)
                     headers = get_headers()
@@ -299,6 +296,7 @@ def get_data(url, repo_name, repo, full_data):
                 "pr_created_at": pr_created_at,
                 "pr_merged_at": pr_merged_at,
                 "fix_commit_hash": pr_merge_commit_sha,
+                "tipo": tipo
             })
 
         if 'next' in response.links: 
