@@ -238,6 +238,7 @@ def get_data(url, repo_name, repo, full_data):
                     pr_merge_commit_sha = closer['mergeCommit']['oid']
 
                 if not check_commit_existence_pd(f"./repos_dir/{repo}", pr_merge_commit_sha):
+                    log_message(f"PR {pr_number} merge commit does not exist in PyDriller- Issue {issue_number}", "error")
                     pr_merge_commit_sha = get_commit_that_references_pr(repo, pr_number, headers, issue_number)
                 
                 tipo = "PR"
@@ -268,6 +269,7 @@ def get_data(url, repo_name, repo, full_data):
                     tipo = "Commit"
 
                     if not check_commit_existence_pd(f"./repos_dir/{repo}", pr_merge_commit_sha):
+                        log_message(f"Commit {pr_merge_commit_sha} does not exist in PyDriller - Issue {issue_number}", "error")
                         pr_merge_commit_sha = get_commit_that_references_pr(repo, pr_number, headers, issue_number)
                         tipo = "Commit NF - PR"
 
