@@ -44,11 +44,14 @@ def process_file(file_path):
     with open(file_path, "w") as f:
         json.dump(data, f, indent=4)
            
+
+for file in os.listdir("./json/v8"):
+    process_file(f"./json/v8/{file}")
+# process_file("./json/v1/bics_bics_issues_14.json")
+# if __name__ == "__main__":
+#     if len(sys.argv) != 2:
+#         print("Usage: python get_commit_pr.py <file_path>")
+#         sys.exit(1)
     
-if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python get_commit_pr.py <file_path>")
-        sys.exit(1)
-    
-    file_path = sys.argv[1]
-    process_file(file_path)
+#     file_path = sys.argv[1]
+#     process_file(file_path)
