@@ -45,8 +45,8 @@ def process_file(file_path):
         json.dump(data, f, indent=4)
            
 
-for file in os.listdir("./json/v9"):
-    process_file(f"./json/v9/{file}")
+for file in os.listdir("./json/v14"):
+    process_file(f"./json/v14/{file}")
 # process_file("./json/v1/bics_bics_issues_14.json")
 # if __name__ == "__main__":
 #     if len(sys.argv) != 2:
