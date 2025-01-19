@@ -5,7 +5,7 @@ import os
 from pydriller import Git, Repository
 
 def get_commit_data(commit_hash):
-    for commit in Repository("repos_dir/jabref", single=commit_hash).traverse_commits():
+    for commit in Repository(path_to_repo="repos_dir/jabref", single=commit_hash).traverse_commits():
         commit_author = commit.author.name
         commiter = commit.committer.name 
         commit_date = commit.author_date.isoformat()
@@ -22,6 +22,7 @@ def get_commit_data(commit_hash):
         return commit_author, commiter, commit_date, committer_data, changed_files, modified_files, deletions, insertions, lines, dmm_unit_size, dmm_unit_complexity, dmm_unit_interfacing
 
 def process_file(file_path):
+    print(f"Processing {file_path}")
     with open(file_path) as f:
         data = json.load(f)
         
@@ -45,8 +46,9 @@ def process_file(file_path):
         json.dump(data, f, indent=4)
            
 
-for file in os.listdir("./json/v14"):
-    process_file(f"./json/v14/{file}")
+for file in os.listdir("./json/jabref/v4"):
+    # if file.endswith("11.json") or file.endswith("18.json") or file.endswith("28.json") or file.endswith("31.json") or file.endswith("41.json") or file.endswith("48.json") or file.endswith("51.json") or file.endswith("58.json") or file.endswith("61.json") or file.endswith("68.json") or file.endswith("71.json"):
+    process_file(f"./json/jabref/v4/{file}")
 # process_file("./json/v1/bics_bics_issues_14.json")
 # if __name__ == "__main__":
 #     if len(sys.argv) != 2:
