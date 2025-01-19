@@ -46,9 +46,9 @@ def process_file(file_path):
         json.dump(data, f, indent=4)
            
 
-for file in os.listdir("./json/jabref/v4"):
+for file in os.listdir("./json/jabref/v7"):
     # if file.endswith("11.json") or file.endswith("18.json") or file.endswith("28.json") or file.endswith("31.json") or file.endswith("41.json") or file.endswith("48.json") or file.endswith("51.json") or file.endswith("58.json") or file.endswith("61.json") or file.endswith("68.json") or file.endswith("71.json"):
-    process_file(f"./json/jabref/v4/{file}")
+    process_file(f"./json/jabref/v7/{file}")
 # process_file("./json/v1/bics_bics_issues_14.json")
 # if __name__ == "__main__":
 #     if len(sys.argv) != 2:
