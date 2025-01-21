@@ -211,8 +211,9 @@ def get_data(url, repo_name, repo, full_data):
             issue_labels = [label["name"] for label in issue["labels"]]
 
             if check_data(query_response):
-                print(data)
-                print(headers)
+                print(query_response)
+                # print(data)
+                # print(headers)
                 break
 
             if query_response['data']['repository']['issue']['timelineItems']['nodes'] == []:
@@ -324,10 +325,10 @@ def get_issues(repos):
 
         url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=created&order=asc&per_page=100'
         response = requests.get(url)
-        print("-------------------------------")
-        print(url)
-        print(response.status_code)
-        print("-------------------------------")
+        # print("-------------------------------")
+        # print(url)
+        # print(response.status_code)
+        # print("-------------------------------")
         data = response.json()["items"]
         
         start_date = data[0]["created_at"].split("T")[0]
