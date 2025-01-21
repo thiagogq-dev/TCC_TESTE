@@ -215,6 +215,10 @@ def get_data(url, repo_name, repo, full_data):
                 print(headers)
                 break
 
+            if query_response['data']['repository']['issue']['timelineItems']['nodes'] == []:
+                log_message(f"Missing data for issue {issue_number} in {repo_name}", "warning")
+                continue
+
             closer = query_response['data']['repository']['issue']['timelineItems']['nodes'][0]['closer']
 
             if closer is None:
