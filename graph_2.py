@@ -324,6 +324,10 @@ def get_issues(repos):
 
         url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=created&order=asc&per_page=100'
         response = requests.get(url)
+        print("-------------------------------")
+        print(url)
+        print(response)
+        print("-------------------------------")
         data = response.json()["items"]
         
         start_date = data[0]["created_at"].split("T")[0]
