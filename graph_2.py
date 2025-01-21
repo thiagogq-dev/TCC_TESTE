@@ -226,14 +226,14 @@ def get_data(url, repo_name, repo, full_data):
                     continue
             elif closer['__typename'] == 'PullRequest':
                 pr_number = closer['number']
-                pr_title = closer['title']
-                if closer['author'] is None:
-                    pr_created_by = "ghost"
-                else:
-                    pr_created_by = closer['author']['login']
-                pr_created_at = closer['createdAt']
-                pr_merged_at = closer['mergedAt']
-                pr_html_url = closer['url']
+                # pr_title = closer['title']
+                # if closer['author'] is None:
+                #     pr_created_by = "ghost"
+                # else:
+                #     pr_created_by = closer['author']['login']
+                # pr_created_at = closer['createdAt']
+                # pr_merged_at = closer['mergedAt']
+                # pr_html_url = closer['url']
                 if closer['mergeCommit'] is None:
                     log_message(f"PR {pr_number} without merge commit - Issue {issue_number}", "error")
                     merge_commit = get_commit_pr(repo, closer['commits']['nodes'][0]['commit']['oid'], headers)
@@ -249,26 +249,26 @@ def get_data(url, repo_name, repo, full_data):
 
                 check_rate_limit(headers)
                 headers = get_headers()
-                pr_language = get_pull_request_language(repo, headers, pr_number)
+                # pr_language = get_pull_request_language(repo, headers, pr_number)
             elif closer['__typename'] == 'Commit':
                 if len(closer['associatedPullRequests']['nodes']) == 0:
                     log_message(f"Commit of issue {issue_number} without associated PR", "error")
-                    pr_created_by = closer['author']['user']['login']
-                    pr_merged_at = closer['committedDate']
+                    # pr_created_by = closer['author']['user']['login']
+                    # pr_merged_at = closer['committedDate']
                     pr_merge_commit_sha = closer['oid']
-                    pr_title = closer['messageHeadline']
-                    pr_html_url = closer['url']
+                    # pr_title = closer['messageHeadline']
+                    # pr_html_url = closer['url']
                     pr_number = None
-                    pr_created_at = None
-                    pr_language = None
+                    # pr_created_at = None
+                    # pr_language = None
                     tipo = "Commit"
                 else:
                     pr_number = closer['associatedPullRequests']['nodes'][0]['number']
-                    pr_title = closer['associatedPullRequests']['nodes'][0]['title']
-                    pr_created_by = closer['associatedPullRequests']['nodes'][0]['author']['login']
-                    pr_created_at = closer['associatedPullRequests']['nodes'][0]['createdAt']
-                    pr_merged_at = closer['associatedPullRequests']['nodes'][0]['mergedAt']
-                    pr_html_url = closer['associatedPullRequests']['nodes'][0]['url']
+                    # pr_title = closer['associatedPullRequests']['nodes'][0]['title']
+                    # pr_created_by = closer['associatedPullRequests']['nodes'][0]['author']['login']
+                    # pr_created_at = closer['associatedPullRequests']['nodes'][0]['createdAt']
+                    # pr_merged_at = closer['associatedPullRequests']['nodes'][0]['mergedAt']
+                    # pr_html_url = closer['associatedPullRequests']['nodes'][0]['url']
                     pr_merge_commit_sha = closer['oid']  
                     tipo = "Commit"
 
@@ -279,7 +279,7 @@ def get_data(url, repo_name, repo, full_data):
 
                     check_rate_limit(headers)
                     headers = get_headers()
-                    pr_language = get_pull_request_language(repo, headers, pr_number)
+                    # pr_language = get_pull_request_language(repo, headers, pr_number)
             else:
                 log_message(f"Missing data for issue {issue_number} in {repo_name}", "warning")
                 continue
@@ -287,20 +287,20 @@ def get_data(url, repo_name, repo, full_data):
             full_data.append({
                 "repo_name": repo_name,
                 "repo_url": repo,
-                "issue_title": issue["title"],
-                "issue_created_by": issue["user"]["login"],
-                "issue_labels": issue_labels,
-                "issue_number": issue["number"],
-                "issue_html_url": issue["html_url"],
+                # "issue_title": issue["title"],
+                # "issue_created_by": issue["user"]["login"],
+                # "issue_labels": issue_labels,
+                # "issue_number": issue["number"],
+                # "issue_html_url": issue["html_url"],
                 "earliest_issue_date": issue["created_at"],
-                "issue_closed_at": issue["closed_at"],
-                "pr_title": pr_title,
-                "pr_language": pr_language,
-                "pr_created_by": pr_created_by,
-                "pr_number": pr_number,
-                "pr_html_url": pr_html_url,
-                "pr_created_at": pr_created_at,
-                "pr_merged_at": pr_merged_at,
+                # "issue_closed_at": issue["closed_at"],
+                # "pr_title": pr_title,
+                # "pr_language": pr_language,
+                # "pr_created_by": pr_created_by,
+                # "pr_number": pr_number,
+                # "pr_html_url": pr_html_url,
+                # "pr_created_at": pr_created_at,
+                # "pr_merged_at": pr_merged_at,
                 "fix_commit_hash": pr_merge_commit_sha,
                 "tipo": tipo
             })
