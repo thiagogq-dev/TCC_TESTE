@@ -326,7 +326,7 @@ def get_issues(repos):
         response = requests.get(url)
         print("-------------------------------")
         print(url)
-        print(response)
+        print(response.status_code)
         print("-------------------------------")
         data = response.json()["items"]
         
