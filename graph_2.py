@@ -212,7 +212,7 @@ def get_data(url, repo_name, repo, full_data):
 
             if check_data(query_response):
                 print("Error in data")
-                break
+                return full_data, True
 
             if query_response['data']['repository']['issue']['timelineItems']['nodes'] == []:
                 log_message(f"Missing data for issue {issue_number} in {repo_name}", "warning")
@@ -309,7 +309,7 @@ def get_data(url, repo_name, repo, full_data):
         else:
             pages_remaining = False
 
-    return full_data        
+    return full_data, False        
 
    
 def get_issues(repos):
@@ -339,7 +339,9 @@ def get_issues(repos):
             if current_end_date > today:
                 current_end_date = today
             url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed%20created:{current_start_date}..{current_end_date}&per_page=100'
-            full_data = get_data(url, repo_name, repo, full_data)
+            full_data, state = get_data(url, repo_name, repo, full_data)
+            if state:
+                break
             current_start_date = current_end_date + datetime.timedelta(days=1)
 
     if not os.path.exists("json/raw_data"):
