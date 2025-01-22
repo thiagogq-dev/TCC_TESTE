@@ -290,7 +290,7 @@ def get_data(url, repo_name, repo, full_data):
                 # "issue_created_by": issue["user"]["login"],
                 # "issue_labels": issue_labels,
                 # "issue_number": issue["number"],
-                # "issue_html_url": issue["html_url"],
+                "issue_html_url": issue["html_url"],
                 "earliest_issue_date": issue["created_at"],
                 # "issue_closed_at": issue["closed_at"],
                 # "pr_title": pr_title,
