@@ -172,10 +172,13 @@ def get_commit_that_references_pr(repo_path, pr_number, headers, issue):
 
     if 'errors' in data:
         print(f"Error in get_commit_that_references_pr for {pr_number} - issue {issue}")
-        print(data)
+        # print(data)
         return None
     if 'data' in data and data['data']['repository']['pullRequest']['timelineItems']['nodes'] != []:
-        return data['data']['repository']['pullRequest']['timelineItems']['nodes'][0]['commit']['oid']
+        commit_node = data['data']['repository']['pullRequest']['timelineItems']['nodes'][0]['commit']
+        if commit_node:
+            return commit_node['oid']
+        # return data['data']['repository']['pullRequest']['timelineItems']['nodes'][0]['commit']['oid']
     return None
 
 def get_commit_pr(repo_path, commit_hash, headers):

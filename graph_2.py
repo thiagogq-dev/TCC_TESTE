@@ -211,9 +211,8 @@ def get_data(url, repo_name, repo, full_data):
             issue_labels = [label["name"] for label in issue["labels"]]
 
             if check_data(query_response):
-                print(query_response)
-                # print(data)
-                # print(headers)
+                print(data)
+                print(headers)
                 break
 
             if query_response['data']['repository']['issue']['timelineItems']['nodes'] == []:
