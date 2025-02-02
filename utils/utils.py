@@ -418,7 +418,7 @@ def indent_file(filename):
     with open(filename, "w") as f:
         json.dump(data, f, indent=4)
 
-def split_json_file(input_file, output_prefix, max_items_per_file=20):
+def split_json_file(input_file, output_prefix, max_items_per_file=10):
     with open(input_file, 'r') as f:
         data = json.load(f)
 
