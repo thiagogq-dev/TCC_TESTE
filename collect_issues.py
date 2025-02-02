@@ -319,6 +319,7 @@ def get_issues(repos):
         repo_name = repo.split("/")[1]
 
         if not os.path.exists(f"repos_dir/{repo}"):
+            print(f"Cloning {repo}")
             os.system(f"git clone https://github.com/{repo}.git repos_dir/{repo}")
 
         url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=created&order=asc&per_page=100'
