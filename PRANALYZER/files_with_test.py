@@ -8,13 +8,11 @@ from github import Github
 from github import Auth
 
 API_TOKENS = [
-    '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',
-    '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',
-    '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'
 ]
 
 
-token_pygithub = "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"
+token_pygithub = ""
+
 g = Github(token_pygithub)
 
 repo = g.get_repo("elastic/elasticsearch")
@@ -84,40 +82,36 @@ def run_pr_analizer_bigger(commit_sha, file_type):
 
     return files_with_test, len(files)
 
-proibidos = ["v2", "v5", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23", "v24", "v25", "v26", "v27", "v28", "v29", "v30"]
 for folder in os.listdir('./json/elastic/'):
-    if folder in proibidos:
-        continue
-    else:
-        for file in os.listdir(f'./json/elastic/{folder}'):
-            with open(f'./json/elastic/{folder}/{file}') as f:
-                print(f'Processing ./json/elastic/{folder}/{file}')
-                data = json.load(f)
-                for record in data:
-                    if record["changed_files"] > 300:
-                        commit_hash = record["fix_commit_hash"]
-                        files_with_tests, files = run_pr_analizer_bigger(commit_hash, "JAVA")
-                        record["files_with_tests"] = files_with_tests
-                        print(f"Files Lib: {files} - Files PD: {record['changed_files']}")
-                    else:
+    for file in os.listdir(f'./json/elastic/{folder}'):
+        with open(f'./json/elastic/{folder}/{file}') as f:
+            print(f'Processing ./json/elastic/{folder}/{file}')
+            data = json.load(f)
+            for record in data:
+                if record["changed_files"] > 300:
+                    commit_hash = record["fix_commit_hash"]
+                    files_with_tests, files = run_pr_analizer_bigger(commit_hash, "JAVA")
+                    record["files_with_tests"] = files_with_tests
+                    print(f"Files Lib: {files} - Files PD: {record['changed_files']}")
+                else:
 
+                    header = get_headers()
+                    commit_hash = record["fix_commit_hash"]
+                    response = requests.get(f'https://api.github.com/repos/elastic/elasticsearch/commits/{commit_hash}', headers=get_headers())
+                    print(response.status_code)
+
+                    if response.status_code == 403:
+                        switch_token()
+                        attempted_tokens += 1
                         header = get_headers()
-                        commit_hash = record["fix_commit_hash"]
-                        response = requests.get(f'https://api.github.com/repos/elastic/elasticsearch/commits/{commit_hash}', headers=get_headers())
-                        print(response.status_code)
+                        response = requests.get(f'https://api.github.com/repos/elastic/elasticsearch/commits/{commit_hash}', headers=header)
 
-                        if response.status_code == 403:
-                            switch_token()
-                            attempted_tokens += 1
-                            header = get_headers()
-                            response = requests.get(f'https://api.github.com/repos/elastic/elasticsearch/commits/{commit_hash}', headers=header)
+                    response_data = response.json()
+                    files_with_tests = run_pr_analizer(response_data, "JAVA", commit_hash)
+                    record["files_with_tests"] = files_with_tests
 
-                        response_data = response.json()
-                        files_with_tests = run_pr_analizer(response_data, "JAVA", commit_hash)
-                        record["files_with_tests"] = files_with_tests
-
-            with open(f'./json/elastic/{folder}/{file}', "w") as f:
-                json.dump(data, f, indent=4)
+        with open(f'./json/elastic/{folder}/{file}', "w") as f:
+            json.dump(data, f, indent=4)
 
 # def process_file(file_path):
 #     global attempted_tokens
