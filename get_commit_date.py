@@ -10,7 +10,7 @@ def get_commit_date(json_file, repo):
         data = json.load(f)
         for d in data:
            commit_hash = d["fix_commit_hash"]
-           for commit in Repository("repos_dir/elasticsearch", single=commit_hash).traverse_commits():
+           for commit in Repository("repos_dir/jabref", single=commit_hash).traverse_commits():
                 new_date = commit.author_date + timedelta(seconds=60)
                 d["best_scenario_issue_date"] = new_date.isoformat()  # Salva como string em ISO 8601
 
