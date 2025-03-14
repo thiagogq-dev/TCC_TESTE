@@ -8,10 +8,13 @@ from github import Github
 from github import Auth
 
 API_TOKENS = [
+    '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',
+    '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',
+    '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'
 ]
 
 
-token_pygithub = ""
+token_pygithub = "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"
 
 g = Github(token_pygithub)
 
