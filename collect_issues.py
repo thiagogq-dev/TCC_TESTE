@@ -71,7 +71,6 @@ graph_ql_url = 'https://api.github.com/graphql'
 
 def define_query(issue_number, repo):
     owner, name = repo.split("/")
-
     query = f'''
         {{
             repository(name: "{name}", owner: "{owner}") {{
