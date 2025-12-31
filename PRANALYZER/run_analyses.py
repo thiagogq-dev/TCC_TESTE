@@ -1,36 +1,13 @@
 import json
-import os
-import csv
 from PRAnalizer import PRAnalizer
-import sys
-import requests
+from pydriller import Repository
 
-API_TOKENS = [
-    os.getenv('API_TOKEN_1'),
-    os.getenv('API_TOKEN_2'),
-    os.getenv('API_TOKEN_3'),
-    os.getenv('API_TOKEN_4'),
-    os.getenv('API_TOKEN_5'),
-    os.getenv('API_TOKEN_6'),
-    os.getenv('API_TOKEN_7'),
-    os.getenv('API_TOKEN_8'),
-    os.getenv('API_TOKEN_9'),
-    os.getenv('API_TOKEN_10')
-]
+repo_url = "../repos_dir/jabref"
 
-token_index = 0
-attempted_tokens = 0
-
-def get_headers():
-    return {
-        'Authorization': f'token {API_TOKENS[token_index]}'
-    }
-
-def switch_token():
-    global token_index
-    token_index = (token_index + 1) % len(API_TOKENS)
-
-repo_url = "repos_dir/jabref"
+allowed_extensions = {
+    'py': 'Python',
+    'java': 'JAVA'
+}
 
 def check_test_changes(tests):
     test_changes = tests['removed'] + tests['added'] + tests['others']
@@ -38,54 +15,47 @@ def check_test_changes(tests):
         return "Yes"
     return "No"
 
-def run_pr_analizer(data, file_type):
-    analizer = PRAnalizer(file_type)
-    dadosDoPR  = analizer.retornaEstrutura();
-    print(data)
-    for file in data['files']:
-        itensAlterados = file['patch']
-        aux = itensAlterados.split("\n")
+def run_pr_analizer(commit_sha):
+    files_with_test = 0
+    real_code_files = 0
+    
+    for commit in Repository(repo_url, single=commit_sha).traverse_commits():
+        for modified_file in commit.modified_files:
+            if modified_file is None:
+               continue
+            file_extension = modified_file.filename.split(".")[-1]
+            print(file_extension)
+            if file_extension not in allowed_extensions:
+                continue
+            real_code_files += 1
+            language = allowed_extensions.get(file_extension)
+            analizer = PRAnalizer(language)
+            dadosDoPR  = analizer.retornaEstrutura();
+            diff = modified_file.diff.split("\n")
+            for line in diff:
+                if analizer.checkIfModifier(line.strip()):
+                     result = analizer.verify(line.strip())
+                     modifierType = analizer.checkModifierType(line.strip())
+                     dadosDoPR[result][modifierType] += 1
+                     dadosDoPR['all'][modifierType] += 1
 
-        for item in aux:
-            if(analizer.checkIfModifier(item.strip())):
-                result 			= analizer.verify(item.strip())
-                # print(item.strip() + "    "+ result)
-                modifierType 	= analizer.checkModifierType(item.strip())
-                dadosDoPR[result][modifierType] += 1
-                dadosDoPR['all'][modifierType] += 1
-                
-    return dadosDoPR
+            if check_test_changes(dadosDoPR['tests']) == "Yes":
+                files_with_test += 1
+
+    return files_with_test, real_code_files
 
 
 def process_file(file_path):
-    global attempted_tokens
     with open(file_path) as f:
         data = json.load(f)
-        
-        for record in data: 
-            while attempted_tokens < len(API_TOKENS):
-                header = get_headers()
-                commit_hash = record["fix_commit_hash"]
-                response = requests.get(f'https://api.github.com/repos/JabRef/jabref/commits/{commit_hash}', headers=header)
-
-                if response.status_code == 403:
-                    switch_token()
-                    attempted_tokens += 1
-                    header = get_headers()
-                    response = requests.get(f'https://api.github.com/repos/JabRef/jabref/commits/{commit_hash}', headers=header)
-
-            data = response.json()
-            fix_analyses = run_pr_analizer(data, "JAVA")
-            test_changes = fix_analyses['tests']
-            record["test_changes"] = check_test_changes(test_changes)
+        for record in data:
+            fix = record["fix_commit_hash"]
+            files_with_test, real_code_files = run_pr_analizer(fix)
+            record["files_with_test"] = files_with_test
+            record["has_tests"] = "Yes" if files_with_test > 0 else "No"
+            record["real_code_files"] = real_code_files
 
     with open(file_path, "w") as f:
         json.dump(data, f, indent=4)
 
-if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python get_commit_pr.py <file_path>")
-        sys.exit(1)
-    
-    file_path = sys.argv[1]
-    process_file(file_path)
+process_file("../data/issues.json")
