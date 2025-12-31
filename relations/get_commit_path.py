@@ -1,31 +1,25 @@
 import json
 
-with open('../json/consolidated_data.json') as f:
+with open('../data/issues.json') as f:
     bics = json.load(f)
     path = []
 
     for data in bics:
-        bic_pyszz = []
-        bic_pd = []
         bic = []
-        repository = data['repo_url']
+        repository = data['repo_name']
         fix_commit = data['fix_commit_hash']
 
         for d in bics:
-            # if fix_commit in d['inducing_commit_hash_pyszz']:
-            #      bic_pyszz.append(d["fix_commit_hash"])
-            # if fix_commit in d['inducing_commit_hash_pd']:
-            #     bic_pd.append(d["fix_commit_hash"])
             # se o commit de correção está contido na lista de commits que causaram o bug
-            if fix_commit in d['matched']:
-                bic.append(d["fix_commit_hash"]) # adiciona o commit de correção do fix_commit na lista 
+            # adiciona o commit que consertou o erro introduzido pelo commit de correção
+            if fix_commit in d['bic']:
+                bic.append(d["fix_commit_hash"])
 
         path.append({
-            "Repository": repository, # repositório
-            "fix_commit": fix_commit, # commit de correção
-            "Fix in BIC": bic # lista que consertaram o erro introduzido pelo commit de correção
-            # "Fix in BIC pyszz": bic_pyszz,
-            # "Fix in BIC pydriller": bic_pd
+            "Repository": repository, 
+            "bug_causer": fix_commit, 
+            "fixed_by": bic, # lista que consertaram o erro introduzido pelo commit de correção
+            "has_tests": data["has_tests"]
         })
 
     with open('commit_path.json', 'w') as f:

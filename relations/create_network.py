@@ -29,25 +29,22 @@ net = Network(
 )
 
 for item in data:
-    # if len(item["Fix in BIC pyszz"]) == 0 and len(item["Fix in BIC pydriller"]) == 0:
-    #     continue
-    if len(item["Fix in BIC"]) == 0:
+    if len(item["fixed_by"]) == 0:
         continue
-    fix_commit = item["fix_commit"]
-    fix_data = get_data_in_json("../json/consolidated_data.json", fix_commit)
+    fix_commit = item["bug_causer"]
+    fix_data = get_data_in_json("../data/issues.json", fix_commit)
     net.add_node(
         fix_commit, 
         label=fix_commit, 
         color=generate_ramdom_color(), 
-        title=f"Repository: {fix_data['repo_url']}\n Issue Fix: {fix_data['issue_number']} \n  PR Fix: {fix_data['pr_number']} \n Fix Commit: {fix_data['fix_commit_hash']}"
+        title=f"Repository: {fix_data['repo_url']}\n Issue Fix: {fix_data['issue_number']} \n  Fix Commit: {fix_data['fix_commit_hash']}"
     )
 
-    # for bic in item["Fix in BIC pyszz"] + item["Fix in BIC pydriller"]:
-    for bic in item["Fix in BIC"]:
+    for bic in item["fixed_by"]:
         edge_key = (fix_commit, bic)
         if edge_key not in existing_edges:
-            data = get_data_in_json("../json/consolidated_data.json", bic)
-            net.add_node(bic, label=bic, title=f"Repository: {data['repo_url']}\n Issue Fix: {data['issue_number']} \n  PR Fix: {data['pr_number']} \n Fix Commit: {data['fix_commit_hash']}")
+            data = get_data_in_json("../data/issues.json", bic)
+            net.add_node(bic, label=bic, title=f"Repository: {data['repo_url']}\n Issue Fix: {data['issue_number']} \n  Fix Commit: {data['fix_commit_hash']}")
             net.add_edge(fix_commit, bic, arrowStrikethrough=False)
             existing_edges.add(edge_key)
 
