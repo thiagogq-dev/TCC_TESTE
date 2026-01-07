@@ -371,8 +371,8 @@ def main():
     sections.append(("Metrics averages per level", "\n".join(lines)))
 
     # Write summary
-    write_summary_text("analyses_summary.txt", sections)
-    print("Analyses complete. Summary: analyses_summary.txt and PNGs saved in current folder.")
+    write_summary_text("depth'_summary.txt", sections)
+    print("Analyses complete. Summary: depth_summary.txt and PNGs saved in current folder.")
 
 
 if __name__ == "__main__":

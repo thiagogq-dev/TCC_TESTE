@@ -50,6 +50,42 @@ query ($owner: String!, $name: String!, $after: String) {
 }
 """
 
+COMMIT_REFERENCES_PR = """
+query ($owner: String!, $name: String!, $prNumber: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $prNumber) {
+      timelineItems(itemTypes: REFERENCED_EVENT, last: 1) {
+        nodes {
+          ... on ReferencedEvent {
+            commit {
+              oid
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+COMMIT_REFERENCES_ISSUE = """
+query ($owner: String!, $name: String!, $issueNumber: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $issueNumber) {
+      timelineItems(itemTypes: REFERENCED_EVENT, last: 1) {
+        nodes {
+          ... on ReferencedEvent {
+            commit {
+              oid
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
 REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY = """
 query ($owner: String!, $name: String!, $after: String) {
   repository(owner: $owner, name: $name) {

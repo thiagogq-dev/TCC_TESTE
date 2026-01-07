@@ -1,178 +1,49 @@
 from collections import defaultdict
 import json
-import re
 import requests
 import glob
 from pydriller import Git, Repository
-
-# COMMITS MANIPULATION
-def check_commit_existence(repo_path, commit_hash, headers):
-    url = f"https://api.github.com/repos/{repo_path}/commits/{commit_hash}"
-    response = requests.get(url, headers=headers)
-
-    if response.status_code == 422:
-        return False
-
-    return True
-
-def check_commit_existence_pd(repo_path, commit_hash):
-    gr = Git(repo_path)
-    try:
-        commit = gr.get_commit(commit_hash)
-    except Exception as e:
-        print(f"Error: {e}")
-        return False
-
-    return True
-
+from datetime import timedelta
+from bisect import bisect_right
+from utils.queries import COMMIT_REFERENCES_PR, COMMIT_REFERENCES_ISSUE
 
 def get_commit_that_references_issue(repo_path, issue_number, headers):
     owner, name = repo_path.split("/")
     graphql_url = 'https://api.github.com/graphql'
 
-    query = f'''
-    {{
-        repository(name: "{name}", owner: "{owner}") {{
-            issue(number: {issue_number}) {{
-                timelineItems(itemTypes: REFERENCED_EVENT, last: 1) {{
-                    nodes {{
-                        ... on ReferencedEvent {{
-                            commit {{
-                                oid
-                                url
-                                committedDate
-                                messageHeadline
-                                author {{
-                                    user {{
-                                        login
-                                    }}
-                                }}
-                                associatedPullRequests(first: 1) {{
-                                    nodes {{
-                                        number
-                                        title
-                                        createdAt
-                                        mergedAt
-                                        url
-                                        mergeCommit {{
-                                            oid
-                                        }}
-                                        author {{
-                                            login
-                                        }}
-                                    }}
-                                }}
-                            }}
-                        }}
-                    }}
-                }}
-            }}
-        }}
-    }}
-    '''
-
-    response = requests.post(graphql_url, json={'query': query}, headers=headers)
+    query = {
+        "query": COMMIT_REFERENCES_ISSUE,
+        "variables": {
+            "owner": owner,
+            "name": name,
+            "issueNumber": issue_number
+        }
+    }
+    response = requests.post(graphql_url, json=query, headers=headers)
     data = response.json()
 
     if 'data' in data and data['data']['repository']['issue']['timelineItems']['nodes'] != []:
-        return data['data']['repository']['issue']['timelineItems']['nodes'][0]['commit']
+        return data['data']['repository']['issue']['timelineItems']['nodes'][0]['commit']['oid']
     return None
 
 
-def get_pr_from_issue_comments(repo_path, issue_number, headers):
-    
-    owner, name = repo_path.split("/")
-    url = 'https://api.github.com/graphql'
-
-    query = f"""
-    {{
-        repository(owner: "{owner}", name: "{name}") {{
-            issue(number: {issue_number}) {{
-            title
-                comments(last: 100) {{
-                    edges {{
-                        node {{
-                            body
-                        }}
-                    }}
-                }}
-            }}
-        }}
-    }}
-    """
-
-    response = requests.post(url, json={'query': query}, headers=headers)
-    data = response.json()
-
-    possible_prs = []
-
-    for comment in data["data"]["repository"]["issue"]["comments"]["edges"]:
-        pr = re.findall(r"#\d+", comment["node"]["body"])
-        possible_prs.extend(pr)
-
-    possible_prs = list(set(possible_prs))
-
-    for pr in possible_prs:
-        pr_number = pr.replace("#", "")
-
-    pr_query = f"""
-    {{
-      repository(owner: "{owner}", name: "{name}") {{
-        pullRequest(number: {pr_number}) {{
-          state
-          merged
-          createdAt
-          mergedAt
-          mergeCommit {{
-            oid
-          }}
-          url
-          title
-          author {{
-            login 
-          }}
-        }}
-      }}
-    }}
-    """
-
-    pr_response = requests.post(url, json={'query': pr_query}, headers=headers)
-    pr_data = pr_response.json()
-
-    if 'data' in pr_data and pr_data['data']['repository']['pullRequest']['state'] == "MERGED" or pr_data['data']['repository']['pullRequest']['merged']:
-        return pr_data['data']['repository']['pullRequest']
-    else:
-        return None
-
-
-def get_commit_that_references_pr(repo_path, pr_number, headers, issue):
+def get_commit_that_references_pr(repo_path, pr_number, headers):
     owner, name = repo_path.split("/")
     graphql_url = 'https://api.github.com/graphql'
 
-    query3 = f'''
-    {{
-        repository(name: "{name}", owner: "{owner}") {{
-            pullRequest(number: {pr_number}) {{
-                timelineItems(itemTypes: REFERENCED_EVENT, last: 1) {{
-                    nodes {{
-                        ... on ReferencedEvent {{
-                            commit {{
-                                oid
-                            }}
-                        }}
-                    }}
-                }}
-            }}
-        }}
-    }}
-    '''
+    query = {
+        "query": COMMIT_REFERENCES_PR,
+        "variables": {
+            "owner": owner,
+            "name": name,
+            "prNumber": pr_number
+        }
+    }
 
-    response = requests.post(graphql_url, json={'query': query3}, headers=headers)
+    response = requests.post(graphql_url, json=query, headers=headers)
     data = response.json()
 
     if 'errors' in data:
-        print(f"Error in get_commit_that_references_pr for {pr_number} - issue {issue}")
-        # print(data)
         return None
     if 'data' in data and data['data']['repository']['pullRequest']['timelineItems']['nodes'] != []:
         commit_node = data['data']['repository']['pullRequest']['timelineItems']['nodes'][0]['commit']
@@ -231,51 +102,11 @@ def get_pr_that_mentions_issue(repo_path, issue_number, headers):
     data = response.json()
     return data["data"]["repository"]["issue"]["timelineItems"]["nodes"][0]["subject"]["number"]
 
-
-def match_bics(bics, bics2):
-    matched = []
-
-    for bic in bics:
-       if bic in bics2:
-           matched.append(bic)
-
-    return matched
-
-
-# SELECT THE MAIN LANGUAGE OF THE PULL REQUEST
-def get_pull_request_language(repo, headers, pr_number):
-    url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files"
-    response = requests.get(url, headers=headers)
-
-    if response.status_code != 200:
-        return None
-
-    data = response.json()
-
-    file_changes = defaultdict(int)
-    for file in data:
-        file_extension = file["filename"].split(".")[-1]
-        file_changes[file_extension] += file["additions"] + file["deletions"] + file["changes"]
-
-    if max(file_changes, key=file_changes.get) == "js":
-        return "Javascript"
-    elif max(file_changes, key=file_changes.get) == "rb":
-        return "Ruby"
-    elif max(file_changes, key=file_changes.get) == "py":
-        return "Python"
-    elif max(file_changes, key=file_changes.get) == "java":
-        return "JAVA"
-    else:
-        return "JAVA"
-
-    return max(file_changes, key=file_changes.get) 
-
-
-# JSON MANIPULATION
-def remove_duplicates(input_file, output_file):
+def remove_duplicates(input_file):
     with open(input_file, 'r') as f:
         data = json.load(f)
-    
+
+    tam = len(data)
     seen = set()
     unique_data = []
 
@@ -284,60 +115,10 @@ def remove_duplicates(input_file, output_file):
         if identifier not in seen:
             seen.add(identifier)
             unique_data.append(item)
-
-    with open(output_file, 'w') as f:
+    
+    print(f'Removed {tam - len(unique_data)} duplicate items.')
+    with open(input_file, 'w') as f:
         json.dump(unique_data, f, indent=4)
-
-
-def format(filename):
-    with open(filename, 'r') as f:
-        data = json.load(f)
-
-    formatted_data = []
-    for item in data:  
-        if "inducing_commit_hash_pyszz" not in item:
-            print(f"Skipping {item['repo_name']} - {item['issue_title']}")
-            item["inducing_commit_hash_pyszz"] = "-"
-        formatted_item = {
-            "repo_name": item["repo_name"],
-            "repo_url": item["repo_url"],
-            "Issue Title": item["issue_title"],
-            "Issue Created By": item["issue_created_by"],
-            "Issue Number": item["issue_number"],
-            "Issue URL": item["issue_html_url"],
-            "Issue Creation Date": item["issue_created_at"],
-            "Issue Closing Date": item["issue_closed_at"],
-            "PR Title": item["pr_title"],
-            "PR Language": item["pr_language"],
-            "PR Created By": item["pr_created_by"],
-            "PR Number": item["pr_number"],
-            "PR URL": item["pr_html_url"],
-            "PR Created At": item["pr_created_at"],
-            "PR Merged At": item["pr_merged_at"],
-            "PR Last Commit SHA": item["pr_last_commit_sha"],
-            "fix_commit_hash": item["fix_commit_hash"],
-            "inducing_commit_hash_pyszz": item["inducing_commit_hash_pyszz"]
-        }
-
-        formatted_data.append(formatted_item)
-
-    with open(filename, 'w') as f:
-        json.dump(formatted_data, f, indent=4)
-
-
-def remove_null_fixes(json_file):
-    with open(json_file) as f:
-        data = json.load(f)
-        to_remove = []
-        for d in data:
-            if d["fix_commit_hash"] is None:
-                to_remove.append(d)
-
-        for d in to_remove:
-            data.remove(d)
-            
-    with open(json_file, 'w') as f:
-        json.dump(data, f, indent=4)
 
 
 def is_empty_or_dash(value):
@@ -345,61 +126,16 @@ def is_empty_or_dash(value):
         return True
     return False
 
-def remove_empty_bug_hashs(json_file):
-    with open(json_file) as f:
-        data = json.load(f)
-        to_remove = []
-        remover = 0
-        for d in data:
-            if is_empty_or_dash(d["inducing_commit_hash_pyszz"]) and is_empty_or_dash(d["inducing_commit_hash_pd"]):
-                remover += 1
-                to_remove.append(d)
-
-        print(f"Removed {remover} items")
-
-        for d in to_remove:
-            data.remove(d)
-            
-    with open(json_file, 'w') as f:
-        json.dump(data, f, indent=4)
-
-def update_matched(json_file):
-    with open(json_file) as f:
-        data = json.load(f)
-
-    for d in data:
-        if not is_empty_or_dash(d["inducing_commit_hash_pyszz"]) and not is_empty_or_dash(d["inducing_commit_hash_pd"]):
-            d["matched"] =d["inducing_commit_hash_pyszz"]
-        elif is_empty_or_dash(d["inducing_commit_hash_pyszz"]) and not is_empty_or_dash(d["inducing_commit_hash_pd"]):
-            value = d["inducing_commit_hash_pd"][0]
-            d["matched"] = [value]
-        elif not is_empty_or_dash(d["inducing_commit_hash_pyszz"]) and is_empty_or_dash(d["inducing_commit_hash_pd"]):
-            d["matched"] = d["inducing_commit_hash_pyszz"]
-        else:
-            d["matched"] = []
-
-        d.pop("inducing_commit_hash_pyszz", None)
-        d.pop("inducing_commit_hash_pd", None)
-
-    with open(json_file, 'w') as f:
-        json.dump(data, f, indent=4)
-
-
-def update_matched_v2(pyszz, pd, matched):
-    result = []
-    if matched == []:
-        if not is_empty_or_dash(pyszz) and not is_empty_or_dash(pd):
-            result = pyszz
-        elif is_empty_or_dash(pyszz) and not is_empty_or_dash(pd):
-            result = [pd[0]]
-        elif not is_empty_or_dash(pyszz) and is_empty_or_dash(pd):
-            result = pyszz
+def define_bic(rszz, pdszz):
+    if not is_empty_or_dash(rszz):
+       bic = rszz
+    elif not is_empty_or_dash(pdszz):
+        value = pdszz[0]
+        bic = [value]
     else:
-        result = matched
+       bic = []
 
-    return result
-    
-    
+    return bic
     
 def remove_non_existing_commits(filename):
     with open(filename) as f:
@@ -410,13 +146,6 @@ def remove_non_existing_commits(filename):
     with open(filename, 'w') as f:
         json.dump(new_data, f, indent=4)
 
-
-def indent_file(filename):
-    with open(filename) as f:
-        data = json.load(f)
-
-    with open(filename, "w") as f:
-        json.dump(data, f, indent=4)
 
 def split_json_file(input_file, output_prefix, max_items_per_file=10):
     with open(input_file, 'r') as f:
@@ -433,21 +162,142 @@ def split_json_file(input_file, output_prefix, max_items_per_file=10):
             json.dump(chunk, f, indent=4)
         print(f"File {output_file} created with {len(chunk)} items.")
               
-
-
 def merge_files(folder_path, output_path):
     json_files = glob.glob(folder_path + "/*.json")
-    
     combined_data = []
-
     for file in json_files:
         with open(file, 'r') as f:
             data = json.load(f)
             print(f'Processing {file} with {len(data)} items')
             combined_data.extend(data)
-
-
     print(f'Combined data has {len(combined_data)} items')
     with open(output_path, 'w') as f:
         json.dump(combined_data, f, indent=4)
 
+def group_file_by_fix(input_file, output_file = None):
+    """
+    Agrupa os registros de um arquivo JSON pelo hash do commit de correção (fix_commit_hash).
+    Evita duplicatas de 'bic' para cada commit de correção.
+    
+    :param input_file: Caminho para o arquivo JSON de entrada.
+    :param output_file: Caminho para o arquivo JSON de saída.
+    """
+    with open(input_file, "r") as f:
+        data = json.load(f)
+
+    grouped_data = {}
+
+    for record in data:
+        fix_hash = record["fix_commit_hash"]
+        
+        if fix_hash not in grouped_data:
+            grouped_data[fix_hash] = record
+            grouped_data[fix_hash]["bic"] = set(record["bic"])
+        else:
+            grouped_data[fix_hash]["bic"].update(record["bic"])
+
+    result = [
+        {**values, "bic": list(values["bic"])}
+        for values in grouped_data.values()
+    ]
+    output_file = output_file or input_file 
+    with open(output_file, "w") as f:
+        json.dump(result, f, indent=4)
+
+def get_commit_date(json_file, repo_name):
+    """Adiciona a data do commit no cenário ideal para cada issue no arquivo JSON.
+    
+    Args:
+        json_file (str): Caminho para o arquivo JSON contendo os dados das issues.
+    """
+    with open(json_file) as f:
+        data = json.load(f)
+        for d in data:
+           commit_hash = d["fix_commit_hash"]
+           for commit in Repository(f"repos_dir/{repo_name}", single=commit_hash).traverse_commits():
+                new_date = commit.author_date + timedelta(seconds=60)
+                d["best_scenario_issue_date"] = new_date.isoformat()  # Salva como string em ISO 8601
+
+    with open(json_file, 'w') as f:
+        json.dump(data, f, indent=4)
+
+def is_commit_valid(repo_path, commit_hash):
+    """
+    Verifica se o commit existe no repositório e não é um commit de merge.
+
+    Args:
+        repo_path (str): Caminho para o repositório local.
+        commit_hash (str): Hash do commit a ser verificado.
+
+    Returns:
+        bool: True se o commit existe e não é um merge, False caso contrário.
+    """
+    gr = Git(repo_path)
+    try:
+        commit = gr.get_commit(commit_hash)
+        if commit.merge:
+            return False, "Commit é um merge"
+    except Exception:
+        return False, "Commit não encontrado"
+
+    return True, "Commit válido"
+
+def get_commit_data(commit_hash):
+    for commit in Repository(path_to_repo="repos_dir/jabref", single=commit_hash).traverse_commits():        
+        data = {
+            "commit_author": commit.author.name,
+            "committer": commit.committer.name,
+            "commit_date": commit.author_date.isoformat(),
+            "committer_date": commit.committer_date.isoformat(),
+            "changed_files": commit.files,
+            "deletions": commit.deletions,
+            "insertions": commit.insertions,
+            "lines": commit.lines,
+            "dmm_unit_size": commit.dmm_unit_size,
+            "dmm_unit_complexity": commit.dmm_unit_complexity,
+            "dmm_unit_interfacing": commit.dmm_unit_interfacing
+        }
+        
+        return data
+
+
+# -----------------------------
+# Shared helpers for contributor activity
+# -----------------------------
+def preload_commits_index(repo_path="repos_dir/jabref"):
+    """Return two maps: commit_date and author_commits (sorted lists).
+
+    commit_date: {commit_hash: datetime}
+    author_commits: {author_name: [datetime, ...]}
+    """
+    commit_date = {}
+    author_commits = defaultdict(list)
+
+    try:
+        for commit in Repository(repo_path).traverse_commits():
+            commit_date[commit.hash] = commit.author_date
+            author_commits[commit.author.name].append(commit.author_date)
+    except Exception:
+        # fallback: return empty maps if repo not available or pydriller missing
+        return {}, defaultdict(list)
+
+    for author in author_commits:
+        author_commits[author].sort()
+
+    return commit_date, author_commits
+
+
+def get_commit_date_from_index(fix_commit, commit_date_map):
+    """Return the date to use as 'fix_date' (one day before author_date) or None."""
+    d = commit_date_map.get(fix_commit)
+    if not d:
+        return None
+    return d - timedelta(days=1)
+
+
+def get_contributor_activity_from_index(author, fix_date, author_commits_map):
+    """Return number of commits by `author` up to `fix_date` (inclusive)."""
+    if fix_date is None:
+        return 0
+    dates = author_commits_map.get(author, [])
+    return bisect_right(dates, fix_date)
