@@ -2,6 +2,7 @@ import os
 import json
 from utils.utils import get_commit_date_v2
 import dotenv
+from utils.utils import split_json_file
 
 dotenv.load_dotenv()
 
@@ -29,3 +30,6 @@ for file in os.listdir('./bics'):
 
         with open(f'data/data.json', 'w') as f:
             json.dump(data_file, f, indent=4)
+
+
+split_json_file('data/data.json', f'data/{REPO_NAME}', max_items_per_file=40)
