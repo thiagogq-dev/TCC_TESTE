@@ -1,6 +1,5 @@
 import os
 import json
-from utils.utils import get_commit_date_v2
 import dotenv
 from utils.utils import split_json_file
 
@@ -20,11 +19,9 @@ for file in os.listdir('./bics'):
                 if len(d.get('bic')) > 0:
                     repo_name = d.get('repo_name').split('/')[-1]
                     fix_commit_hash = d.get('bic')[-1]
-                    best_scenario_issue_date = get_commit_date_v2(fix_commit_hash, REPO_NAME)
                     usable_bic = {
                         'repo_name': d.get('repo_name'),
                         'fix_commit_hash': fix_commit_hash,
-                        'best_scenario_issue_date': best_scenario_issue_date
                     }
                     data_file.append(usable_bic)
 
