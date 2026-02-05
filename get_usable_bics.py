@@ -28,4 +28,4 @@ for file in os.listdir('./bics'):
         with open(f'data/data.json', 'w') as f:
             json.dump(data_file, f, indent=4)
 
-split_json_file('data/data.json', f'data/{REPO_NAME}', 1)
+split_json_file('data/data.json', f'data/{REPO_NAME}', 40)
