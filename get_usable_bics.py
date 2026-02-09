@@ -9,10 +9,12 @@ REPO_NAME = 'pulsar'
 
 print(f'Getting usable BICs for {REPO_NAME}...')
 
+FOLDER_PATH = './bics'
+
 data_file = []
-for file in os.listdir('./bics'):
+for file in os.listdir(FOLDER_PATH):
     if file.endswith('.json'):
-        with open(os.path.join('./bics', file), 'r') as f:
+        with open(os.path.join(FOLDER_PATH, file), 'r') as f:
             data = json.load(f)
         
             for d in data:
