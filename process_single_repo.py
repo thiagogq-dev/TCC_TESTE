@@ -12,8 +12,26 @@ import argparse
 import json
 import os
 import sys
-from utils.utils import get_commit_data 
+from pydriller import Git, Repository
 
+def get_commit_data(commit_hash, repo_name):
+    for commit in Repository(path_to_repo=f"repos_dir/{repo_name}", single=commit_hash).traverse_commits():        
+        data = {
+            "commit_author": commit.author.name,
+            "committer": commit.committer.name,
+            "commit_date": commit.author_date.isoformat(),
+            "committer_date": commit.committer_date.isoformat(),
+            "changed_files": commit.files,
+            "deletions": commit.deletions,
+            "insertions": commit.insertions,
+            "lines": commit.lines,
+            "dmm_unit_size": commit.dmm_unit_size,
+            "dmm_unit_complexity": commit.dmm_unit_complexity,
+            "dmm_unit_interfacing": commit.dmm_unit_interfacing
+        }
+        
+        return data
+    
 DATA_FOLDER = "./data"
 OUTPUT_FOLDER = "./data_with_metrics"
 
