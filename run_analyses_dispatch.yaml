@@ -1,0 +1,90 @@
+name: Run Analyses (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch onde o workflow vai rodar
+        required: true
+        default: main
+      analysis_file:
+        description: Arquivo .json dentro de analysis (define qual token será usado)
+        required: true
+        default: "graal_merged.json"
+
+permissions:
+  contents: write
+
+jobs:
+  run-analyses:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyGithub
+
+      - name: Select token by file
+        env:
+          ANALYSIS_FILE: ${{ inputs.analysis_file }}
+          GH_TOKEN_GRAAL: ${{ secrets.GH_TOKEN_GRAAL }}
+          GH_TOKEN_JABREF: ${{ secrets.GH_TOKEN_JABREF }}
+          GH_TOKEN_JUNIT: ${{ secrets.GH_TOKEN_JUNIT }}
+          GH_TOKEN_PULSAR: ${{ secrets.GH_TOKEN_PULSAR }}
+          GH_TOKEN_SPRING_BOOT: ${{ secrets.GH_TOKEN_SPRING_BOOT }}
+        run: |
+          case "$ANALYSIS_FILE" in
+            "graal_merged.json")
+              echo "GITHUB_TOKEN=$GH_TOKEN_GRAAL" >> "$GITHUB_ENV"
+              ;;
+            "jabref_merged.json")
+              echo "GITHUB_TOKEN=$GH_TOKEN_JABREF" >> "$GITHUB_ENV"
+              ;;
+            "junit_merged.json")
+              echo "GITHUB_TOKEN=$GH_TOKEN_JUNIT" >> "$GITHUB_ENV"
+              ;;
+            "pulsar_merged.json")
+              echo "GITHUB_TOKEN=$GH_TOKEN_PULSAR" >> "$GITHUB_ENV"
+              ;;
+            "spring_boot_merged.json")
+              echo "GITHUB_TOKEN=$GH_TOKEN_SPRING_BOOT" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "Arquivo não mapeado para token: $ANALYSIS_FILE"
+              exit 1
+              ;;
+          esac
+
+      - name: Run analyses
+        working-directory: PRANALYZER
+        env:
+          ANALYSIS_FILE: ${{ inputs.analysis_file }}
+        run: |
+          python run_analyses_actions.py --analysis-file "$ANALYSIS_FILE"
+
+      - name: Commit and push changes
+        run: |
+          if [ -z "$(git status --porcelain analysis)" ]; then
+            echo "Sem alterações em analysis/"
+            exit 0
+          fi
+
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+          git add analysis
+          git commit -m "chore: update analysis files via workflow"
+          git pull --rebase origin "${{ inputs.branch }}"
+          git push origin HEAD:"${{ inputs.branch }}"
