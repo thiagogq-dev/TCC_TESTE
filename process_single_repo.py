@@ -98,6 +98,12 @@ def process_repo(subfolder: str, commit_each_folder: bool = False) -> None:
         version_relative_path = os.path.relpath(version_path, folder_path)
         print(f"Processando pasta: {version_path}")
 
+
+        output_folder_path = os.path.join(OUTPUT_FOLDER, subfolder, version_relative_path)
+        if os.path.isdir(output_folder_path):
+            print(f"Pasta de saída já existe, pulando processamento: {output_folder_path}")
+            continue
+
         for file in sorted(os.listdir(version_path)):
             if file.endswith(".json"):
                 file_path = os.path.join(version_path, file)
@@ -111,13 +117,12 @@ def process_repo(subfolder: str, commit_each_folder: bool = False) -> None:
                         if new_data:
                             d.update(new_data)
 
-                output_path = os.path.join(OUTPUT_FOLDER, subfolder, version_relative_path)
+                os.makedirs(output_folder_path, exist_ok=True)
 
-                os.makedirs(output_path, exist_ok=True)
-
-                with open(os.path.join(output_path, file), "w") as f:
+                output_file_path = os.path.join(output_folder_path, file)
+                with open(output_file_path, "w") as f:
                     json.dump(data, f, indent=4)
-                print(f"Arquivo processado e salvo em: {output_path}/{file}")
+                print(f"Arquivo processado e salvo em: {output_file_path}")
 
         if commit_each_folder:
             commit_and_push_folder(subfolder, version_relative_path)
