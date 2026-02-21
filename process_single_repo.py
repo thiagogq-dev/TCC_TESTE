@@ -96,6 +96,9 @@ def process_repo(subfolder: str, commit_each_folder: bool = False) -> None:
 
     for version_path in version_folders:
         version_relative_path = os.path.relpath(version_path, folder_path)
+        if version_relative_path not in ("v3", "v25"):
+            continue
+
         print(f"Processando pasta: {version_path}")
 
 
