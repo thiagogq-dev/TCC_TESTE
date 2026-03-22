@@ -1,11 +1,9 @@
 import json
 from PRAnalizer import PRAnalizer
+import os
 from pydriller import Repository
 
-repo_url = "../repos_dir/jabref"
-
 allowed_extensions = {
-    'py': 'Python',
     'java': 'JAVA'
 }
 
@@ -15,47 +13,102 @@ def check_test_changes(tests):
         return "Yes"
     return "No"
 
-def run_pr_analizer(commit_sha):
+def analyze_diff(language, patch):
+    analizer = PRAnalizer(language)
+    dadosDoPR = analizer.retornaEstrutura()
+    diff = patch.split("\n")
+
+    for line in diff:
+        stripped_line = line.strip() 
+        if analizer.checkIfModifier(stripped_line):
+            result = analizer.verify(stripped_line)
+            modifier_type = analizer.checkModifierType(stripped_line)
+            dadosDoPR[result][modifier_type] += 1
+            dadosDoPR['all'][modifier_type] += 1
+
+    has_test = check_test_changes(dadosDoPR['tests']) == "Yes"
+    added_asserts = dadosDoPR['tests']['added']
+    removed_asserts = dadosDoPR['tests']['removed']
+    return has_test, added_asserts, removed_asserts
+
+
+def analyze_files(files):
     files_with_test = 0
     real_code_files = 0
-    
-    for commit in Repository(repo_url, single=commit_sha).traverse_commits():
-        for modified_file in commit.modified_files:
-            if modified_file is None:
-               continue
-            file_extension = modified_file.filename.split(".")[-1]
-            print(file_extension)
-            if file_extension not in allowed_extensions:
-                continue
-            real_code_files += 1
-            language = allowed_extensions.get(file_extension)
-            analizer = PRAnalizer(language)
-            dadosDoPR  = analizer.retornaEstrutura();
-            diff = modified_file.diff.split("\n")
-            for line in diff:
-                if analizer.checkIfModifier(line.strip()):
-                     result = analizer.verify(line.strip())
-                     modifierType = analizer.checkModifierType(line.strip())
-                     dadosDoPR[result][modifierType] += 1
-                     dadosDoPR['all'][modifierType] += 1
+    added_asserts = 0
+    removed_asserts = 0
 
-            if check_test_changes(dadosDoPR['tests']) == "Yes":
-                files_with_test += 1
+    for file_item in files:
+        if file_item is None:
+            continue
 
-    return files_with_test, real_code_files
+        filename = getattr(file_item, "filename", None)
+        if not filename or "." not in filename:
+            continue
+
+        file_extension = filename.split(".")[-1]
+        if file_extension not in allowed_extensions:
+            continue
+
+        patch = getattr(file_item, "diff", None)
+        if patch is None:
+            continue
+
+        real_code_files += 1
+        language = allowed_extensions[file_extension]
+        has_test, file_added_asserts, file_removed_asserts = analyze_diff(language, patch)
+
+        if has_test:
+            files_with_test += 1
+        added_asserts += file_added_asserts
+        removed_asserts += file_removed_asserts
+
+    return files_with_test, real_code_files, added_asserts, removed_asserts
+
+def run_pr_analizer(repo_name, commit_sha):
+    repo_folder = repo_name.split("/")[-1]
+    local_repo_path = f"../repos_dir/{repo_folder}"
+
+    if os.path.isdir(local_repo_path):
+        try:
+            for commit in Repository(local_repo_path, single=commit_sha).traverse_commits():
+                if commit.modified_files:
+                    return analyze_files(commit.modified_files)
+                break
+        except Exception as error:
+            print(f"Falha no PyDriller local para {repo_name} @ {commit_sha}: {error}. Fallback PyGithub.")
+
+    return 0, 0, 0, 0
+
+def save_json_atomic(file_path, data):
+    temp_path = f"{file_path}.tmp"
+    with open(temp_path, "w") as f:
+        json.dump(data, f, indent=4)
+    os.replace(temp_path, file_path)
 
 
 def process_file(file_path):
     with open(file_path) as f:
         data = json.load(f)
-        for record in data:
+        total = len(data)
+        for index, record in enumerate(data, start=1):
+            if "files_with_test" in record:
+                print(f"Registro já processado: {record['repo_name']} @ {record['fix_commit_hash']}")
+                continue  # Pula registros já processados
+            
             fix = record["fix_commit_hash"]
-            files_with_test, real_code_files = run_pr_analizer(fix)
+            repo_name = record["repo_name"]
+            files_with_test, real_code_files, added_asserts, removed_asserts = run_pr_analizer(repo_name, fix)
             record["files_with_test"] = files_with_test
             record["has_tests"] = "Yes" if files_with_test > 0 else "No"
             record["real_code_files"] = real_code_files
+            record["test_file_ratio"] = files_with_test / real_code_files if real_code_files > 0 else 0
+            record["added_asserts"] = added_asserts
+            record["removed_asserts"] = removed_asserts
+            save_json_atomic(file_path, data)
+            print(f"[{index}/{total}] Registro salvo: {repo_name} @ {fix}", flush=True)
 
-    with open(file_path, "w") as f:
-        json.dump(data, f, indent=4)
-
-process_file("../data/issues.json")
+for file in os.listdir("../analysis"):
+    if file.endswith(".json"):
+        print(f"Processando arquivo: {file}")
+        process_file(os.path.join("../analysis", file))

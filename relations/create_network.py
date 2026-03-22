@@ -1,6 +1,7 @@
 from pyvis.network import Network
 import pyvis
 import json
+import os
 
 def get_data_in_json(filename, hash):
     with open(filename) as f:
@@ -15,37 +16,43 @@ def generate_ramdom_color():
     r = lambda: random.randint(0, 255)
     return '#%02X%02X%02X' % (r(), r(), r())
 
-with open('./commit_path.json', 'r') as file:
-    data = json.load(file)
 
-existing_edges = set()
+for file in os.listdir('./'):
+    if file.endswith('.json'):
+        output_base_file = file.split('.')[0]
+        output_base_folder = output_base_file
+        with open(file) as f:
+            data = json.load(f)
 
-net = Network(
-    notebook=True, 
-    cdn_resources="remote",
-    select_menu=True,
-    filter_menu=True,
-    directed=True
-)
 
-for item in data:
-    if len(item["fixed_by"]) == 0:
-        continue
-    fix_commit = item["bug_causer"]
-    fix_data = get_data_in_json("../data/issues.json", fix_commit)
-    net.add_node(
-        fix_commit, 
-        label=fix_commit, 
-        color=generate_ramdom_color(), 
-        title=f"Repository: {fix_data['repo_url']}\n Issue Fix: {fix_data['issue_number']} \n  Fix Commit: {fix_data['fix_commit_hash']}"
-    )
+        existing_edges = set()
 
-    for bic in item["fixed_by"]:
-        edge_key = (fix_commit, bic)
-        if edge_key not in existing_edges:
-            data = get_data_in_json("../data/issues.json", bic)
-            net.add_node(bic, label=bic, title=f"Repository: {data['repo_url']}\n Issue Fix: {data['issue_number']} \n  Fix Commit: {data['fix_commit_hash']}")
-            net.add_edge(fix_commit, bic, arrowStrikethrough=False)
-            existing_edges.add(edge_key)
+        net = Network(
+            notebook=True, 
+            cdn_resources="remote",
+            select_menu=True,
+            filter_menu=True,
+            directed=True
+        )
 
-net.show('./commit_path.html')
+        for item in data:
+            if len(item["fixed_by"]) == 0:
+                continue
+            bic = item["commit"]
+            # fix_data = get_data_in_json(f"../analysis/{output_base_file}.json", fix_commit)
+            net.add_node(
+                bic, 
+                label=bic, 
+                color=generate_ramdom_color(), 
+                title=f"Repository: {item['Repository']}\n  Commit: {bic}"
+            )
+
+            for fix_commit in item["fixed_by"]:
+                edge_key = (bic, fix_commit)
+                if edge_key not in existing_edges:
+                    data = get_data_in_json(f"../data/{output_base_file}.json", fix_commit)
+                    net.add_node(fix_commit, label=fix_commit, title=f"Repository: {data['repo_name']}\n Commit: {data['fix_commit_hash']}")
+                    net.add_edge(bic, fix_commit, arrowStrikethrough=False)
+                    existing_edges.add(edge_key)
+            
+        net.show(f"../results/{output_base_folder}/{output_base_file}.html")

@@ -1,11 +1,14 @@
 from collections import defaultdict
 import json
+import os
 import requests
 import glob
 from pydriller import Git, Repository
 from datetime import timedelta
 from bisect import bisect_right
 from utils.queries import COMMIT_REFERENCES_PR, COMMIT_REFERENCES_ISSUE
+
+ACTIVITY_BUCKETS = ["0", "1-5", "6-20", "21-100", "100+"]
 
 def get_commit_that_references_issue(repo_path, issue_number, headers):
     owner, name = repo_path.split("/")
@@ -19,12 +22,19 @@ def get_commit_that_references_issue(repo_path, issue_number, headers):
             "issueNumber": issue_number
         }
     }
-    response = requests.post(graphql_url, json=query, headers=headers)
-    data = response.json()
+    try:
+        response = requests.post(graphql_url, json=query, headers=headers)
+        data = response.json()
+    except Exception:
+        return None
 
-    if 'data' in data and data['data']['repository']['issue']['timelineItems']['nodes'] != []:
-        return data['data']['repository']['issue']['timelineItems']['nodes'][0]['commit']['oid']
-    return None
+    # caminho conciso até nodes; usa listas/dicts vazios como fallback
+    nodes = data.get('data', {}).get('repository', {}).get('issue', {}).get('timelineItems', {}).get('nodes') or []
+    if not nodes:
+        return None
+
+    commit = nodes[0].get('commit') or {}
+    return commit.get('oid')
 
 
 def get_commit_that_references_pr(repo_path, pr_number, headers):
@@ -52,56 +62,6 @@ def get_commit_that_references_pr(repo_path, pr_number, headers):
         # return data['data']['repository']['pullRequest']['timelineItems']['nodes'][0]['commit']['oid']
     return None
 
-def get_commit_pr(repo_path, commit_hash, headers):
-    url = f"https://api.github.com/repos/{repo_path}/commits/{commit_hash}/pulls"
-    response = requests.get(url, headers=headers)
-    data = response.json()
-
-    prs = []
-
-    for pr in data:
-        if pr["state"] == "closed":
-            prs.append({
-                "merged_at": pr["merged_at"],
-                "merge_commit_sha": pr["merge_commit_sha"]
-            })
-
-    if len(prs) == 0:
-        return None
-    
-    pr = max(prs, key=lambda x: x["merged_at"]) 
-    return pr["merge_commit_sha"]
-
-
-def get_pr_that_mentions_issue(repo_path, issue_number, headers):
-    owner, name = repo_path.split("/")
-    graphql_url = 'https://api.github.com/graphql'
-
-    query = f'''
-    {{
-        repository(name: "{name}", owner: "{owner}") {{
-            issue(number: {issue_number}) {{
-                timelineItems(itemTypes: MENTIONED_EVENT, last: 1) {{
-                    nodes {{
-                        ... on ReferencedEvent {{
-                            subject {{
-                                __typename
-                                ... on PullRequest {{
-                                    number
-                                }}
-                            }}
-                        }}
-                    }}
-                }}
-            }}
-        }}
-    }}
-    '''
-
-    response = requests.post(graphql_url, json={'query': query}, headers=headers)
-    data = response.json()
-    return data["data"]["repository"]["issue"]["timelineItems"]["nodes"][0]["subject"]["number"]
-
 def remove_duplicates(input_file):
     with open(input_file, 'r') as f:
         data = json.load(f)
@@ -120,33 +80,6 @@ def remove_duplicates(input_file):
     with open(input_file, 'w') as f:
         json.dump(unique_data, f, indent=4)
 
-
-def is_empty_or_dash(value):
-    if value == [] or value == "-":
-        return True
-    return False
-
-def define_bic(rszz, pdszz):
-    if not is_empty_or_dash(rszz):
-       bic = rszz
-    elif not is_empty_or_dash(pdszz):
-        value = pdszz[0]
-        bic = [value]
-    else:
-       bic = []
-
-    return bic
-    
-def remove_non_existing_commits(filename):
-    with open(filename) as f:
-        data = json.load(f)
-
-    new_data = [item for item in data if item["inducing_commit_hash_pyszz"] != "-"]        
-
-    with open(filename, 'w') as f:
-        json.dump(new_data, f, indent=4)
-
-
 def split_json_file(input_file, output_prefix, max_items_per_file=10):
     with open(input_file, 'r') as f:
         data = json.load(f)
@@ -163,7 +96,7 @@ def split_json_file(input_file, output_prefix, max_items_per_file=10):
         print(f"File {output_file} created with {len(chunk)} items.")
               
 def merge_files(folder_path, output_path):
-    json_files = glob.glob(folder_path + "/*.json")
+    json_files = glob.glob(folder_path + "/**/*.json", recursive=True)
     combined_data = []
     for file in json_files:
         with open(file, 'r') as f:
@@ -204,23 +137,6 @@ def group_file_by_fix(input_file, output_file = None):
     with open(output_file, "w") as f:
         json.dump(result, f, indent=4)
 
-def get_commit_date(json_file, repo_name):
-    """Adiciona a data do commit no cenário ideal para cada issue no arquivo JSON.
-    
-    Args:
-        json_file (str): Caminho para o arquivo JSON contendo os dados das issues.
-    """
-    with open(json_file) as f:
-        data = json.load(f)
-        for d in data:
-           commit_hash = d["fix_commit_hash"]
-           for commit in Repository(f"repos_dir/{repo_name}", single=commit_hash).traverse_commits():
-                new_date = commit.author_date + timedelta(seconds=60)
-                d["best_scenario_issue_date"] = new_date.isoformat()  # Salva como string em ISO 8601
-
-    with open(json_file, 'w') as f:
-        json.dump(data, f, indent=4)
-
 def is_commit_valid(repo_path, commit_hash):
     """
     Verifica se o commit existe no repositório e não é um commit de merge.
@@ -242,29 +158,41 @@ def is_commit_valid(repo_path, commit_hash):
 
     return True, "Commit válido"
 
-def get_commit_data(commit_hash):
-    for commit in Repository(path_to_repo="repos_dir/jabref", single=commit_hash).traverse_commits():        
+def get_commit_data(commit_hash, repo_name, commit_date_map, author_commits_map):
+    has_test_files = False
+    for commit in Repository(path_to_repo=f"repos_dir/{repo_name}", single=commit_hash).traverse_commits():    
+        real_lines_changed = 0
+        for mf in commit.modified_files:
+            if mf.filename.endswith(".java"):
+                real_lines_changed += mf.added_lines + mf.deleted_lines
+            if "test" in mf.filename.lower():
+                has_test_files = True
+
+        # Calcula contributor_activity para o autor até a data do commit - 1 dia
+        author = commit.author.name
+        commit_date = commit.author_date
+        contributor_activity = get_contributor_activity_from_index(author, commit_date - timedelta(days=1), author_commits_map)
+
         data = {
-            "commit_author": commit.author.name,
+            "commit_author": author,
             "committer": commit.committer.name,
-            "commit_date": commit.author_date.isoformat(),
+            "commit_date": commit_date.isoformat(),
             "committer_date": commit.committer_date.isoformat(),
             "changed_files": commit.files,
             "deletions": commit.deletions,
             "insertions": commit.insertions,
             "lines": commit.lines,
+            "has_test_files": has_test_files,
+            "real_lines_changed": real_lines_changed,
             "dmm_unit_size": commit.dmm_unit_size,
             "dmm_unit_complexity": commit.dmm_unit_complexity,
-            "dmm_unit_interfacing": commit.dmm_unit_interfacing
+            "dmm_unit_interfacing": commit.dmm_unit_interfacing,
+            "contributor_activity": contributor_activity
         }
-        
         return data
 
 
-# -----------------------------
-# Shared helpers for contributor activity
-# -----------------------------
-def preload_commits_index(repo_path="repos_dir/jabref"):
+def preload_commits_index(repo_path):
     """Return two maps: commit_date and author_commits (sorted lists).
 
     commit_date: {commit_hash: datetime}
@@ -301,3 +229,31 @@ def get_contributor_activity_from_index(author, fix_date, author_commits_map):
         return 0
     dates = author_commits_map.get(author, [])
     return bisect_right(dates, fix_date)
+
+def safe_float(value):
+    try:
+        return float(value) if value is not None else None
+    except (ValueError, TypeError):
+        return None
+    
+def load_data(path):
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Data file not found: {path}")
+    with open(path, "r") as f:
+        return json.load(f)
+    
+class Reporter:
+    def __init__(self, path):
+        self.path = path
+
+    def write(self, text):
+        with open(self.path, "a", encoding="utf-8") as f:
+            f.write(text + "\n")
+
+def get_activity_bucket(activity):
+    if activity is None: return None
+    if activity == 0:    return "0"
+    if activity <= 5:    return "1-5"
+    if activity <= 20:   return "6-20"
+    if activity <= 100:  return "21-100"
+    return "100+"

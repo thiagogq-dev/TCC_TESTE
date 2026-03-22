@@ -3,6 +3,9 @@ import json
 import os
 import time
 import dotenv
+from tqdm import tqdm
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from utils.queries import REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY
 from utils.logger_config import setup_loggers, log_message
@@ -24,19 +27,34 @@ graph_ql_url = os.getenv('GRAPHQL_URL')
 if not graph_ql_url:
     graph_ql_url = "https://api.github.com/graphql"
 
-after_cursor = None
-
 repo_name = os.getenv('REPO_NAME')
 repo_owner = os.getenv('REPO_OWNER')
+
+print(f'Coletando issues fechadas para {repo_owner}/{repo_name}...')
 
 query = {
     "query": REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY,
     "variables": {
         "owner": repo_owner,
         "name": repo_name,
-        "after": after_cursor
+        "after": None
     }
 }
+
+OUTPUT_DIR = "data"
+OUTPUT_FILE = os.path.join(OUTPUT_DIR, "issues.json")
+
+# Configure a session with retries and backoff to handle transient network errors
+session = requests.Session()
+retries = Retry(
+    total=5,
+    backoff_factor=1,
+    status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods=frozenset(["GET", "POST"])
+)
+adapter = HTTPAdapter(max_retries=retries)
+session.mount("https://", adapter)
+session.mount("http://", adapter)
 
 def get_headers():
     return {
@@ -50,14 +68,32 @@ def switch_token():
 
 def execute_query(query, headers):
     log_message(f"Executando query com token index: {token_index}", "info")
-    response = requests.post(graph_ql_url, headers=headers, json=query)
+    max_attempts = 5
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = session.post(graph_ql_url, headers=headers, json=query, timeout=30)
 
-    if response.status_code == 403:
-        switch_token()
-        headers = get_headers()
-        response = requests.post(graph_ql_url, headers=headers, json=query)
+            # If token is rate-limited or forbidden, try switching token and retry
+            if response.status_code == 403:
+                log_message(f"Status 403 received. Switching token and retrying (attempt {attempt}).", "warning")
+                switch_token()
+                headers = get_headers()
+                continue
 
-    return response.json()
+            # Try to decode JSON; if it fails, raise to trigger retry
+            return response.json()
+
+        except requests.exceptions.RequestException as e:
+            log_message(f"Request error on attempt {attempt}/{max_attempts}: {e}", "warning")
+            # switch token to attempt to recover from token-specific issues
+            switch_token()
+            headers = get_headers()
+            # exponential backoff
+            sleep_time = min(60, 2 ** attempt)
+            time.sleep(sleep_time)
+
+    log_message("Máximo de tentativas atingido ao executar a query.", "error")
+    return {"errors": [{"message": "Max retries exceeded"}]}
 
 def resolve_fix_commit(issue, repo_owner, repo_name):
     node = issue["timelineItems"]["nodes"][0]["closer"]
@@ -106,83 +142,138 @@ def check_data(data):
     return False
 
 def check_rate_limit(headers):
-    response = requests.post(graph_ql_url, headers=headers, json={"query": "{ rateLimit { remaining resetAt } }"})
-    data = response.json()
-    remaining = data.get("data", {}).get("rateLimit", {}).get("remaining", 0)
+    try:
+        response = session.post(graph_ql_url, headers=headers, json={"query": "{ rateLimit { remaining resetAt } }"}, timeout=10)
+        data = response.json()
+        remaining = data.get("data", {}).get("rateLimit", {}).get("remaining", 0)
 
-    if remaining == 0:
+        if remaining == 0:
+            switch_token()
+    except requests.exceptions.RequestException as e:
+        log_message(f"Erro ao checar rate limit: {e}", "warning")
         switch_token()
 
-def get_data():
-    all_data = []
-    after_cursor = None
+def _ensure_output_dir():
+    if not os.path.exists(OUTPUT_DIR):
+        os.makedirs(OUTPUT_DIR)
 
-    read_issues = 0
+def save_progress(all_data, after_cursor, total_count, read_issues):
+    _ensure_output_dir()
+    try:
+        with open(OUTPUT_FILE, "w") as f:
+            json.dump(all_data, f, indent=2)
+        log_message(f"Progresso salvo. after={after_cursor} total_count={total_count} read_issues={read_issues}", "info")
+    except Exception as e:
+        log_message(f"Erro ao salvar progresso: {e}", "error")
+
+    return None
+
+def get_data():
+    _ensure_output_dir()
+
+    # restore previous data if exists
+    all_data = []
+    if os.path.exists(OUTPUT_FILE):
+        try:
+            with open(OUTPUT_FILE, "r") as f:
+                all_data = json.load(f)
+        except Exception:
+            all_data = []
+
+    after_cursor = os.getenv('START_CURSOR') or None
+    read_issues = len(all_data)
+    total_count = None
+    progress = None
 
     while True:
-        query["variables"]["after"] = after_cursor
-        headers = get_headers()
-        check_rate_limit(headers)
-        data = execute_query(query, headers)
+        try:
+            query["variables"]["after"] = after_cursor
+            headers = get_headers()
+            check_rate_limit(headers)
+            data = execute_query(query, headers)
 
-        if check_data(data):
-            log_message(f"Erro na requisição: {json.dumps(data['errors'], indent=2)}", "error")
-            break
-        
-        issues_data = data.get("data", {}).get("repository", {}).get("issues", {})
-        page_info = issues_data.get("pageInfo", {})
-        nodes = issues_data.get("nodes", [])
+            if check_data(data):
+                log_message(f"Erro na requisição: {json.dumps(data['errors'], indent=2)}", "error")
+                break
+            
+            issues_data = data.get("data", {}).get("repository", {}).get("issues", {})
+            page_info = issues_data.get("pageInfo", {})
+            nodes = issues_data.get("nodes", [])
 
-        for issue in nodes:
-            log_message(f"Lendo issue {read_issues + 1} de {issues_data.get('totalCount', 0)}", "info")
-            read_issues += 1
-            if issue["timelineItems"]["nodes"] and issue["timelineItems"]["nodes"][0]["closer"] is not None:
-                issue_number = issue.get("number", "N/A")
-                issue_title = issue.get("title", "N/A")
-                issue_url = issue.get("url", "N/A")
-                issue_author = issue.get("author", {}).get("login", "N/A") if issue.get("author") else "N/A"
-                issue_creation_date = issue.get("createdAt", "N/A")
-                issue_closure_date = issue.get("closedAt", "N/A")
-                closed_by = issue["timelineItems"]["nodes"][0]["closer"].get("__typename", "N/A")
-                closer_url = issue["timelineItems"]["nodes"][0]["closer"].get("url", "N/A")
+            if total_count is None:
+                total_count = issues_data.get('totalCount', 0)
+                if tqdm:
+                    progress = tqdm(total=total_count, desc="Processando issues", unit="issue")
+                    if read_issues:
+                        progress.update(read_issues)
 
-                fix_commit = resolve_fix_commit(issue, repo_owner, repo_name)
-                valid, status = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
-                if not valid:
-                    log_message(f"Commit {fix_commit} da issue #{issue_number} é INVÁLIDO - {status}. Pulando...", "warning")
-                    continue
+            for issue in nodes:
+                if progress:
+                    progress.update(1)
+                else:
+                    log_message(f"Lendo issue {read_issues + 1} de {issues_data.get('totalCount', 0)}", "info")
+                read_issues += 1
+                if issue["timelineItems"]["nodes"] and issue["timelineItems"]["nodes"][0]["closer"] is not None:
+                    issue_number = issue.get("number", "N/A")
+                    issue_title = issue.get("title", "N/A")
+                    issue_url = issue.get("url", "N/A")
+                    issue_author = issue.get("author", {}).get("login", "N/A") if issue.get("author") else "N/A"
+                    issue_creation_date = issue.get("createdAt", "N/A")
+                    issue_closure_date = issue.get("closedAt", "N/A")
+                    closed_by = issue["timelineItems"]["nodes"][0]["closer"].get("__typename", "N/A")
+                    closer_url = issue["timelineItems"]["nodes"][0]["closer"].get("url", "N/A")
 
-                issue_data = {
-                    "repo_name": repo_name,
-                    "repo_url": f"https://github.com/{repo_owner}/{repo_name}",
-                    "issue_number": issue_number,
-                    "issue_title": issue_title,
-                    "issue_url": issue_url,
-                    "issue_author": issue_author,
-                    "issue_creation_date": issue_creation_date,
-                    "issue_closure_date": issue_closure_date,
-                    "closed_by": closed_by,
-                    "closer_url": closer_url,
-                    "fix_commit_hash": fix_commit
-                }
+                    fix_commit = resolve_fix_commit(issue, repo_owner, repo_name)
+                    valid, status = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
+                    if not valid:
+                        log_message(f"Commit {fix_commit} da issue #{issue_number} é INVÁLIDO - {status}. Pulando...", "warning")
+                        continue
 
-                all_data.append(issue_data)
+                    issue_data = {
+                        "repo_name": repo_name,
+                        # "repo_url": f"https://github.com/{repo_owner}/{repo_name}",
+                        # "issue_number": issue_number,
+                        # "issue_title": issue_title,
+                        # "issue_url": issue_url,
+                        # "issue_author": issue_author,
+                        # "issue_creation_date": issue_creation_date,
+                        # "issue_closure_date": issue_closure_date,
+                        # "closed_by": closed_by,
+                        # "closer_url": closer_url,
+                        "fix_commit_hash": fix_commit
+                    }
 
-        if not page_info.get("hasNextPage"):
-            break
+                    all_data.append(issue_data)
 
-        after_cursor = page_info.get("endCursor")
+            if not page_info.get("hasNextPage"):
+                # finished
+                save_progress(all_data, None, total_count, read_issues)
+                break
 
-        time.sleep(2)  # To avoid hitting rate limits
+            after_cursor = page_info.get("endCursor")
+
+            # save progress after each page so we can resume
+            save_progress(all_data, after_cursor, total_count, read_issues)
+
+            time.sleep(2)  # To avoid hitting rate limits
+
+        except KeyboardInterrupt:
+            log_message("Interrompido pelo usuário (Ctrl+C). Salvando progresso...", "info")
+            save_progress(all_data, after_cursor, total_count, read_issues)
+            if progress:
+                progress.close()
+            return all_data
 
     log_message(f"Total issues fetched: {len(all_data)}", "info")
+    if progress:
+        progress.close()
+
     return all_data
 
 if __name__ == "__main__":
     data = get_data()
-    if not os.path.exists("data"):
-        os.makedirs("data")
-    with open("data/issues.json", "w") as f:
+    _ensure_output_dir()
+    with open(OUTPUT_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
-    get_commit_date("data/issues.json", repo_name)
+    get_commit_date(OUTPUT_FILE, repo_name)
