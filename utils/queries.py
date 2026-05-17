@@ -89,6 +89,7 @@ query ($owner: String!, $name: String!, $issueNumber: Int!) {
 REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY = """
 query ($owner: String!, $name: String!, $after: String) {
   repository(owner: $owner, name: $name) {
+    createdAt
     issues(first: 20, after: $after, states: CLOSED) {
       totalCount
       pageInfo {

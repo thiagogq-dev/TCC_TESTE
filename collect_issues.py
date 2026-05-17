@@ -2,6 +2,7 @@ import requests
 import json
 import os
 import time
+from datetime import datetime
 import dotenv
 from tqdm import tqdm
 from requests.adapters import HTTPAdapter
@@ -9,7 +10,7 @@ from urllib3.util.retry import Retry
 
 from utils.queries import REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY
 from utils.logger_config import setup_loggers, log_message
-from utils.utils import is_commit_valid, get_commit_date, get_commit_that_references_pr, get_commit_that_references_issue
+from utils.utils import is_commit_valid, get_commit_that_references_pr, get_commit_that_references_issue
 
 dotenv.load_dotenv()
 
@@ -29,8 +30,23 @@ if not graph_ql_url:
 
 repo_name = os.getenv('REPO_NAME')
 repo_owner = os.getenv('REPO_OWNER')
+closed_until = os.getenv('CLOSED_UNTIL')
 
-print(f'Coletando issues fechadas para {repo_owner}/{repo_name}...')
+closed_until_date = None
+if closed_until:
+    try:
+        closed_until_date = datetime.strptime(closed_until, "%Y-%m-%d").date()
+    except ValueError:
+        log_message(
+            f"Data inválida em CLOSED_UNTIL: {closed_until}. Use o formato YYYY-MM-DD.",
+            "error"
+        )
+        exit(1)
+
+if closed_until_date:
+    log_message(f"CLOSED_UNTIL definido para {closed_until_date.isoformat()}. Coletando apenas issues fechadas até essa data.", "info")
+else:
+    log_message(f'Coletando issues fechadas para {repo_owner}/{repo_name}...', "info")
 
 query = {
     "query": REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY,
@@ -42,7 +58,7 @@ query = {
 }
 
 OUTPUT_DIR = "data"
-OUTPUT_FILE = os.path.join(OUTPUT_DIR, "issues.json")
+OUTPUT_FILE = os.path.join(OUTPUT_DIR, f"{repo_name}.json")
 
 # Configure a session with retries and backoff to handle transient network errors
 session = requests.Session()
@@ -122,9 +138,6 @@ def resolve_fix_commit(issue, repo_owner, repo_name):
             valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
             if valid:
                 return fix_commit
-            
-        last_commit = node.get("commits", {}).get("nodes", [{}])[-1].get("commit", {}).get("oid", None)
-        return last_commit
     else:
         fix_commit = node.get("oid", None)
         if fix_commit:
@@ -134,7 +147,13 @@ def resolve_fix_commit(issue, repo_owner, repo_name):
             
         issue_number = issue.get("number")
         fix_commit = get_commit_that_references_issue(f"{repo_owner}/{repo_name}", issue_number, get_headers())
-        return fix_commit
+
+        if fix_commit:
+            valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
+            if valid:
+                return fix_commit
+            
+    return None
 
 def check_data(data):
     if "errors" in data:
@@ -162,9 +181,9 @@ def save_progress(all_data, after_cursor, total_count, read_issues):
     try:
         with open(OUTPUT_FILE, "w") as f:
             json.dump(all_data, f, indent=2)
-        log_message(f"Progresso salvo. after={after_cursor} total_count={total_count} read_issues={read_issues}", "info")
+        log_message(f" ({repo_name}) Progresso salvo. after={after_cursor} total_count={total_count} read_issues={read_issues}", "info")
     except Exception as e:
-        log_message(f"Erro ao salvar progresso: {e}", "error")
+        log_message(f" ({repo_name}) Erro ao salvar progresso: {e} - ", "error")
 
     return None
 
@@ -193,7 +212,7 @@ def get_data():
             data = execute_query(query, headers)
 
             if check_data(data):
-                log_message(f"Erro na requisição: {json.dumps(data['errors'], indent=2)}", "error")
+                log_message(f"Erro na requisição para {repo_name}: {json.dumps(data['errors'], indent=2)}", "error")
                 break
             
             issues_data = data.get("data", {}).get("repository", {}).get("issues", {})
@@ -211,36 +230,28 @@ def get_data():
                 if progress:
                     progress.update(1)
                 else:
-                    log_message(f"Lendo issue {read_issues + 1} de {issues_data.get('totalCount', 0)}", "info")
+                    log_message(f"Lendo issue {read_issues + 1} de {issues_data.get('totalCount', 0)} | {repo_name}", "info")
                 read_issues += 1
+
+                closed_at = issue.get("closedAt")
+                if closed_until_date and closed_at:
+                    issue_closed_date = datetime.strptime(closed_at[:10], "%Y-%m-%d").date()
+                    if issue_closed_date > closed_until_date:
+                        log_message(f"Issue #{issue.get('number')} de {repo_name} fechada em {issue_closed_date} é posterior a {closed_until_date}. Pulando...", "info")
+                        continue
+
                 if issue["timelineItems"]["nodes"] and issue["timelineItems"]["nodes"][0]["closer"] is not None:
                     issue_number = issue.get("number", "N/A")
-                    issue_title = issue.get("title", "N/A")
-                    issue_url = issue.get("url", "N/A")
-                    issue_author = issue.get("author", {}).get("login", "N/A") if issue.get("author") else "N/A"
-                    issue_creation_date = issue.get("createdAt", "N/A")
-                    issue_closure_date = issue.get("closedAt", "N/A")
-                    closed_by = issue["timelineItems"]["nodes"][0]["closer"].get("__typename", "N/A")
-                    closer_url = issue["timelineItems"]["nodes"][0]["closer"].get("url", "N/A")
 
-                    fix_commit = resolve_fix_commit(issue, repo_owner, repo_name)
-                    valid, status = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
-                    if not valid:
-                        log_message(f"Commit {fix_commit} da issue #{issue_number} é INVÁLIDO - {status}. Pulando...", "warning")
+                    final_fix_commit = resolve_fix_commit(issue, repo_owner, repo_name)
+                    if not final_fix_commit:
+                        log_message(f"Nenhum commit válido encontrado para a issue #{issue_number} de {repo_name}. Pulando...", "warning")
                         continue
 
                     issue_data = {
                         "repo_name": repo_name,
-                        # "repo_url": f"https://github.com/{repo_owner}/{repo_name}",
-                        # "issue_number": issue_number,
-                        # "issue_title": issue_title,
-                        # "issue_url": issue_url,
-                        # "issue_author": issue_author,
-                        # "issue_creation_date": issue_creation_date,
-                        # "issue_closure_date": issue_closure_date,
-                        # "closed_by": closed_by,
-                        # "closer_url": closer_url,
-                        "fix_commit_hash": fix_commit
+                        "fix_commit_hash": final_fix_commit,
+                        "earliest_issue_date": issue.get("createdAt"),
                     }
 
                     all_data.append(issue_data)
@@ -264,7 +275,7 @@ def get_data():
                 progress.close()
             return all_data
 
-    log_message(f"Total issues fetched: {len(all_data)}", "info")
+    log_message(f"Total issues fetched from {repo_name}: {len(all_data)}", "info")
     if progress:
         progress.close()
 
@@ -275,5 +286,3 @@ if __name__ == "__main__":
     _ensure_output_dir()
     with open(OUTPUT_FILE, "w") as f:
         json.dump(data, f, indent=2)
-
-    get_commit_date(OUTPUT_FILE, repo_name)

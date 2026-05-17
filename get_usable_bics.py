@@ -1,6 +1,3 @@
-"""
-This script processes the BICs obtained from the SZZ execution, filtering out those that are not usable (e.g., those that are merge commits). The resulting usable BICs are then stored in a new JSON file, which is subsequently split into multiple files for easier handling in later stages of the analysis.
-"""
 import os
 import json
 import dotenv

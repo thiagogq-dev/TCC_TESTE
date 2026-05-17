@@ -42,15 +42,16 @@ for file in os.listdir(DATA_DIR):
             "dmm_unit_size": data.get("dmm_unit_size"),
             "dmm_unit_complexity": data.get("dmm_unit_complexity"),
             "dmm_unit_interfacing": data.get("dmm_unit_interfacing"),
-            "files_with_test": data.get("files_with_test"),
+            "real_lines_changed": data.get("real_lines_changed"),
+            "contributor_activity": data.get("contributor_activity"),
+            "real_code_files": data.get("real_code_files"),
             "has_test_files": data.get("has_test_files"),
             "has_tests": data.get("has_tests"),
-            "real_code_files": data.get("real_code_files"),
+            "files_with_test": data.get("files_with_test"),
             "test_file_ratio": data.get("test_file_ratio"),
             "added_asserts": data.get("added_asserts"),
             "removed_asserts": data.get("removed_asserts"),
-            "real_lines_changed": data.get("real_lines_changed"),
-            "contributor_activity": data.get("contributor_activity")
+            "asserts_changes_type": data.get("asserts_changes_type")
         })
 
     os.makedirs(RELATIONS_DIR, exist_ok=True)

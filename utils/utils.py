@@ -165,7 +165,8 @@ def get_commit_data(commit_hash, repo_name, commit_date_map, author_commits_map)
         for mf in commit.modified_files:
             if mf.filename.endswith(".java"):
                 real_lines_changed += mf.added_lines + mf.deleted_lines
-            if "test" in mf.filename.lower():
+                
+            if "test" in mf.filename.lower() or (mf.new_path and "test" in mf.new_path.lower()) or (mf.old_path and "test" in mf.old_path.lower()):
                 has_test_files = True
 
         # Calcula contributor_activity para o autor até a data do commit - 1 dia

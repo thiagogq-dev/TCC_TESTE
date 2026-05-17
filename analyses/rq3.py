@@ -1,6 +1,3 @@
-"""
-This script generates confusion matrices for each repository based on the collected data. It reads the JSON files containing the commit information, counts the true positives, false positives, true negatives, and false negatives, and then visualizes these counts in a confusion matrix format. The resulting matrices are saved as PNG images in the 'results' folder.
-"""
 import os
 
 import matplotlib.pyplot as plt
@@ -43,17 +40,71 @@ def plot_confusion_matrix(tp, fp, tn, fn, output_file, quadrant_colors, repo_nam
     plt.savefig(output_file)
     plt.close()
 
-json_files = glob.glob('./data/*.json')
+# json_files = glob.glob('./data/*.json')
+
+# for json_file in json_files:
+
+#     with open(json_file, 'r') as f:
+#         data = json.load(f)
+
+#     commit_map = {
+#         entry['fix_commit_hash']: entry
+#         for entry in data
+#     }
+
+#     # Contadores
+#     bic_fix = 0   # FIX com teste + BIC com teste
+#     bic = 0       # FIX sem teste + BIC com teste
+#     fix = 0       # FIX com teste + BIC sem teste
+#     none = 0      # FIX sem teste + BIC sem teste
+
+#     # Para cada FIX
+#     for entry in data:
+#         fix_has_tests = entry.get('has_tests') == 'Yes'
+#         bic_hashes = entry.get('bic', [])
+
+#         # Para cada BIC associado ao FIX
+#         for bic_hash in bic_hashes:
+
+#             bic_entry = commit_map.get(bic_hash)
+
+#             # Se o BIC não estiver no dataset, ignora
+#             if not bic_entry:
+#                 continue
+
+#             bic_has_tests = bic_entry.get('has_tests') == 'Yes'
+
+#             # Classificação do par (FIX, BIC)
+#             if fix_has_tests and bic_has_tests:
+#                 bic_fix += 1
+#             elif fix_has_tests and not bic_has_tests:
+#                 fix += 1
+#             elif not fix_has_tests and bic_has_tests:
+#                 bic += 1
+#             else:
+#                 none += 1
+
+#     tp = bic_fix
+#     fp = bic
+#     tn = none
+#     fn = fix
+
+#     repo_name = json_file.split('/')[-1].replace('.json', '')
+#     output_file = f"./results/{repo_name}/data.png"
+#     os.makedirs(f"./results/{repo_name}", exist_ok=True)
+#     plot_confusion_matrix(tp, fp, tn, fn, output_file, quadrant_colors=('yellow', 'red', 'green', 'orange'), repo_name=repo_name)
+
+
+
+json_files = glob.glob('./relations/*.json')
 
 for json_file in json_files:
 
     with open(json_file, 'r') as f:
         data = json.load(f)
 
-    # 🔹 Mapeia TODOS os commits do arquivo
-    # (assumindo que todos têm fix_commit_hash e has_tests)
     commit_map = {
-        entry['fix_commit_hash']: entry
+        entry['commit']: entry
         for entry in data
     }
 
@@ -63,28 +114,28 @@ for json_file in json_files:
     fix = 0       # FIX com teste + BIC sem teste
     none = 0      # FIX sem teste + BIC sem teste
 
-    # 🔹 Para cada FIX
+    # Para cada FIX
     for entry in data:
-        fix_has_tests = entry.get('has_tests') == 'Yes'
-        bic_hashes = entry.get('bic', [])
+        bic_has_asserts_changes = entry.get('has_asserts_changes') == True
+        fix_hashes = entry.get('fixed_by', [])
 
-        # 🔹 Para cada BIC associado ao FIX
-        for bic_hash in bic_hashes:
+        # Para cada BIC associado ao FIX
+        for fix_hash in fix_hashes:
 
-            bic_entry = commit_map.get(bic_hash)
+            fix_entry = commit_map.get(fix_hash)
 
             # Se o BIC não estiver no dataset, ignora
-            if not bic_entry:
+            if not fix_entry:
                 continue
 
-            bic_has_tests = bic_entry.get('has_tests') == 'Yes'
+            fix_has_asserts_changes = fix_entry.get('has_asserts_changes') == True
 
             # Classificação do par (FIX, BIC)
-            if fix_has_tests and bic_has_tests:
+            if fix_has_asserts_changes and bic_has_asserts_changes:
                 bic_fix += 1
-            elif fix_has_tests and not bic_has_tests:
+            elif fix_has_asserts_changes and not bic_has_asserts_changes:
                 fix += 1
-            elif not fix_has_tests and bic_has_tests:
+            elif not fix_has_asserts_changes and bic_has_asserts_changes:
                 bic += 1
             else:
                 none += 1
@@ -95,6 +146,6 @@ for json_file in json_files:
     fn = fix
 
     repo_name = json_file.split('/')[-1].replace('.json', '')
-    output_file = f"./results/{repo_name}/confusion_matrix.png"
+    output_file = f"./results/{repo_name}/relations.png"
     os.makedirs(f"./results/{repo_name}", exist_ok=True)
     plot_confusion_matrix(tp, fp, tn, fn, output_file, quadrant_colors=('yellow', 'red', 'green', 'orange'), repo_name=repo_name)

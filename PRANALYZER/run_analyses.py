@@ -62,7 +62,6 @@ def analyze_files(files):
             files_with_test += 1
         added_asserts += file_added_asserts
         removed_asserts += file_removed_asserts
-
     return files_with_test, real_code_files, added_asserts, removed_asserts
 
 def run_pr_analizer(repo_name, commit_sha):
@@ -90,25 +89,40 @@ def save_json_atomic(file_path, data):
 def process_file(file_path):
     with open(file_path) as f:
         data = json.load(f)
-        total = len(data)
-        for index, record in enumerate(data, start=1):
-            if "files_with_test" in record:
-                print(f"Registro já processado: {record['repo_name']} @ {record['fix_commit_hash']}")
-                continue  # Pula registros já processados
-            
-            fix = record["fix_commit_hash"]
-            repo_name = record["repo_name"]
-            files_with_test, real_code_files, added_asserts, removed_asserts = run_pr_analizer(repo_name, fix)
-            record["files_with_test"] = files_with_test
-            record["has_tests"] = "Yes" if files_with_test > 0 else "No"
-            record["real_code_files"] = real_code_files
-            record["test_file_ratio"] = files_with_test / real_code_files if real_code_files > 0 else 0
-            record["added_asserts"] = added_asserts
-            record["removed_asserts"] = removed_asserts
-            save_json_atomic(file_path, data)
-            print(f"[{index}/{total}] Registro salvo: {repo_name} @ {fix}", flush=True)
 
-for file in os.listdir("../analysis"):
+    total = len(data)
+    new_data = []
+    for index, record in enumerate(data, start=1):
+        fix = record["fix_commit_hash"]
+        print(f"Processando {index}/{total}: {record['repo_name']} @ {fix}", flush=True)
+        repo_name = record["repo_name"]
+        files_with_test, real_code_files, added_asserts, removed_asserts = run_pr_analizer(repo_name, fix)
+
+        if real_code_files == 0:
+            print(f"Aviso: Nenhum arquivo de código real encontrado para {repo_name} @ {fix}. Pulando registro.")
+            continue
+
+        record["files_with_test"] = files_with_test
+        record["has_asserts_changes"] = True if files_with_test > 0 else False
+        record["real_code_files"] = real_code_files
+        record["test_file_ratio"] = files_with_test / real_code_files if real_code_files > 0 else 0
+        record["added_asserts"] = added_asserts
+        record["removed_asserts"] = removed_asserts
+
+        if files_with_test <= 0:
+            record["asserts_changes_type"] = "None"
+        else:
+            record["asserts_changes_type"] = (
+                "Added" if added_asserts > removed_asserts
+                else "Removed" if removed_asserts > added_asserts
+                else "Maintained"
+            )
+
+        new_data.append(record)
+        save_json_atomic(file_path, new_data)
+        print(f"[{index}/{total}] Registro salvo: {repo_name} @ {fix}", flush=True)
+
+for file in os.listdir("../data"):
     if file.endswith(".json"):
         print(f"Processando arquivo: {file}")
-        process_file(os.path.join("../analysis", file))
+        process_file(os.path.join("../data", file))
