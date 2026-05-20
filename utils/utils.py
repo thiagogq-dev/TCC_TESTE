@@ -89,8 +89,9 @@ def split_json_file(input_file, output_prefix, max_items_per_file=10):
 
     chunks = [data[i:i + max_items_per_file] for i in range(0, len(data), max_items_per_file)]
 
+    input_dir = os.path.dirname(input_file)
     for idx, chunk in enumerate(chunks):
-        output_file = f"{output_prefix}_{idx + 1}.json"
+        output_file = os.path.join(input_dir, f"{output_prefix}_{idx + 1}.json")
         with open(output_file, 'w') as f:
             json.dump(chunk, f, indent=4)
         print(f"File {output_file} created with {len(chunk)} items.")

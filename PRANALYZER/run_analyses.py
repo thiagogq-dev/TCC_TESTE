@@ -9,9 +9,7 @@ allowed_extensions = {
 
 def check_test_changes(tests):
     test_changes = tests['removed'] + tests['added'] + tests['others']
-    if test_changes > 0:
-        return "Yes"
-    return "No"
+    return test_changes > 0
 
 def analyze_diff(language, patch):
     analizer = PRAnalizer(language)
@@ -26,7 +24,7 @@ def analyze_diff(language, patch):
             dadosDoPR[result][modifier_type] += 1
             dadosDoPR['all'][modifier_type] += 1
 
-    has_test = check_test_changes(dadosDoPR['tests']) == "Yes"
+    has_test = check_test_changes(dadosDoPR['tests'])
     added_asserts = dadosDoPR['tests']['added']
     removed_asserts = dadosDoPR['tests']['removed']
     return has_test, added_asserts, removed_asserts
