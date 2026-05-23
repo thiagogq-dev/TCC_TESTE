@@ -1,0 +1,97 @@
+name: Run SZZ - OpenJ9
+
+run-name: Run SZZ - ${{ github.event.inputs.repo_path }} | branch=${{ github.event.inputs.branch }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to run the workflow on'
+        required: true
+        default: 'main'
+      repo_path:
+        description: 'The OWNER/REPOSITORY to run the SZZ on (Ex: JabRef/jabref)'
+        required: true
+      
+jobs:
+
+  list-json-files:
+    runs-on: ubuntu-latest
+
+    outputs:
+      json_files: ${{ steps.list-json-files.outputs.json_files }}
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4.1.6
+      with:
+        ref: ${{ github.event.inputs.branch }}
+
+    - name: List JSON files
+      id: list-json-files
+      run: |
+        files=$(ls data/*.json | jq -R -s -c 'split("\n")[:-1]')
+        echo files=$files
+        echo "json_files=$files" >> $GITHUB_OUTPUT
+
+  run-script:
+    needs: list-json-files
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        file: ${{fromJson(needs.list-json-files.outputs.json_files)}}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4.1.6
+      with:
+        ref: ${{ github.event.inputs.branch }}
+
+    - name: Create json folder 
+      run: |
+        mkdir -p bics/  
+
+    - name: Clone pyszz_v2
+      uses: actions/checkout@v4.1.6
+      with:
+        repository: 'thiagogquinto/pyszz_v2'
+        path: 'pyszz_v2'
+        ref: 'tcc_version'
+
+    - name: Clone REPOSITORY to pyszz_v2/repos_dir
+      run: |
+        mkdir -p pyszz_v2/repos_dir
+        cd pyszz_v2/repos_dir
+        git clone https://github.com/${{ github.event.inputs.repo_path }}.git
+      
+    - name: Set up Python
+      uses: actions/setup-python@v5.1.0
+      with:
+        python-version: '3.x'
+
+    - name: Run pyszz_v2
+      working-directory: pyszz_v2/
+      run: |
+        echo "$(basename ${{ matrix.file }})"
+        cp ../${{ matrix.file }} issues_data.json
+        bash ./run_docker.sh ./issues_data.json ./conf/open.yml ./repos_dir/
+
+    - name: Bring out file to main folder
+      working-directory: pyszz_v2/
+      run: |
+        filename=$(basename ${{ matrix.file }})
+        cp out/bics.json ../bics/bics_$filename
+
+    - name: Remove processed files
+      run: |
+        rm -f ${{ matrix.file }}
+  
+    - name: Commit and push
+      run: |
+        git config --global user.email "thiagogquinto.dev@gmail.com"
+        git config --global user.name "Thiago Quinto"
+        git pull 
+        git add bics/*.json
+        git rm -f ${{ matrix.file }}
+        git commit -m "Add bics files"
+        git push
