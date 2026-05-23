@@ -1,164 +1,76 @@
 import requests
 import json
 import os
-import datetime
-import logging
+import time
+from datetime import datetime
+import dotenv
+from tqdm import tqdm
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-from utils.utils import check_commit_existence, check_commit_existence_pd, get_commit_that_references_pr, get_commit_that_references_issue, get_commit_pr, get_pull_request_language 
+from utils.queries import REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY
+from utils.logger_config import setup_loggers, log_message
+from utils.utils import is_commit_valid, get_commit_that_references_pr, get_commit_that_references_issue
 
-if not os.path.exists("logs"):
-    os.makedirs("logs")
+dotenv.load_dotenv()
 
-# Set Up INFO Log
-general_log = logging.getLogger("general_log")
-general_log.setLevel(logging.INFO)
+setup_loggers()
 
-general_log_handler = logging.FileHandler("logs/general.log")
-general_log_handler.setLevel(logging.INFO)
+API_TOKENS = [v for k, v in os.environ.items() if k.startswith("API_TOKEN_") and v]
 
-general_log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-general_log_handler.setFormatter(general_log_formatter)
-
-general_log.addHandler(general_log_handler)
-
-# Set Up ERROR Log
-error_log = logging.getLogger("error_log")
-error_log.setLevel(logging.ERROR)
-
-error_log_handler = logging.FileHandler("logs/error.log")
-error_log_handler.setLevel(logging.ERROR)
-
-error_log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-error_log_handler.setFormatter(error_log_formatter)
-
-error_log.addHandler(error_log_handler)
-
-# Set Up WARNING Log
-warning_log = logging.getLogger("warning_log")
-warning_log.setLevel(logging.WARNING)
-
-warning_log_handler = logging.FileHandler("logs/warning.log")
-warning_log_handler.setLevel(logging.WARNING)
-
-warning_log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-warning_log_handler.setFormatter(warning_log_formatter)
-
-warning_log.addHandler(warning_log_handler)
-
-def log_message(message, level):
-    if level == "info":
-        general_log.info(message)
-    elif level == "error":
-        error_log.error(message)
-    elif level == "warning":
-        warning_log.warning(message)
-
-API_TOKENS = [
-    os.getenv('API_TOKEN_1'),
-    os.getenv('API_TOKEN_2'),
-    os.getenv('API_TOKEN_3'),
-    os.getenv('API_TOKEN_4'),
-    os.getenv('API_TOKEN_5'),
-    os.getenv('API_TOKEN_6'),
-    os.getenv('API_TOKEN_7'),
-    os.getenv('API_TOKEN_8'),
-    os.getenv('API_TOKEN_9'),
-    os.getenv('API_TOKEN_10')
-]
+if not API_TOKENS:
+    log_message("Nenhum token de API encontrado nas variáveis de ambiente.", "error")
+    exit(1)
 
 token_index = 0
-graph_ql_url = 'https://api.github.com/graphql'
+graph_ql_url = os.getenv('GRAPHQL_URL')
 
-def define_query(issue_number, repo):
-    owner, name = repo.split("/")
-    query = f'''
-        {{
-            repository(name: "{name}", owner: "{owner}") {{
-                issue(number: {issue_number}) {{
-                    timelineItems(itemTypes: CLOSED_EVENT, last: 1) {{
-                        nodes {{
-                            ... on ClosedEvent {{
-                                createdAt
-                                closer {{
-                                __typename
-                                    ... on PullRequest {{
-                                        number
-                                        title
-                                        createdAt
-                                        mergedAt
-                                        url
-                                        commits(last: 1) {{
-                                            nodes {{
-                                                commit {{
-                                                    oid
-                                                }}
-                                            }}
-                                        }}
-                                        mergeCommit {{
-                                            oid
-                                        }}
-                                        author {{
-                                            login
-                                        }}
-                                    }}
-                                    ... on Commit {{
-                                        oid
-                                        committedDate
-                                        messageHeadline
-                                        url
-                                        author {{
-                                            user {{
-                                                login
-                                            }}
-                                        }}
-                                        associatedPullRequests(first: 1) {{
-                                            nodes {{
-                                                number
-                                                title
-                                                createdAt
-                                                mergedAt
-                                                url
-                                                commits(last: 1) {{
-                                                    nodes {{
-                                                        commit {{
-                                                            oid
-                                                        }}
-                                                    }}
-                                                }}
-                                                mergeCommit {{
-                                                    oid
-                                                }}
-                                                author {{
-                                                    login
-                                                }}
-                                            }}
-                                        }}
-                                    }}
-                                }}
-                            }}
-                        }}
-                    }}
-                }}
-            }}
-        }}
-            '''
-        
-    return query
+if not graph_ql_url:
+    graph_ql_url = "https://api.github.com/graphql"
 
-def execute_query(query, headers):
-    response = requests.post(graph_ql_url, headers=headers, json={'query': query})
+repo_name = os.getenv('REPO_NAME')
+repo_owner = os.getenv('REPO_OWNER')
+closed_until = os.getenv('CLOSED_UNTIL')
 
-    if response.status_code == 403:
-        switch_token()
-        headers = get_headers()
-        response = requests.post(graph_ql_url, headers=headers, json={'query': query})
+closed_until_date = None
+if closed_until:
+    try:
+        closed_until_date = datetime.strptime(closed_until, "%Y-%m-%d").date()
+    except ValueError:
+        log_message(
+            f"Data inválida em CLOSED_UNTIL: {closed_until}. Use o formato YYYY-MM-DD.",
+            "error"
+        )
+        exit(1)
 
-    return response.json()
+if closed_until_date:
+    log_message(f"CLOSED_UNTIL definido para {closed_until_date.isoformat()}. Coletando apenas issues fechadas até essa data.", "info")
+else:
+    log_message(f'Coletando issues fechadas para {repo_owner}/{repo_name}...', "info")
 
-def check_data(data):
-    if "errors" in data:
-        return True
-    return False
+query = {
+    "query": REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY,
+    "variables": {
+        "owner": repo_owner,
+        "name": repo_name,
+        "after": None
+    }
+}
+
+OUTPUT_DIR = "data"
+OUTPUT_FILE = os.path.join(OUTPUT_DIR, f"{repo_name}.json")
+
+# Configure a session with retries and backoff to handle transient network errors
+session = requests.Session()
+retries = Retry(
+    total=5,
+    backoff_factor=1,
+    status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods=frozenset(["GET", "POST"])
+)
+adapter = HTTPAdapter(max_retries=retries)
+session.mount("https://", adapter)
+session.mount("http://", adapter)
 
 def get_headers():
     return {
@@ -168,190 +80,209 @@ def get_headers():
 def switch_token():
     global token_index
     token_index = (token_index + 1) % len(API_TOKENS)
+    log_message(f"Trocando token. Novo index: {token_index}", "info")
 
-def check_rate_limit(headers):
-    response = requests.get('https://api.github.com/rate_limit', headers=headers)
-    rate_limit = response.json()["rate"]["remaining"]
-    reset_time = response.json()["rate"]["reset"]
-    
-    if rate_limit == 0:
-        switch_token()
+def execute_query(query, headers):
+    log_message(f"Executando query com token index: {token_index}", "info")
+    max_attempts = 5
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = session.post(graph_ql_url, headers=headers, json=query, timeout=30)
 
-def get_data(url, repo_name, repo, full_data):
-    headers = get_headers()
+            # If token is rate-limited or forbidden, try switching token and retry
+            if response.status_code == 403:
+                log_message(f"Status 403 received. Switching token and retrying (attempt {attempt}).", "warning")
+                switch_token()
+                headers = get_headers()
+                continue
 
-    pages_remaining = True
-    show_total_count = True
+            # Try to decode JSON; if it fails, raise to trigger retry
+            return response.json()
 
-    while pages_remaining:
-        log_message(f"Getting data from {url}", "info")
-        response = requests.get(url, headers=headers)
-
-        if response.status_code == 403:
+        except requests.exceptions.RequestException as e:
+            log_message(f"Request error on attempt {attempt}/{max_attempts}: {e}", "warning")
+            # switch token to attempt to recover from token-specific issues
             switch_token()
             headers = get_headers()
-            response = requests.get(url, headers=headers)
+            # exponential backoff
+            sleep_time = min(60, 2 ** attempt)
+            time.sleep(sleep_time)
 
-        if show_total_count:
-            total_count = response.json()["total_count"]
-            log_message(f"Total count: {total_count}", "info")
-            show_total_count = False
+    log_message("Máximo de tentativas atingido ao executar a query.", "error")
+    return {"errors": [{"message": "Max retries exceeded"}]}
 
-        data = response.json()["items"]
-        read = 0
-        for issue in data:
-            read += 1
-            issue_number = issue["number"]
-            log_message(f"Reading issue {issue_number} - {read}/{len(data)}", "info")
+def resolve_fix_commit(issue, repo_owner, repo_name):
+    node = issue["timelineItems"]["nodes"][0]["closer"]
+    if not node:
+        return None
 
-            query = define_query(issue_number, repo)
-            query_response = execute_query(query, headers)
+    closer_type = node.get("__typename", "")
 
-            issue_labels = [label["name"] for label in issue["labels"]]
-
-            if check_data(query_response):
-                print("Error in data")
-                return full_data, True
-
-            if query_response['data']['repository']['issue']['timelineItems']['nodes'] == []:
-                log_message(f"Missing data for issue {issue_number} in {repo_name}", "warning")
-                continue
-
-            closer = query_response['data']['repository']['issue']['timelineItems']['nodes'][0]['closer']
-
-            if closer is None:
-                    log_message(f"Missing data for issue {issue_number} in {repo_name}", "warning")
-                    continue
-            elif closer['__typename'] == 'PullRequest':
-                pr_number = closer['number']
-                # pr_title = closer['title']
-                # if closer['author'] is None:
-                #     pr_created_by = "ghost"
-                # else:
-                #     pr_created_by = closer['author']['login']
-                # pr_created_at = closer['createdAt']
-                # pr_merged_at = closer['mergedAt']
-                # pr_html_url = closer['url']
-                if closer['mergeCommit'] is None:
-                    log_message(f"PR {pr_number} without merge commit - Issue {issue_number}", "error")
-                    merge_commit = get_commit_pr(repo, closer['commits']['nodes'][0]['commit']['oid'], headers)
-                    pr_merge_commit_sha = merge_commit
-                else:
-                    pr_merge_commit_sha = closer['mergeCommit']['oid']
-
-                if not check_commit_existence_pd(f"./repos_dir/{repo}", pr_merge_commit_sha):
-                    log_message(f"PR {pr_number} merge commit does not exist in PyDriller- Issue {issue_number}", "error")
-                    pr_merge_commit_sha = get_commit_that_references_pr(repo, pr_number, headers, issue_number)
-                
-                tipo = "PR"
-
-                check_rate_limit(headers)
-                headers = get_headers()
-                # pr_language = get_pull_request_language(repo, headers, pr_number)
-            elif closer['__typename'] == 'Commit':
-                if len(closer['associatedPullRequests']['nodes']) == 0:
-                    log_message(f"Commit of issue {issue_number} without associated PR", "error")
-                    # pr_created_by = closer['author']['user']['login']
-                    # pr_merged_at = closer['committedDate']
-                    pr_merge_commit_sha = closer['oid']
-                    # pr_title = closer['messageHeadline']
-                    # pr_html_url = closer['url']
-                    pr_number = None
-                    # pr_created_at = None
-                    # pr_language = None
-                    tipo = "Commit"
-                else:
-                    pr_number = closer['associatedPullRequests']['nodes'][0]['number']
-                    # pr_title = closer['associatedPullRequests']['nodes'][0]['title']
-                    # pr_created_by = closer['associatedPullRequests']['nodes'][0]['author']['login']
-                    # pr_created_at = closer['associatedPullRequests']['nodes'][0]['createdAt']
-                    # pr_merged_at = closer['associatedPullRequests']['nodes'][0]['mergedAt']
-                    # pr_html_url = closer['associatedPullRequests']['nodes'][0]['url']
-                    pr_merge_commit_sha = closer['oid']  
-                    tipo = "Commit"
-
-                    if not check_commit_existence_pd(f"./repos_dir/{repo}", pr_merge_commit_sha):
-                        log_message(f"Commit {pr_merge_commit_sha} does not exist in PyDriller - Issue {issue_number}", "error")
-                        pr_merge_commit_sha = get_commit_that_references_pr(repo, pr_number, headers, issue_number)
-                        tipo = "Commit NF - PR"
-
-                    check_rate_limit(headers)
-                    headers = get_headers()
-                    # pr_language = get_pull_request_language(repo, headers, pr_number)
-            else:
-                log_message(f"Missing data for issue {issue_number} in {repo_name}", "warning")
-                continue
+    if closer_type == "PullRequest":
+        pr_number = node.get("number")
+        merge_commit = node.get("mergeCommit", {}).get("oid") if node.get("mergeCommit") else None
+        if merge_commit:
+            valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", merge_commit)
+            if valid:
+                return merge_commit
             
-            full_data.append({
-                "repo_name": repo_name,
-                "repo_url": repo,
-                # "issue_title": issue["title"],
-                # "issue_created_by": issue["user"]["login"],
-                # "issue_labels": issue_labels,
-                # "issue_number": issue["number"],
-                "issue_html_url": issue["html_url"],
-                "earliest_issue_date": issue["created_at"],
-                # "issue_closed_at": issue["closed_at"],
-                # "pr_title": pr_title,
-                # "pr_language": pr_language,
-                # "pr_created_by": pr_created_by,
-                # "pr_number": pr_number,
-                # "pr_html_url": pr_html_url,
-                # "pr_created_at": pr_created_at,
-                # "pr_merged_at": pr_merged_at,
-                "fix_commit_hash": pr_merge_commit_sha,
-                "tipo": tipo
-            })
+        fix_commit = get_commit_that_references_pr(f"{repo_owner}/{repo_name}", pr_number, get_headers())
+        if fix_commit:
+            valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
+            if valid:
+                return fix_commit
 
-        if 'next' in response.links: 
-            url = response.links['next']['url']
-        else:
-            pages_remaining = False
+        issue_number = issue.get("number")
+        fix_commit = get_commit_that_references_issue(f"{repo_owner}/{repo_name}", issue_number, get_headers())
+        if fix_commit:
+            valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
+            if valid:
+                return fix_commit
+    else:
+        fix_commit = node.get("oid", None)
+        if fix_commit:
+            valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
+            if valid:
+                return fix_commit
+            
+        issue_number = issue.get("number")
+        fix_commit = get_commit_that_references_issue(f"{repo_owner}/{repo_name}", issue_number, get_headers())
 
-    return full_data, False        
+        if fix_commit:
+            valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
+            if valid:
+                return fix_commit
+            
+    return None
 
-   
-def get_issues(repos):
-    full_data = []
+def check_data(data):
+    if "errors" in data:
+        return True
+    return False
 
-    for repo in repos:
-        repo_name = repo.split("/")[1]
+def check_rate_limit(headers):
+    try:
+        response = session.post(graph_ql_url, headers=headers, json={"query": "{ rateLimit { remaining resetAt } }"}, timeout=10)
+        data = response.json()
+        remaining = data.get("data", {}).get("rateLimit", {}).get("remaining", 0)
 
-        if not os.path.exists(f"repos_dir/{repo}"):
-            print(f"Cloning {repo}")
-            os.system(f"git clone https://github.com/{repo}.git repos_dir/{repo}")
+        if remaining == 0:
+            switch_token()
+    except requests.exceptions.RequestException as e:
+        log_message(f"Erro ao checar rate limit: {e}", "warning")
+        switch_token()
 
-        url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed&sort=created&order=asc&per_page=100'
-        response = requests.get(url)
-        data = response.json()["items"]
-        
-        start_date = data[0]["created_at"].split("T")[0]
-        today = datetime.datetime.now().date()
-        today.strftime('%Y-%m-%d')
-        
-        delta = datetime.timedelta(days=365)
-        # start_date = "2023-08-10"
-        start_date =  datetime.datetime.strptime(start_date, '%Y-%m-%d').date()
-        current_start_date = start_date
+def _ensure_output_dir():
+    if not os.path.exists(OUTPUT_DIR):
+        os.makedirs(OUTPUT_DIR)
 
-        while current_start_date < today:
-            current_end_date = current_start_date + delta
-            if current_end_date > today:
-                current_end_date = today
-            url = f'https://api.github.com/search/issues?q=is:issue%20repo:{repo}%20is:closed%20created:{current_start_date}..{current_end_date}&per_page=100'
-            full_data, state = get_data(url, repo_name, repo, full_data)
-            if state:
+def save_progress(all_data, after_cursor, total_count, read_issues):
+    _ensure_output_dir()
+    try:
+        with open(OUTPUT_FILE, "w") as f:
+            json.dump(all_data, f, indent=2)
+        log_message(f" ({repo_name}) Progresso salvo. after={after_cursor} total_count={total_count} read_issues={read_issues}", "info")
+    except Exception as e:
+        log_message(f" ({repo_name}) Erro ao salvar progresso: {e} - ", "error")
+
+    return None
+
+def get_data():
+    _ensure_output_dir()
+
+    # restore previous data if exists
+    all_data = []
+    if os.path.exists(OUTPUT_FILE):
+        try:
+            with open(OUTPUT_FILE, "r") as f:
+                all_data = json.load(f)
+        except Exception:
+            all_data = []
+
+    after_cursor = os.getenv('START_CURSOR') or None
+    read_issues = len(all_data)
+    total_count = None
+    progress = None
+
+    while True:
+        try:
+            query["variables"]["after"] = after_cursor
+            headers = get_headers()
+            check_rate_limit(headers)
+            data = execute_query(query, headers)
+
+            if check_data(data):
+                log_message(f"Erro na requisição para {repo_name}: {json.dumps(data['errors'], indent=2)}", "error")
                 break
-            current_start_date = current_end_date + datetime.timedelta(days=1)
+            
+            issues_data = data.get("data", {}).get("repository", {}).get("issues", {})
+            page_info = issues_data.get("pageInfo", {})
+            nodes = issues_data.get("nodes", [])
 
-    if not os.path.exists("json/raw_data"):
-        os.makedirs("json/raw_data")
+            if total_count is None:
+                total_count = issues_data.get('totalCount', 0)
+                if tqdm:
+                    progress = tqdm(total=total_count, desc="Processando issues", unit="issue")
+                    if read_issues:
+                        progress.update(read_issues)
 
-    with open('./json/raw_data/issues.json', 'w') as f:
-        json.dump(full_data, f)
+            for issue in nodes:
+                if progress:
+                    progress.update(1)
+                else:
+                    log_message(f"Lendo issue {read_issues + 1} de {issues_data.get('totalCount', 0)} | {repo_name}", "info")
+                read_issues += 1
 
-with open('repos_name.txt') as f:
-    repos = f.readlines()
-    repos = [x.strip() for x in repos]
+                closed_at = issue.get("closedAt")
+                if closed_until_date and closed_at:
+                    issue_closed_date = datetime.strptime(closed_at[:10], "%Y-%m-%d").date()
+                    if issue_closed_date > closed_until_date:
+                        log_message(f"Issue #{issue.get('number')} de {repo_name} fechada em {issue_closed_date} é posterior a {closed_until_date}. Pulando...", "info")
+                        continue
 
-get_issues(repos)
+                if issue["timelineItems"]["nodes"] and issue["timelineItems"]["nodes"][0]["closer"] is not None:
+                    issue_number = issue.get("number", "N/A")
+
+                    final_fix_commit = resolve_fix_commit(issue, repo_owner, repo_name)
+                    if not final_fix_commit:
+                        log_message(f"Nenhum commit válido encontrado para a issue #{issue_number} de {repo_name}. Pulando...", "warning")
+                        continue
+
+                    issue_data = {
+                        "repo_name": repo_name,
+                        "fix_commit_hash": final_fix_commit,
+                        "earliest_issue_date": issue.get("createdAt"),
+                    }
+
+                    all_data.append(issue_data)
+
+            if not page_info.get("hasNextPage"):
+                # finished
+                save_progress(all_data, None, total_count, read_issues)
+                break
+
+            after_cursor = page_info.get("endCursor")
+
+            # save progress after each page so we can resume
+            save_progress(all_data, after_cursor, total_count, read_issues)
+
+            time.sleep(2)  # To avoid hitting rate limits
+
+        except KeyboardInterrupt:
+            log_message("Interrompido pelo usuário (Ctrl+C). Salvando progresso...", "info")
+            save_progress(all_data, after_cursor, total_count, read_issues)
+            if progress:
+                progress.close()
+            return all_data
+
+    log_message(f"Total issues fetched from {repo_name}: {len(all_data)}", "info")
+    if progress:
+        progress.close()
+
+    return all_data
+
+if __name__ == "__main__":
+    data = get_data()
+    _ensure_output_dir()
+    with open(OUTPUT_FILE, "w") as f:
+        json.dump(data, f, indent=2)
