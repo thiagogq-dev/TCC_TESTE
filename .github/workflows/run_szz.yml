@@ -9,6 +9,7 @@ on:
         description: 'Branch to run the workflow on'
         required: true
         default: 'main'
+
       repo_path:
         description: 'The OWNER/REPOSITORY to run the SZZ on'
         required: true
@@ -19,6 +20,12 @@ on:
           - junit-team/junit-framework
           - keycloak/keycloak
           - spring-projects/spring-boot
+
+      iteration_number:
+        description: 'Number of the iteration to be performed'
+        required: true
+        default: '1'
+
       date_filter:
         description: 'Use date filter?'
         required: true
@@ -27,7 +34,7 @@ on:
           - 'true'
           - 'false'
         default: 'false'
-      
+
 jobs:
 
   list-json-files:
@@ -35,79 +42,120 @@ jobs:
 
     outputs:
       json_files: ${{ steps.list-json-files.outputs.json_files }}
-    
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4.1.6
-      with:
-        ref: ${{ github.event.inputs.branch }}
 
-    - name: List JSON files
-      id: list-json-files
-      run: |
-        files=$(ls data/*.json | jq -R -s -c 'split("\n")[:-1]')
-        echo files=$files
-        echo "json_files=$files" >> $GITHUB_OUTPUT
+    steps:
+      - name: Validate iteration number
+        run: |
+          if ! [[ "${{ github.event.inputs.iteration_number }}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "iteration_number must be a positive integer greater than 0"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4.1.6
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: List JSON files
+        id: list-json-files
+        run: |
+          files=$(ls data/*.json | jq -R -s -c 'split("\n")[:-1]')
+          echo "json_files=$files" >> $GITHUB_OUTPUT
 
   run-script:
     needs: list-json-files
     runs-on: ubuntu-latest
+
     strategy:
+      fail-fast: false
       matrix:
-        file: ${{fromJson(needs.list-json-files.outputs.json_files)}}
+        file: ${{ fromJson(needs.list-json-files.outputs.json_files) }}
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4.1.6
-      with:
-        ref: ${{ github.event.inputs.branch }}
+      - name: Checkout
+        uses: actions/checkout@v4.1.6
+        with:
+          ref: ${{ github.event.inputs.branch }}
 
-    - name: Create json folder 
-      run: |
-        mkdir -p bics/  
+      - name: Clone pyszz_v2
+        uses: actions/checkout@v4.1.6
+        with:
+          repository: 'thiagogquinto/pyszz_v2'
+          path: 'pyszz_v2'
+          ref: 'tcc_version'
 
-    - name: Clone pyszz_v2
-      uses: actions/checkout@v4.1.6
-      with:
-        repository: 'thiagogquinto/pyszz_v2'
-        path: 'pyszz_v2'
-        ref: 'tcc_version'
+      - name: Clone repository
+        run: |
+          mkdir -p pyszz_v2/repos_dir
+          cd pyszz_v2/repos_dir
+          git clone https://github.com/${{ github.event.inputs.repo_path }}.git
 
-    - name: Clone REPOSITORY to pyszz_v2/repos_dir
-      run: |
-        mkdir -p pyszz_v2/repos_dir
-        cd pyszz_v2/repos_dir
-        git clone https://github.com/${{ github.event.inputs.repo_path }}.git
-      
-    - name: Set up Python
-      uses: actions/setup-python@v5.1.0
-      with:
-        python-version: '3.x'
+      - name: Set up Python
+        uses: actions/setup-python@v5.1.0
+        with:
+          python-version: '3.x'
 
-    - name: Run pyszz_v2
-      working-directory: pyszz_v2/
-      run: |
-        echo "$(basename ${{ matrix.file }})"
-        cp ../${{ matrix.file }} issues_data.json
-        echo "date_filter='${{ github.event.inputs.date_filter }}'"
-        bash ./run_docker.sh ./issues_data.json ./conf/tcc_version.yml ./repos_dir/ $([ "${{ github.event.inputs.date_filter }}" = "true" ] && echo "--date_filter")
+      - name: Run pyszz_v2
+        working-directory: pyszz_v2/
+        run: |
+          filename=$(basename "${{ matrix.file }}")
+          cp ../${{ matrix.file }} "$filename"
 
-    - name: Bring out file to main folder
-      working-directory: pyszz_v2/
-      run: |
-        filename=$(basename ${{ matrix.file }})
-        cp out/bics.json ../bics/bics_$filename
+          bash ./run_docker.sh \
+            "./$filename" \
+            ./conf/tcc_version.yml \
+            ./repos_dir/ \
+            ${{ github.event.inputs.iteration_number }} \
+            $([ "${{ github.event.inputs.date_filter }}" = "true" ] && echo "--date_filter")
 
-    - name: Remove processed files
-      run: |
-        rm -f ${{ matrix.file }}
-  
-    - name: Commit and push
-      run: |
-        git config --global user.email "thiagogquinto.dev@gmail.com"
-        git config --global user.name "Thiago Quinto"
-        git pull 
-        git add bics/*.json
-        git rm -f ${{ matrix.file }}
-        git commit -m "Add bics files"
-        git push
+      - name: Prepare artifact
+        run: |
+          mkdir -p artifact_out
+          cp -r pyszz_v2/out/* artifact_out/ || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: out-${{ strategy.job-index }}
+          path: artifact_out/
+
+  aggregate-and-push:
+    needs: run-script
+
+    if: always()
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1.6
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded_artifacts
+          merge-multiple: true
+
+      - name: Move files to out
+        run: |
+          mkdir -p out
+          cp -r downloaded_artifacts/* out/ || true
+
+      - name: Remove processed json files
+        run: |
+          rm -f data/*.json
+
+      - name: Commit and push
+        run: |
+          git config --global user.email "thiagogquinto.dev@gmail.com"
+          git config --global user.name "Thiago Quinto"
+
+          git add out/
+          git add data/
+
+          git diff --cached --quiet && echo "No changes" && exit 0
+
+          git commit -m "Add bics files"
+          git push
