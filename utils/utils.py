@@ -80,18 +80,17 @@ def remove_duplicates(input_file):
     with open(input_file, 'w') as f:
         json.dump(unique_data, f, indent=4)
 
-def split_json_file(input_file, output_prefix, max_items_per_file=10):
-    with open(input_file, 'r') as f:
-        data = json.load(f)
+def split_json_file(input_data, output_folder, file_prefix, max_items_per_file=10):
+    if not isinstance(input_data, list):
+        raise ValueError("The input data does not contain a JSON list.")
 
-    if not isinstance(data, list):
-        raise ValueError("The input file does not contain a JSON list.")
+    chunks = [input_data[i:i + max_items_per_file] for i in range(0, len(input_data), max_items_per_file)]
 
-    chunks = [data[i:i + max_items_per_file] for i in range(0, len(data), max_items_per_file)]
-
-    input_dir = os.path.dirname(input_file)
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+        
     for idx, chunk in enumerate(chunks):
-        output_file = os.path.join(input_dir, f"{output_prefix}_{idx + 1}.json")
+        output_file = os.path.join(output_folder, f"{file_prefix}_{idx + 1}.json")
         with open(output_file, 'w') as f:
             json.dump(chunk, f, indent=4)
         print(f"File {output_file} created with {len(chunk)} items.")
