@@ -27,18 +27,20 @@ def prepare_data(input_folder, first_actions_attempt=False):
                     # Verifica se é a primeira tentativa de usar github actions para os BICs
                     # Se for, e se houver BICs disponíveis, utiliza o último BIC para verificar se o commit é um merge commit
                     if first_actions_attempt:
-                        if len(d.get('bic')) > 0:
-                            commit_sha = d['fix_commit_hash']
-                            bic = d.get('bic')[-1]
-                            if check_merge_commit(f'./repos_dir/{d.get("repo_name").split("/")[-1]}', commit_sha):
-                                print(f"Skipping merge commit {commit_sha} in repo {d.get('repo_name')}")
-                                d['bic'] = []
-                                continue
-                            szz_data = {
-                                'repo_name': d.get('repo_name'),
-                                'fix_commit_hash': bic,
-                                'path_id': d.get('path_id'),
-                            }
+                        bic_list = d.get('bic') or []
+                        if not bic_list:
+                            continue
+
+                        commit_sha = d['fix_commit_hash']
+                        bic = bic_list[-1]
+                        if check_merge_commit(f'./repos_dir/{d.get("repo_name").split("/")[-1]}', commit_sha):
+                            print(f"Skipping merge commit {commit_sha} in repo {d.get('repo_name')}")
+                            continue
+                        szz_data = {
+                            'repo_name': d.get('repo_name'),
+                            'fix_commit_hash': bic,
+                            'path_id': d.get('path_id'),
+                        }
                     else:
                         # Se não, quer dizer que o processamento anterior já foi feito
                         # E a falaha ocorreu no uso do github actions para os BICs
@@ -68,5 +70,5 @@ if __name__ == "__main__":
         exit(1)
 
     data_to_split = prepare_data(args.input_folder, args.first_actions_attempt)
-    
-    split_json_file(data_to_split, args.output_folder, args.file_prefix, args.batch_size)
+    if data_to_split is not None:
+        split_json_file(data_to_split, args.file_prefix, args.batch_size, args.output_folder)
