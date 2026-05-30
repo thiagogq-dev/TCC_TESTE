@@ -1,47 +1,182 @@
-import os
-import json
-from pydriller import Repository
-from utils.utils import split_json_file
+from pathlib import Path
+from typing import Any
+
 import argparse
+import json
+import re
+import sys
 
-def prepare_data(input_folder):
-    data_file = []
-    for file in os.listdir(input_folder):
-        if file.endswith('.json'):
-            original_file_path = os.path.join(input_folder, file)
-            with open(original_file_path, 'r') as f:
-                data = json.load(f)
-                for d in data:
-                    if len(d.get('bic')) > 0:
-                        commit_sha = d['fix_commit_hash']
-                        bic = d.get('bic')[-1]
-                        for commit in Repository(f'./repos_dir/{d.get("repo_name").split("/")[-1]}', single=commit_sha).traverse_commits():
-                            if commit.merge:
-                                print(f"Skipping merge commit {commit_sha} in repo {d.get('repo_name')}")
-                                d['bic'] = []
-                                continue
-                        usable_bic = {
-                            'repo_name': d.get('repo_name'),
-                            'fix_commit_hash': bic,
-                            'path_id': d.get('path_id'),
-                        }
-                        data_file.append(usable_bic)
+from pydriller import Repository
 
-    return data_file
+from utils.utils import split_json_file
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Prepare data for SZZ analysis")
-    parser.add_argument("--input_folder", type=str, required=True, help="Path to the folder containing the input JSON files") 
-    parser.add_argument("--output_folder", type=str, required=True, help="Path to the folder where the output JSON files will be saved")
-    parser.add_argument("--file_prefix", type=str, required=True, help="Prefix for the output files")
-    parser.add_argument("--batch_size", type=int, default=50, help="Number of entries per output file")
-    
+
+def is_merge_commit(repo_path: str, commit_sha: str) -> bool:
+    """Verifica se um commit é merge commit."""
+    for commit in Repository(repo_path, single=commit_sha).traverse_commits():
+        return commit.merge
+    return False
+
+
+def build_szz_data(repo_name: str, commit_hash: str, path_id: Any) -> dict:
+    return {
+        "repo_name": repo_name,
+        "fix_commit_hash": commit_hash,
+        "path_id": path_id,
+    }
+
+
+def process_first_attempt(entry: dict) -> dict | None:
+    bics = entry.get("bic") or []
+
+    if not bics:
+        return None
+
+    repo_name = entry["repo_name"]
+    fix_commit_hash = entry["fix_commit_hash"]
+
+    repo_path = f'./repos_dir/{repo_name.split("/")[-1]}'
+
+    if is_merge_commit(repo_path, fix_commit_hash):
+        print(f"Skipping merge commit {fix_commit_hash} in repo {repo_name}")
+        entry["bic"] = []
+        return None
+
+    return build_szz_data(
+        repo_name=repo_name,
+        commit_hash=bics[-1],
+        path_id=entry.get("path_id"),
+    )
+
+
+def process_retry(entry: dict) -> dict:
+    return build_szz_data(
+        repo_name=entry["repo_name"],
+        commit_hash=entry["fix_commit_hash"],
+        path_id=entry.get("path_id"),
+    )
+
+
+def prepare_data(input_folder: str, first_actions_attempt: bool = False) -> list[dict]:
+    if first_actions_attempt:
+        print(
+            "Primeira tentativa usando GitHub Actions para os BICs. "
+            "Verificando merge commits..."
+        )
+    else:
+        print(
+            "Processamento anterior falhou no GitHub Actions "
+            "(tempo ou memória). Reduzindo tamanho dos chunks..."
+        )
+
+    results: list[dict] = []
+
+    for json_file in Path(input_folder).glob("*.json"):
+        with json_file.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        for entry in data:
+            if first_actions_attempt:
+                result = process_first_attempt(entry)
+            else:
+                result = process_retry(entry)
+
+            if result:
+                results.append(result)
+
+    return results
+
+
+def get_latest_version_folder(input_folder: Path) -> Path | None:
+    version_pattern = re.compile(r"^v(\d+)$")
+    parent_folder = input_folder.parent
+
+    version_folders = []
+    for child in parent_folder.iterdir():
+        if not child.is_dir():
+            continue
+
+        match = version_pattern.match(child.name)
+        if match:
+            version_folders.append((int(match.group(1)), child))
+
+    if not version_folders:
+        return None
+
+    version_folders.sort(key=lambda item: item[0])
+    return version_folders[-1][1]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Prepare data for SZZ analysis"
+    )
+
+    parser.add_argument(
+        "--input_folder",
+        required=True,
+        help="Folder containing input JSON files",
+    )
+
+    parser.add_argument(
+        "--output_folder",
+        required=True,
+        help="Folder where output JSON files will be saved",
+    )
+
+    parser.add_argument(
+        "--file_prefix",
+        required=True,
+        help="Prefix for output files",
+    )
+
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=50,
+        help="Number of entries per output file",
+    )
+
+    parser.add_argument(
+        "--first_actions_attempt",
+        action="store_true",
+        help="Indicates first GitHub Actions attempt for BIC processing",
+    )
+
     args = parser.parse_args()
 
-    if not os.path.exists(args.input_folder):
-        print(f"Input folder '{args.input_folder}' does not exist.")
-        exit(1)
+    input_folder = Path(args.input_folder)
 
-    data_to_split = prepare_data(args.input_folder)
-    
-    split_json_file(data_to_split, args.output_folder, args.file_prefix, args.batch_size)
+    if not input_folder.exists():
+        raise FileNotFoundError(
+            f"Input folder '{input_folder}' does not exist."
+        )
+
+    latest_folder = get_latest_version_folder(input_folder)
+    if latest_folder and input_folder.name != latest_folder.name:
+        print(
+            f"Aviso: o input_folder informado foi '{input_folder}', mas o "
+            f"mais recente encontrado é '{latest_folder}'."
+        )
+        confirmation = input(
+            "Deseja continuar mesmo assim? [y/N]: "
+        ).strip().lower()
+        if confirmation not in {"y", "yes", "s", "sim"}:
+            print("Execução cancelada pelo usuário.")
+            sys.exit(1)
+
+    data = prepare_data(
+        input_folder=str(input_folder),
+        first_actions_attempt=args.first_actions_attempt,
+    )
+
+    split_json_file(
+        data,
+        args.output_folder,
+        args.file_prefix,
+        args.batch_size,
+    )
+
+
+if __name__ == "__main__":
+    main()
