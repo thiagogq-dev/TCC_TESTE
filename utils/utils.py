@@ -80,7 +80,7 @@ def remove_duplicates(input_file):
     with open(input_file, 'w') as f:
         json.dump(unique_data, f, indent=4)
 
-def split_json_file(input_data, file_prefix, max_items_per_file=10, output_folder='data/'):
+def split_json_file(input_data, output_folder, file_prefix, max_items_per_file=10):
     if not isinstance(input_data, list):
         raise ValueError("The input data does not contain a JSON list.")
 
