@@ -62,10 +62,7 @@ def get_commit_that_references_pr(repo_path, pr_number, headers):
         # return data['data']['repository']['pullRequest']['timelineItems']['nodes'][0]['commit']['oid']
     return None
 
-def remove_duplicates(input_file):
-    with open(input_file, 'r') as f:
-        data = json.load(f)
-
+def remove_duplicates(data):
     tam = len(data)
     seen = set()
     unique_data = []
@@ -77,26 +74,24 @@ def remove_duplicates(input_file):
             unique_data.append(item)
     
     print(f'Removed {tam - len(unique_data)} duplicate items.')
-    with open(input_file, 'w') as f:
-        json.dump(unique_data, f, indent=4)
+    return unique_data
 
-def split_json_file(input_file, output_prefix, max_items_per_file=10):
-    with open(input_file, 'r') as f:
-        data = json.load(f)
+def split_json_file(input_data, output_folder, file_prefix, max_items_per_file=10):
+    if not isinstance(input_data, list):
+        raise ValueError("The input data does not contain a JSON list.")
 
-    if not isinstance(data, list):
-        raise ValueError("The input file does not contain a JSON list.")
+    chunks = [input_data[i:i + max_items_per_file] for i in range(0, len(input_data), max_items_per_file)]
 
-    chunks = [data[i:i + max_items_per_file] for i in range(0, len(data), max_items_per_file)]
-
-    input_dir = os.path.dirname(input_file)
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+        
     for idx, chunk in enumerate(chunks):
-        output_file = os.path.join(input_dir, f"{output_prefix}_{idx + 1}.json")
+        output_file = os.path.join(output_folder, f"{file_prefix}_{idx + 1}.json")
         with open(output_file, 'w') as f:
             json.dump(chunk, f, indent=4)
         print(f"File {output_file} created with {len(chunk)} items.")
               
-def merge_files(folder_path, output_path):
+def merge_files(folder_path):
     json_files = glob.glob(folder_path + "/**/*.json", recursive=True)
     combined_data = []
     for file in json_files:
@@ -105,20 +100,16 @@ def merge_files(folder_path, output_path):
             print(f'Processing {file} with {len(data)} items')
             combined_data.extend(data)
     print(f'Combined data has {len(combined_data)} items')
-    with open(output_path, 'w') as f:
-        json.dump(combined_data, f, indent=4)
+    return combined_data
 
-def group_file_by_fix(input_file, output_file = None):
+def group_file_by_fix(data):
     """
     Agrupa os registros de um arquivo JSON pelo hash do commit de correção (fix_commit_hash).
     Evita duplicatas de 'bic' para cada commit de correção.
     
     :param input_file: Caminho para o arquivo JSON de entrada.
-    :param output_file: Caminho para o arquivo JSON de saída.
+    :return: Dados agrupados.
     """
-    with open(input_file, "r") as f:
-        data = json.load(f)
-
     grouped_data = {}
 
     for record in data:
@@ -134,9 +125,8 @@ def group_file_by_fix(input_file, output_file = None):
         {**values, "bic": list(values["bic"])}
         for values in grouped_data.values()
     ]
-    output_file = output_file or input_file 
-    with open(output_file, "w") as f:
-        json.dump(result, f, indent=4)
+
+    return result 
 
 def is_commit_valid(repo_path, commit_hash):
     """
