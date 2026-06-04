@@ -1,22 +1,10 @@
 from pathlib import Path
 from typing import Any
-
+from utils.utils import is_commit_valid, split_json_file
 import argparse
 import json
 import re
 import sys
-
-from pydriller import Repository
-
-from utils.utils import split_json_file
-
-
-def is_merge_commit(repo_path: str, commit_sha: str) -> bool:
-    """Verifica se um commit é merge commit."""
-    for commit in Repository(repo_path, single=commit_sha).traverse_commits():
-        return commit.merge
-    return False
-
 
 def build_szz_data(repo_name: str, commit_hash: str, path_id: Any) -> dict:
     return {
@@ -32,19 +20,20 @@ def process_first_attempt(entry: dict) -> dict | None:
     if not bics:
         return None
 
-    repo_name = entry["repo_name"]
-    fix_commit_hash = entry["fix_commit_hash"]
+    candidate_bic = bics[-1]
 
+    repo_name = entry["repo_name"]
     repo_path = f'./repos_dir/{repo_name.split("/")[-1]}'
 
-    if is_merge_commit(repo_path, fix_commit_hash):
-        print(f"Skipping merge commit {fix_commit_hash} in repo {repo_name}")
-        entry["bic"] = []
+    status, msg = is_commit_valid(repo_path, candidate_bic)
+    
+    if not status:
+        print(f"Skipping commit {candidate_bic} in repo {repo_name}: {msg}")
         return None
 
     return build_szz_data(
         repo_name=repo_name,
-        commit_hash=bics[-1],
+        commit_hash=candidate_bic,
         path_id=entry.get("path_id"),
     )
 
@@ -180,3 +169,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    
