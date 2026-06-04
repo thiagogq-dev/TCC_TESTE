@@ -149,39 +149,39 @@ def is_commit_valid(repo_path, commit_hash):
 
     return True, "Commit válido"
 
-def get_commit_data(commit_hash, repo_name, commit_date_map, author_commits_map):
+def extract_metrics_from_commit(commit, author_commits_map):
     has_test_files = False
-    for commit in Repository(path_to_repo=f"repos_dir/{repo_name}", single=commit_hash).traverse_commits():    
-        real_lines_changed = 0
-        for mf in commit.modified_files:
-            if mf.filename.endswith(".java"):
-                real_lines_changed += mf.added_lines + mf.deleted_lines
+    real_lines_changed = 0
+    
+    for mf in commit.modified_files:
+        if mf.filename.endswith(".java"):
+            real_lines_changed += mf.added_lines + mf.deleted_lines
                 
             if "test" in mf.filename.lower() or (mf.new_path and "test" in mf.new_path.lower()) or (mf.old_path and "test" in mf.old_path.lower()):
                 has_test_files = True
 
-        # Calcula contributor_activity para o autor até a data do commit - 1 dia
-        author = commit.author.name
-        commit_date = commit.author_date
-        contributor_activity = get_contributor_activity_from_index(author, commit_date - timedelta(days=1), author_commits_map)
+    # Calcula contributor_activity para o autor até a data do commit - 1 dia
+    author = commit.author.name
+    commit_date = commit.author_date
+    contributor_activity = get_contributor_activity_from_index(author, commit_date - timedelta(days=1), author_commits_map)
 
-        data = {
-            "commit_author": author,
-            "committer": commit.committer.name,
-            "commit_date": commit_date.isoformat(),
-            "committer_date": commit.committer_date.isoformat(),
-            "changed_files": commit.files,
-            "deletions": commit.deletions,
-            "insertions": commit.insertions,
-            "lines": commit.lines,
-            "has_test_files": has_test_files,
-            "real_lines_changed": real_lines_changed,
-            "dmm_unit_size": commit.dmm_unit_size,
-            "dmm_unit_complexity": commit.dmm_unit_complexity,
-            "dmm_unit_interfacing": commit.dmm_unit_interfacing,
-            "contributor_activity": contributor_activity
-        }
-        return data
+    data = {
+        "commit_author": author,
+        "committer": commit.committer.name,
+        "commit_date": commit_date.isoformat(),
+        "committer_date": commit.committer_date.isoformat(),
+        "changed_files": commit.files,
+        "deletions": commit.deletions,
+        "insertions": commit.insertions,
+        "lines": commit.lines,
+        "has_test_files": has_test_files,
+        "real_lines_changed": real_lines_changed,
+        "dmm_unit_size": commit.dmm_unit_size,
+        "dmm_unit_complexity": commit.dmm_unit_complexity,
+        "dmm_unit_interfacing": commit.dmm_unit_interfacing,
+        "contributor_activity": contributor_activity
+    }
+    return data
 
 
 def preload_commits_index(repo_path):
