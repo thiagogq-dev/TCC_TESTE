@@ -1,7 +1,8 @@
 import json
 from PRAnalizer import PRAnalizer
 import os
-from pydriller import Repository
+from pydriller import Git
+from tqdm import tqdm
 
 allowed_extensions = {
     'java': 'JAVA'
@@ -65,13 +66,13 @@ def analyze_files(files):
 def run_pr_analizer(repo_name, commit_sha):
     repo_folder = repo_name.split("/")[-1]
     local_repo_path = f"../repos_dir/{repo_folder}"
+    git_repo = Git(local_repo_path)
 
     if os.path.isdir(local_repo_path):
         try:
-            for commit in Repository(local_repo_path, single=commit_sha).traverse_commits():
-                if commit.modified_files:
-                    return analyze_files(commit.modified_files)
-                break
+            commit = git_repo.get_commit(commit_sha)
+            if commit.modified_files:
+                return analyze_files(commit.modified_files)
         except Exception as error:
             print(f"Falha no PyDriller local para {repo_name} @ {commit_sha}: {error}. Fallback PyGithub.")
 
@@ -90,9 +91,15 @@ def process_file(file_path):
 
     total = len(data)
     new_data = []
-    for index, record in enumerate(data, start=1):
+
+    for record in tqdm(
+        data,
+        desc=os.path.basename(file_path),
+        unit="commit",
+        leave=True
+    ):
+
         fix = record["fix_commit_hash"]
-        print(f"Processando {index}/{total}: {record['repo_name']} @ {fix}", flush=True)
         repo_name = record["repo_name"]
         files_with_test, real_code_files, added_asserts, removed_asserts = run_pr_analizer(repo_name, fix)
 
@@ -101,7 +108,7 @@ def process_file(file_path):
             continue
 
         record["files_with_test"] = files_with_test
-        record["has_asserts_changes"] = True if files_with_test > 0 else False
+        record["has_asserts_changes"] = files_with_test > 0
         record["real_code_files"] = real_code_files
         record["test_file_ratio"] = files_with_test / real_code_files if real_code_files > 0 else 0
         record["added_asserts"] = added_asserts
