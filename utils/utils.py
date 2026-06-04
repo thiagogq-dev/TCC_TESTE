@@ -62,10 +62,7 @@ def get_commit_that_references_pr(repo_path, pr_number, headers):
         # return data['data']['repository']['pullRequest']['timelineItems']['nodes'][0]['commit']['oid']
     return None
 
-def remove_duplicates(input_file):
-    with open(input_file, 'r') as f:
-        data = json.load(f)
-
+def remove_duplicates(data):
     tam = len(data)
     seen = set()
     unique_data = []
@@ -77,8 +74,7 @@ def remove_duplicates(input_file):
             unique_data.append(item)
     
     print(f'Removed {tam - len(unique_data)} duplicate items.')
-    with open(input_file, 'w') as f:
-        json.dump(unique_data, f, indent=4)
+    return unique_data
 
 def split_json_file(input_data, output_folder, file_prefix, max_items_per_file=10):
     if not isinstance(input_data, list):
@@ -95,7 +91,7 @@ def split_json_file(input_data, output_folder, file_prefix, max_items_per_file=1
             json.dump(chunk, f, indent=4)
         print(f"File {output_file} created with {len(chunk)} items.")
               
-def merge_files(folder_path, output_path):
+def merge_files(folder_path):
     json_files = glob.glob(folder_path + "/**/*.json", recursive=True)
     combined_data = []
     for file in json_files:
@@ -104,20 +100,16 @@ def merge_files(folder_path, output_path):
             print(f'Processing {file} with {len(data)} items')
             combined_data.extend(data)
     print(f'Combined data has {len(combined_data)} items')
-    with open(output_path, 'w') as f:
-        json.dump(combined_data, f, indent=4)
+    return combined_data
 
-def group_file_by_fix(input_file, output_file = None):
+def group_file_by_fix(data):
     """
     Agrupa os registros de um arquivo JSON pelo hash do commit de correção (fix_commit_hash).
     Evita duplicatas de 'bic' para cada commit de correção.
     
     :param input_file: Caminho para o arquivo JSON de entrada.
-    :param output_file: Caminho para o arquivo JSON de saída.
+    :return: Dados agrupados.
     """
-    with open(input_file, "r") as f:
-        data = json.load(f)
-
     grouped_data = {}
 
     for record in data:
@@ -133,9 +125,8 @@ def group_file_by_fix(input_file, output_file = None):
         {**values, "bic": list(values["bic"])}
         for values in grouped_data.values()
     ]
-    output_file = output_file or input_file 
-    with open(output_file, "w") as f:
-        json.dump(result, f, indent=4)
+
+    return result 
 
 def is_commit_valid(repo_path, commit_hash):
     """
@@ -158,39 +149,39 @@ def is_commit_valid(repo_path, commit_hash):
 
     return True, "Commit válido"
 
-def get_commit_data(commit_hash, repo_name, commit_date_map, author_commits_map):
+def extract_metrics_from_commit(commit, author_commits_map):
     has_test_files = False
-    for commit in Repository(path_to_repo=f"repos_dir/{repo_name}", single=commit_hash).traverse_commits():    
-        real_lines_changed = 0
-        for mf in commit.modified_files:
-            if mf.filename.endswith(".java"):
-                real_lines_changed += mf.added_lines + mf.deleted_lines
+    real_lines_changed = 0
+    
+    for mf in commit.modified_files:
+        if mf.filename.endswith(".java"):
+            real_lines_changed += mf.added_lines + mf.deleted_lines
                 
             if "test" in mf.filename.lower() or (mf.new_path and "test" in mf.new_path.lower()) or (mf.old_path and "test" in mf.old_path.lower()):
                 has_test_files = True
 
-        # Calcula contributor_activity para o autor até a data do commit - 1 dia
-        author = commit.author.name
-        commit_date = commit.author_date
-        contributor_activity = get_contributor_activity_from_index(author, commit_date - timedelta(days=1), author_commits_map)
+    # Calcula contributor_activity para o autor até a data do commit - 1 dia
+    author = commit.author.name
+    commit_date = commit.author_date
+    contributor_activity = get_contributor_activity_from_index(author, commit_date - timedelta(days=1), author_commits_map)
 
-        data = {
-            "commit_author": author,
-            "committer": commit.committer.name,
-            "commit_date": commit_date.isoformat(),
-            "committer_date": commit.committer_date.isoformat(),
-            "changed_files": commit.files,
-            "deletions": commit.deletions,
-            "insertions": commit.insertions,
-            "lines": commit.lines,
-            "has_test_files": has_test_files,
-            "real_lines_changed": real_lines_changed,
-            "dmm_unit_size": commit.dmm_unit_size,
-            "dmm_unit_complexity": commit.dmm_unit_complexity,
-            "dmm_unit_interfacing": commit.dmm_unit_interfacing,
-            "contributor_activity": contributor_activity
-        }
-        return data
+    data = {
+        "commit_author": author,
+        "committer": commit.committer.name,
+        "commit_date": commit_date.isoformat(),
+        "committer_date": commit.committer_date.isoformat(),
+        "changed_files": commit.files,
+        "deletions": commit.deletions,
+        "insertions": commit.insertions,
+        "lines": commit.lines,
+        "has_test_files": has_test_files,
+        "real_lines_changed": real_lines_changed,
+        "dmm_unit_size": commit.dmm_unit_size,
+        "dmm_unit_complexity": commit.dmm_unit_complexity,
+        "dmm_unit_interfacing": commit.dmm_unit_interfacing,
+        "contributor_activity": contributor_activity
+    }
+    return data
 
 
 def preload_commits_index(repo_path):
