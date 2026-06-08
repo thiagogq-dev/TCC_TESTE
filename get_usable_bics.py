@@ -136,16 +136,17 @@ def main() -> None:
 
     input_folder = Path(args.input_folder)
     first_actions_attempt = args.first_actions_attempt
-    
+
     if not input_folder.exists():
         raise FileNotFoundError(
             f"Input folder '{input_folder}' does not exist."
         )
-    
+
     if not first_actions_attempt and "out/v" in str(input_folder):
         print(
-            f"Aviso: o input_folder '{input_folder}' parece ser uma pasta de versão. "
-            "Certifique-se de que está usando a pasta correta para a primeira tentativa."
+            "Aviso: Parece que você está tentando processar arquivos de erro do GitHub Actions, mas o input_folder contém 'out/v', indicando que pode ser a "
+            "primeira tentativa. Considere usar a flag --first_actions_attempt "
+            "ou verificar se o input_folder está correto."
         )
         confirmation = input(
             "Deseja continuar mesmo assim? [y/N]: "
