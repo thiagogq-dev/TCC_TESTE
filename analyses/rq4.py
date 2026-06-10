@@ -29,7 +29,7 @@ def calculate_avg_metrics_by_tests(data, reporter):
     }
 
     for record in data:
-        has_asserts = record.get("has_asserts_changes")
+        has_asserts = record.get("test_files_with_asserts_changes") > 0
         for _, (field, with_asserts_list, without_asserts_list) in metrics.items():
             value = safe_float(record.get(field))
             if value is None:
@@ -76,7 +76,7 @@ def calculate_added_asserts_churn(data, reporter):
     for record in data:
         added_asserts = record.get("added_asserts")
         removed_asserts = record.get("removed_asserts")
-        lines = record.get("real_lines_changed")
+        lines = record.get("java_lines_changed")
 
         if added_asserts is None or lines is None:
             continue

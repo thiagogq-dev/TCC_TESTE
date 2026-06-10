@@ -116,7 +116,7 @@ for json_file in json_files:
 
     # Para cada FIX
     for entry in data:
-        bic_has_asserts_changes = entry.get('has_asserts_changes') == True
+        bic_has_asserts_changes = entry.get('test_files_with_asserts_changes') > 0
         fix_hashes = entry.get('fixed_by', [])
 
         # Para cada BIC associado ao FIX
@@ -128,7 +128,7 @@ for json_file in json_files:
             if not fix_entry:
                 continue
 
-            fix_has_asserts_changes = fix_entry.get('has_asserts_changes') == True
+            fix_has_asserts_changes = fix_entry.get('test_files_with_asserts_changes') > 0
 
             # Classificação do par (FIX, BIC)
             if fix_has_asserts_changes and bic_has_asserts_changes:
