@@ -146,6 +146,6 @@ for json_file in json_files:
     fn = fix
 
     repo_name = json_file.split('/')[-1].replace('.json', '')
-    output_file = f"./results/{repo_name}/relations.png"
+    output_file = f"./results/{repo_name}/rq3.png"
     os.makedirs(f"./results/{repo_name}", exist_ok=True)
     plot_confusion_matrix(tp, fp, tn, fn, output_file, quadrant_colors=('yellow', 'red', 'green', 'orange'), repo_name=repo_name)
