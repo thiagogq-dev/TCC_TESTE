@@ -136,11 +136,23 @@ def main() -> None:
 
     input_folder = Path(args.input_folder)
     first_actions_attempt = args.first_actions_attempt
-
+    
     if not input_folder.exists():
         raise FileNotFoundError(
             f"Input folder '{input_folder}' does not exist."
         )
+    
+    if not first_actions_attempt and "out/v" in str(input_folder):
+        print(
+            f"Aviso: o input_folder '{input_folder}' parece ser uma pasta de versão. "
+            "Certifique-se de que está usando a pasta correta para a primeira tentativa."
+        )
+        confirmation = input(
+            "Deseja continuar mesmo assim? [y/N]: "
+        ).strip().lower()
+        if confirmation not in {"y", "yes", "s", "sim"}:
+            print("Execução cancelada pelo usuário.")
+            sys.exit(1)
 
     if not first_actions_attempt and "out/v" in str(input_folder):
         print(

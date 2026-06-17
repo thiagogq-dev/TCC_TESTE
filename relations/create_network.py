@@ -44,7 +44,7 @@ for file in os.listdir('./'):
                 bic, 
                 label=bic, 
                 color=generate_ramdom_color() if has_fix else "#B0B0B0", 
-                title=f"Repository: {item['Repository']}\n  Commit: {bic}"
+                title=f"Repository: {item['repository']}\n  Commit: {bic}"
             )
 
             if not has_fix:
@@ -54,7 +54,7 @@ for file in os.listdir('./'):
                 edge_key = (bic, fix_commit)
                 if edge_key not in existing_edges:
                     data = get_data_in_json(f"../data/{output_base_file}.json", fix_commit)
-                    net.add_node(fix_commit, label=fix_commit, title=f"Repository: {data['repo_name']}\n Commit: {data['fix_commit_hash']}")
+                    net.add_node(fix_commit, label=fix_commit, title=f"repository: {data['repo_name']}\n Commit: {data['fix_commit_hash']}")
                     net.add_edge(bic, fix_commit, arrowStrikethrough=False)
                     existing_edges.add(edge_key)
 

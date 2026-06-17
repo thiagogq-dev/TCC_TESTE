@@ -52,7 +52,7 @@ def main():
     output_path = os.path.join(output_folder, output_file)
     with open(output_path, 'w') as f:
         json.dump(unique_data, f, indent=4)
-    print(f"Data cleaned and saved to {output_path}")
+    print(f"Data cleaned and saved to {output_path} with {len(unique_data)} unique entries.")
 
 
 if __name__ == "__main__":

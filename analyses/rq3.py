@@ -116,7 +116,7 @@ for json_file in json_files:
 
     # Para cada FIX
     for entry in data:
-        bic_has_asserts_changes = entry.get('has_asserts_changes') == True
+        bic_has_asserts_changes = entry.get('test_files_with_asserts_changes') > 0
         fix_hashes = entry.get('fixed_by', [])
 
         # Para cada BIC associado ao FIX
@@ -128,7 +128,7 @@ for json_file in json_files:
             if not fix_entry:
                 continue
 
-            fix_has_asserts_changes = fix_entry.get('has_asserts_changes') == True
+            fix_has_asserts_changes = fix_entry.get('test_files_with_asserts_changes') > 0
 
             # Classificação do par (FIX, BIC)
             if fix_has_asserts_changes and bic_has_asserts_changes:
@@ -146,6 +146,6 @@ for json_file in json_files:
     fn = fix
 
     repo_name = json_file.split('/')[-1].replace('.json', '')
-    output_file = f"./results/{repo_name}/relations.png"
+    output_file = f"./results/{repo_name}/rq3.png"
     os.makedirs(f"./results/{repo_name}", exist_ok=True)
     plot_confusion_matrix(tp, fp, tn, fn, output_file, quadrant_colors=('yellow', 'red', 'green', 'orange'), repo_name=repo_name)
