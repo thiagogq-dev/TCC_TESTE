@@ -28,7 +28,6 @@ def get_commit_that_references_issue(repo_path, issue_number, headers):
     except Exception:
         return None
 
-    # caminho conciso até nodes; usa listas/dicts vazios como fallback
     nodes = data.get('data', {}).get('repository', {}).get('issue', {}).get('timelineItems', {}).get('nodes') or []
     if not nodes:
         return None
