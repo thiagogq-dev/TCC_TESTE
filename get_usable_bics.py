@@ -13,7 +13,6 @@ def build_szz_data(repo_name: str, commit_hash: str, path_id: Any) -> dict:
         "path_id": path_id,
     }
 
-
 def process_first_attempt(entry: dict) -> dict | None:
     bics = entry.get("bic") or []
 
@@ -29,6 +28,7 @@ def process_first_attempt(entry: dict) -> dict | None:
     
     if not status:
         print(f"Skipping commit {candidate_bic} in repo {repo_name}: {msg}")
+        entry["bic"] = [] 
         return None
 
     return build_szz_data(
@@ -72,6 +72,9 @@ def prepare_data(input_folder: str, first_actions_attempt: bool = False) -> list
 
             if result:
                 results.append(result)
+
+        with json_file.open("w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4) # re-escreve o arquivo original para atualizar os BICs inválidos
 
     return results
 
@@ -144,8 +147,9 @@ def main() -> None:
     
     if not first_actions_attempt and "out/v" in str(input_folder):
         print(
-            f"Aviso: o input_folder '{input_folder}' parece ser uma pasta de versão. "
-            "Certifique-se de que está usando a pasta correta para a primeira tentativa."
+            "Aviso: Parece que você está tentando processar arquivos de erro do GitHub Actions, mas o input_folder contém 'out/v', indicando que pode ser a "
+            "primeira tentativa. Considere usar a flag --first_actions_attempt "
+            "ou verificar se o input_folder está correto."
         )
         confirmation = input(
             "Deseja continuar mesmo assim? [y/N]: "
