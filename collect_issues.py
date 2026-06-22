@@ -2,65 +2,37 @@ import requests
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import dotenv
 from tqdm import tqdm
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from utils.queries import REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY
+from utils.queries import (
+    REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY, 
+    REPO_CREATION_DATE_QUERY
+)
 from utils.logger_config import setup_loggers, log_message
 from utils.utils import is_commit_valid, get_commit_that_references_pr, get_commit_that_references_issue
 
 dotenv.load_dotenv()
-
 setup_loggers()
 
 API_TOKENS = [v for k, v in os.environ.items() if k.startswith("API_TOKEN_") and v]
+
+END_DATE_STR = "2026-05-13"  
+OUTPUT_DIR = "teste_output"
+repo_name = os.getenv('REPO_NAME')
+repo_owner = os.getenv('REPO_OWNER')
+OUTPUT_FILE = os.path.join(OUTPUT_DIR, f"{repo_name}.json")
 
 if not API_TOKENS:
     log_message("Nenhum token de API encontrado nas variáveis de ambiente.", "error")
     exit(1)
 
 token_index = 0
-graph_ql_url = os.getenv('GRAPHQL_URL')
+graph_ql_url = os.getenv('GRAPHQL_URL', "https://api.github.com/graphql")
 
-if not graph_ql_url:
-    graph_ql_url = "https://api.github.com/graphql"
-
-repo_name = os.getenv('REPO_NAME')
-repo_owner = os.getenv('REPO_OWNER')
-closed_until = os.getenv('CLOSED_UNTIL')
-
-closed_until_date = None
-if closed_until:
-    try:
-        closed_until_date = datetime.strptime(closed_until, "%Y-%m-%d").date()
-    except ValueError:
-        log_message(
-            f"Data inválida em CLOSED_UNTIL: {closed_until}. Use o formato YYYY-MM-DD.",
-            "error"
-        )
-        exit(1)
-
-if closed_until_date:
-    log_message(f"CLOSED_UNTIL definido para {closed_until_date.isoformat()}. Coletando apenas issues fechadas até essa data.", "info")
-else:
-    log_message(f'Coletando issues fechadas para {repo_owner}/{repo_name}...', "info")
-
-query = {
-    "query": REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY,
-    "variables": {
-        "owner": repo_owner,
-        "name": repo_name,
-        "after": None
-    }
-}
-
-OUTPUT_DIR = "data"
-OUTPUT_FILE = os.path.join(OUTPUT_DIR, f"{repo_name}.json")
-
-# Configure a session with retries and backoff to handle transient network errors
 session = requests.Session()
 retries = Retry(
     total=5,
@@ -73,216 +45,258 @@ session.mount("https://", adapter)
 session.mount("http://", adapter)
 
 def get_headers():
-    return {
-        'Authorization': f'token {API_TOKENS[token_index]}'
-    }
+    return {'Authorization': f'token {API_TOKENS[token_index]}'}
 
 def switch_token():
     global token_index
     token_index = (token_index + 1) % len(API_TOKENS)
     log_message(f"Trocando token. Novo index: {token_index}", "info")
 
-def execute_query(query, headers):
-    log_message(f"Executando query com token index: {token_index}", "info")
+def execute_query(query_payload, headers):
     max_attempts = 5
     for attempt in range(1, max_attempts + 1):
         try:
-            response = session.post(graph_ql_url, headers=headers, json=query, timeout=30)
-
-            # If token is rate-limited or forbidden, try switching token and retry
+            response = session.post(graph_ql_url, headers=headers, json=query_payload, timeout=30)
             if response.status_code == 403:
-                log_message(f"Status 403 received. Switching token and retrying (attempt {attempt}).", "warning")
+                log_message(f"Status 403 recebido. Trocando token e tentando novamente (tentativa {attempt}).", "warning")
                 switch_token()
                 headers = get_headers()
                 continue
-
-            # Try to decode JSON; if it fails, raise to trigger retry
             return response.json()
-
         except requests.exceptions.RequestException as e:
-            log_message(f"Request error on attempt {attempt}/{max_attempts}: {e}", "warning")
-            # switch token to attempt to recover from token-specific issues
+            log_message(f"Erro de requisição na tentativa {attempt}/{max_attempts}: {e}", "warning")
             switch_token()
             headers = get_headers()
-            # exponential backoff
-            sleep_time = min(60, 2 ** attempt)
-            time.sleep(sleep_time)
-
-    log_message("Máximo de tentativas atingido ao executar a query.", "error")
+            time.sleep(min(60, 2 ** attempt))
     return {"errors": [{"message": "Max retries exceeded"}]}
-
-def resolve_fix_commit(issue, repo_owner, repo_name):
-    node = issue["timelineItems"]["nodes"][0]["closer"]
-    if not node:
-        return None
-
-    closer_type = node.get("__typename", "")
-
-    if closer_type == "PullRequest":
-        pr_number = node.get("number")
-        merge_commit = node.get("mergeCommit", {}).get("oid") if node.get("mergeCommit") else None
-        if merge_commit:
-            valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", merge_commit)
-            if valid:
-                return merge_commit
-            
-        fix_commit = get_commit_that_references_pr(f"{repo_owner}/{repo_name}", pr_number, get_headers())
-        if fix_commit:
-            valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
-            if valid:
-                return fix_commit
-
-        issue_number = issue.get("number")
-        fix_commit = get_commit_that_references_issue(f"{repo_owner}/{repo_name}", issue_number, get_headers())
-        if fix_commit:
-            valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
-            if valid:
-                return fix_commit
-    else:
-        fix_commit = node.get("oid", None)
-        if fix_commit:
-            valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
-            if valid:
-                return fix_commit
-            
-        issue_number = issue.get("number")
-        fix_commit = get_commit_that_references_issue(f"{repo_owner}/{repo_name}", issue_number, get_headers())
-
-        if fix_commit:
-            valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
-            if valid:
-                return fix_commit
-            
-    return None
-
-def check_data(data):
-    if "errors" in data:
-        return True
-    return False
 
 def check_rate_limit(headers):
     try:
-        response = session.post(graph_ql_url, headers=headers, json={"query": "{ rateLimit { remaining resetAt } }"}, timeout=10)
+        response = session.post(graph_ql_url, headers=headers, json={"query": "{ rateLimit { remaining } }"}, timeout=10)
         data = response.json()
         remaining = data.get("data", {}).get("rateLimit", {}).get("remaining", 0)
-
         if remaining == 0:
             switch_token()
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         log_message(f"Erro ao checar rate limit: {e}", "warning")
         switch_token()
 
-def _ensure_output_dir():
-    if not os.path.exists(OUTPUT_DIR):
-        os.makedirs(OUTPUT_DIR)
+def get_repo_creation_date(owner, name):
+    payload = {
+        "query": REPO_CREATION_DATE_QUERY,
+        "variables": {"owner": owner, "name": name}
+    }
+    headers = get_headers()
+    data = execute_query(payload, headers)
+    
+    if "errors" in data or not data.get("data", {}).get("repository"):
+        log_message("Não foi possível obter a data de criação do repositório. Usando fallback padrão 2014-01-01.", "warning")
+        return "2014-01-01"
+        
+    creation_date_str = data["data"]["repository"]["createdAt"][:10]
+    log_message(f"Data de criação do repositório identificada: {creation_date_str}", "info")
+    return creation_date_str
 
-def save_progress(all_data, after_cursor, total_count, read_issues):
-    _ensure_output_dir()
+def generate_date_intervals(start_date_str, end_date_str):
+    start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+    end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+    
+    intervals = []
+    current_start = start_date
+    
+    while current_start <= end_date:
+        # Fatias de 180 dias garantem não estourar o teto de 1000 itens por busca do GitHub
+        current_end = current_start + timedelta(days=180)
+        if current_end > end_date:
+            current_end = end_date
+            
+        intervals.append((current_start.isoformat(), current_end.isoformat()))
+        current_start = current_end + timedelta(days=1)
+        
+    return intervals
+    
+
+def resolve_fix_commit(issue, repo_owner, repo_name):
+    repo_path = f"./repos_dir/{repo_name}"
+    issue_number = issue.get("number")
+    
     try:
-        with open(OUTPUT_FILE, "w") as f:
-            json.dump(all_data, f, indent=2)
-        log_message(f" ({repo_name}) Progresso salvo. after={after_cursor} total_count={total_count} read_issues={read_issues}", "info")
-    except Exception as e:
-        log_message(f" ({repo_name}) Erro ao salvar progresso: {e} - ", "error")
+        nodes = issue["timelineItems"]["nodes"]
+        node = nodes[0].get("closer") if (nodes and nodes[0]) else None
+    except (KeyError, IndexError):
+        node = None
+        
+    if node:
+        closer_type = node.get("__typename", "")
 
+        if closer_type == "PullRequest":
+            pr_number = node.get("number")
+            merge_commit = node.get("mergeCommit", {}).get("oid") if node.get("mergeCommit") else None
+            if merge_commit:
+                valid, _ = is_commit_valid(repo_path, merge_commit)
+                if valid:
+                    return merge_commit
+                
+            fix_commit = get_commit_that_references_pr(f"{repo_owner}/{repo_name}", pr_number, get_headers())
+            if fix_commit:
+                valid, _ = is_commit_valid(repo_path, fix_commit)
+                if valid:
+                    return fix_commit
+        else:
+            fix_commit = node.get("oid")
+            if fix_commit:
+                valid, _ = is_commit_valid(repo_path, fix_commit)
+                if valid:
+                    return fix_commit
+            
+        fix_commit = get_commit_that_references_issue(f"{repo_owner}/{repo_name}", issue_number, get_headers())
+        if fix_commit:
+            valid, _ = is_commit_valid(repo_path, fix_commit)
+            if valid:
+                return fix_commit
+        
     return None
 
-def get_data():
-    _ensure_output_dir()
+def _ensure_output_dir():
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    # restore previous data if exists
-    all_data = []
+def load_existing_data():
     if os.path.exists(OUTPUT_FILE):
         try:
             with open(OUTPUT_FILE, "r") as f:
-                all_data = json.load(f)
+                return json.load(f)
         except Exception:
-            all_data = []
+            return []
+    return []
 
-    after_cursor = os.getenv('START_CURSOR') or None
-    read_issues = len(all_data)
-    total_count = None
-    progress = None
+def save_progress(all_data):
+    _ensure_output_dir()
+    try:
+        all_data_sorted = sorted(all_data, key=lambda item: item.get("earliest_issue_date", ""))
+        with open(OUTPUT_FILE, "w") as f:
+            json.dump(all_data_sorted, f, indent=2)
+    except Exception as e:
+        log_message(f"Erro ao salvar arquivo final: {e}", "error")
 
-    while True:
-        try:
-            query["variables"]["after"] = after_cursor
-            headers = get_headers()
-            check_rate_limit(headers)
-            data = execute_query(query, headers)
+def get_data():
+    _ensure_output_dir()
+    all_data = load_existing_data()
+    
+    repo_start_date = get_repo_creation_date(repo_owner, repo_name)
+    initial_intervals = generate_date_intervals(repo_start_date, END_DATE_STR)
+    
+    # Tratamos os intervalos como uma Fila (Queue) para permitir subdivisões dinâmicas
+    interval_queue = initial_intervals[:]
+    
+    log_message(f"Iniciando varredura segmentada. Fila inicial: {len(interval_queue)} intervalos.", "info")
 
-            if check_data(data):
-                log_message(f"Erro na requisição para {repo_name}: {json.dumps(data['errors'], indent=2)}", "error")
-                break
+    while interval_queue:
+        start_p, end_p = interval_queue.pop(0)
+        log_message(f"Processando intervalo: {start_p} a {end_p}", "info")
+        
+        query_payload = {
+            "query": REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY,
+            "variables": {
+                "queryString": f'repo:{repo_owner}/{repo_name} is:issue is:closed closed:{start_p}..{end_p} sort:created-asc',
+                "first": 50,
+                "after": None
+            }
+        }
+
+        # --- 1. Primeira requisição para checar o volume (totalCount) ---
+        headers = get_headers()
+        check_rate_limit(headers)
+        data = execute_query(query_payload, headers)
+
+        if "errors" in data:
+            print(f"\n[ERRO DA API GITHUB]: {json.dumps(data['errors'], indent=2)}")
+            continue
             
-            issues_data = data.get("data", {}).get("repository", {}).get("issues", {})
-            page_info = issues_data.get("pageInfo", {})
-            nodes = issues_data.get("nodes", [])
+        search_data = data.get("data", {}).get("search", {})
+        total_count = search_data.get('issueCount', 0)
 
-            if total_count is None:
-                total_count = issues_data.get('totalCount', 0)
-                if tqdm:
-                    progress = tqdm(total=total_count, desc="Processando issues", unit="issue")
-                    if read_issues:
-                        progress.update(read_issues)
+        # --- 2. Lógica de Divisão Dinâmica (Quebra de Intervalo) ---
+        if total_count > 1000:
+            log_message(f"Intervalo {start_p}..{end_p} possui {total_count} issues, excedendo o limite de 1000. Iniciando divisão...", "warning")
+            # Converte as strings extraindo apenas a parte da data (YYYY-MM-DD)
+            start_date = datetime.strptime(start_p[:10], "%Y-%m-%d").date()
+            end_date = datetime.strptime(end_p[:10], "%Y-%m-%d").date()
+            
+            if start_date == end_date:
+                # Ocorre apenas se mais de 1000 issues forem fechadas em um ÚNICO dia.
+                # Se isso acontecer, seria necessário fatiar por horas (ex: T00:00:00Z..T11:59:59Z).
+                # Como é um cenário raríssimo, apenas logamos o teto e coletamos os primeiros 1000.
+                log_message(f"AVISO CRÍTICO: O dia {start_date} possui {total_count} issues. Limite de 1000 atingido para um único dia.", "error")
+            else:
+                log_message(f"Teto excedido ({total_count} issues em {start_p}..{end_p}). Dividindo intervalo pela metade...", "warning")
+                
+                # Acha a metade exata do intervalo de dias
+                delta = (end_date - start_date) // 2
+                mid_date = start_date + delta
+                
+                # Insere os dois novos pedaços no início da fila
+                interval_queue.insert(0, ((mid_date + timedelta(days=1)).isoformat(), end_p))
+                interval_queue.insert(0, (start_p, mid_date.isoformat()))
+                
+                # Pula a paginação atual e recomeça o loop com os intervalos menores
+                continue 
 
-            for issue in nodes:
-                if progress:
-                    progress.update(1)
-                else:
-                    log_message(f"Lendo issue {read_issues + 1} de {issues_data.get('totalCount', 0)} | {repo_name}", "info")
-                read_issues += 1
+        # --- 3. Processamento e Paginação Normal (<= 1000 itens) ---
+        page_info = search_data.get("pageInfo", {})
+        nodes = search_data.get("nodes", [])
+        
+        progress = tqdm(total=total_count, desc=f"Varrendo [{start_p} ate {end_p}]", unit="issue")
+        
+        while True:
+            try:
+                for issue in nodes:
+                    if progress:
+                        progress.update(1)
+                    if not issue: continue
 
-                closed_at = issue.get("closedAt")
-                if closed_until_date and closed_at:
-                    issue_closed_date = datetime.strptime(closed_at[:10], "%Y-%m-%d").date()
-                    if issue_closed_date > closed_until_date:
-                        log_message(f"Issue #{issue.get('number')} de {repo_name} fechada em {issue_closed_date} é posterior a {closed_until_date}. Pulando...", "info")
-                        continue
+                    timeline_nodes = issue.get("timelineItems", {}).get("nodes", [])
+                    if timeline_nodes and timeline_nodes[0]:
+                        final_fix_commit = resolve_fix_commit(issue, repo_owner, repo_name)
 
-                if issue["timelineItems"]["nodes"] and issue["timelineItems"]["nodes"][0]["closer"] is not None:
-                    issue_number = issue.get("number", "N/A")
+                        if not final_fix_commit:
+                            log_message(f"Nenhum commit válido encontrado para a issue #{issue.get('number')} de {repo_name}. Pulando...", "warning")
+                            continue
 
-                    final_fix_commit = resolve_fix_commit(issue, repo_owner, repo_name)
-                    if not final_fix_commit:
-                        log_message(f"Nenhum commit válido encontrado para a issue #{issue_number} de {repo_name}. Pulando...", "warning")
-                        continue
+                        all_data.append({
+                            "repo_name": repo_name,
+                            "issue_number": issue.get("number"),
+                            "fix_commit_hash": final_fix_commit,
+                            "earliest_issue_date": issue.get("createdAt"),
+                        })
 
-                    issue_data = {
-                        "repo_name": repo_name,
-                        "fix_commit_hash": final_fix_commit,
-                        "earliest_issue_date": issue.get("createdAt"),
-                    }
+                if not page_info.get("hasNextPage") or not page_info.get("endCursor"):
+                    break
 
-                    all_data.append(issue_data)
+                after_cursor = page_info.get("endCursor")
+                time.sleep(1.2)
+                
+                # Prepara e executa a requisição da próxima página
+                query_payload["variables"]["after"] = after_cursor
+                headers = get_headers()
+                check_rate_limit(headers)
+                data = execute_query(query_payload, headers)
+                
+                search_data = data.get("data", {}).get("search", {})
+                page_info = search_data.get("pageInfo", {})
+                nodes = search_data.get("nodes", [])
 
-            if not page_info.get("hasNextPage"):
-                # finished
-                save_progress(all_data, None, total_count, read_issues)
-                break
+            except KeyboardInterrupt:
+                log_message("Interrupção manual detectada. Gravando dados consolidados antes de sair...", "info")
+                if progress: progress.close()
+                save_progress(all_data)
+                return all_data
 
-            after_cursor = page_info.get("endCursor")
+        if progress: 
+            progress.close()
+        save_progress(all_data)
 
-            # save progress after each page so we can resume
-            save_progress(all_data, after_cursor, total_count, read_issues)
-
-            time.sleep(2)  # To avoid hitting rate limits
-
-        except KeyboardInterrupt:
-            log_message("Interrompido pelo usuário (Ctrl+C). Salvando progresso...", "info")
-            save_progress(all_data, after_cursor, total_count, read_issues)
-            if progress:
-                progress.close()
-            return all_data
-
-    log_message(f"Total issues fetched from {repo_name}: {len(all_data)}", "info")
-    if progress:
-        progress.close()
-
+    log_message(f"Varredura concluída com sucesso! Registros salvos em disco: {len(all_data)}", "info")
     return all_data
 
 if __name__ == "__main__":
-    data = get_data()
-    _ensure_output_dir()
-    with open(OUTPUT_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+    get_data()

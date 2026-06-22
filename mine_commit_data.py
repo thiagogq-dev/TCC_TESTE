@@ -2,8 +2,9 @@ from utils.utils import extract_metrics_from_commit, preload_commits_index
 from pydriller import Git
 import json
 import os
+from PRANALYZER.run_analyses import analyze_diff
 
-DATA_FOLDER = "./data"
+DATA_FOLDER = "./teste"
 
 for file in os.listdir(DATA_FOLDER):
     if not file.endswith(".json"):
@@ -37,7 +38,8 @@ for file in os.listdir(DATA_FOLDER):
 
             metrics_cache[commit_hash] = extract_metrics_from_commit(
                 commit,
-                author_commits_map
+                author_commits_map,
+                pranalyzer_fn=analyze_diff
             )
 
         except Exception as e:
@@ -49,7 +51,7 @@ for file in os.listdir(DATA_FOLDER):
         if commit_hash in metrics_cache:
             d.update(metrics_cache[commit_hash])
         else:
-            print(f"Aviso: Commit {commit_hash} não encontrado.")
+            print(f"Aviso: Commit {commit_hash} de {d['repo_name']} não encontrado.")
 
     with open(folder_path, "w") as f:
         json.dump(data, f, indent=4)
