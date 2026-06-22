@@ -21,7 +21,7 @@ def build_commit_to_fix(data):
     return commit_to_fix
 
 def build_has_tests_map(data):
-    return {rec.get("commit"): (rec.get("has_tests") == "Yes") for rec in data}
+    return {rec.get("commit"): (rec.get("test_files_with_asserts_changes") > 0) for rec in data}
 
 # ==========================================================
 # NÚCLEO DE TRAVESSIA
@@ -109,7 +109,7 @@ def collect_all_bic_metrics(data, bfs_cache, graph_dict, has_tests_map):
         summary   = summarize_bic_from_cache(visited)
         avg_depth = summary["avg_depth"]
         activity  = rec.get("contributor_activity")
-        has_tests = rec.get("has_tests") == "Yes"
+        has_tests = rec.get("test_files_with_asserts_changes") > 0
         bucket    = get_activity_bucket(activity)
 
         for commit, depth in visited.items():
