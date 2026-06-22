@@ -1,5 +1,5 @@
 import json
-from PRAnalizer import PRAnalizer
+from .PRAnalizer import PRAnalizer
 import os
 from pydriller import Git
 from tqdm import tqdm
@@ -36,14 +36,19 @@ def analyze_files(files):
     real_code_files = 0
     added_asserts = 0
     removed_asserts = 0
+    test_files_with_test = 0
 
     for file_item in files:
+        file_test = False
         if file_item is None:
             continue
 
         filename = getattr(file_item, "filename", None)
         if not filename or "." not in filename:
             continue
+
+        if "test" in filename.lower() or (getattr(file_item, "new_path", None) and "test" in getattr(file_item, "new_path").lower()) or (getattr(file_item, "old_path", None) and "test" in getattr(file_item, "old_path").lower()):
+            file_test = True
 
         file_extension = filename.split(".")[-1]
         if file_extension not in allowed_extensions:
@@ -59,75 +64,9 @@ def analyze_files(files):
 
         if has_test:
             files_with_test += 1
-        added_asserts += file_added_asserts
-        removed_asserts += file_removed_asserts
-    return files_with_test, real_code_files, added_asserts, removed_asserts
+            if file_test:
+                test_files_with_test += 1
+                added_asserts += file_added_asserts
+                removed_asserts += file_removed_asserts
 
-def run_pr_analizer(repo_name, commit_sha):
-    repo_folder = repo_name.split("/")[-1]
-    local_repo_path = f"../repos_dir/{repo_folder}"
-    git_repo = Git(local_repo_path)
-
-    if os.path.isdir(local_repo_path):
-        try:
-            commit = git_repo.get_commit(commit_sha)
-            if commit.modified_files:
-                return analyze_files(commit.modified_files)
-        except Exception as error:
-            print(f"Falha no PyDriller local para {repo_name} @ {commit_sha}: {error}. Fallback PyGithub.")
-
-    return 0, 0, 0, 0
-
-def save_json_atomic(file_path, data):
-    temp_path = f"{file_path}.tmp"
-    with open(temp_path, "w") as f:
-        json.dump(data, f, indent=4)
-    os.replace(temp_path, file_path)
-
-
-def process_file(file_path):
-    with open(file_path) as f:
-        data = json.load(f)
-
-    total = len(data)
-    new_data = []
-
-    for record in tqdm(
-        data,
-        desc=os.path.basename(file_path),
-        unit="commit",
-        leave=True
-    ):
-
-        fix = record["fix_commit_hash"]
-        repo_name = record["repo_name"]
-        files_with_test, real_code_files, added_asserts, removed_asserts = run_pr_analizer(repo_name, fix)
-
-        if real_code_files == 0:
-            print(f"Aviso: Nenhum arquivo de código real encontrado para {repo_name} @ {fix}. Pulando registro.")
-            continue
-
-        record["files_with_test"] = files_with_test
-        record["has_asserts_changes"] = files_with_test > 0
-        record["real_code_files"] = real_code_files
-        record["test_file_ratio"] = files_with_test / real_code_files if real_code_files > 0 else 0
-        record["added_asserts"] = added_asserts
-        record["removed_asserts"] = removed_asserts
-
-        if files_with_test <= 0:
-            record["asserts_changes_type"] = "None"
-        else:
-            record["asserts_changes_type"] = (
-                "Added" if added_asserts > removed_asserts
-                else "Removed" if removed_asserts > added_asserts
-                else "Maintained"
-            )
-
-        new_data.append(record)
-        save_json_atomic(file_path, new_data)
-        print(f"[{index}/{total}] Registro salvo: {repo_name} @ {fix}", flush=True)
-
-for file in os.listdir("../data"):
-    if file.endswith(".json"):
-        print(f"Processando arquivo: {file}")
-        process_file(os.path.join("../data", file))
+    return files_with_test, real_code_files, added_asserts, removed_asserts, test_files_with_test

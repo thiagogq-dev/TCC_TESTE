@@ -1,55 +1,3 @@
-REPO_CLOSED_ISSUES_QUERY = """
-query ($owner: String!, $name: String!, $after: String) {
-  repository(owner: $owner, name: $name) {
-    issues(first: 100, after: $after, states: CLOSED) {
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-      nodes {
-        number
-        title
-        body
-        createdAt
-        closedAt
-        url
-      }
-    }
-  }
-}
-"""
-
-REPO_PULL_REQUESTS_QUERY = """
-query ($owner: String!, $name: String!, $after: String) {
-  repository(owner: $owner, name: $name) {
-    pullRequests(first: 20, after: $after, states: MERGED) {
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-      nodes {
-        number
-        title
-        body
-        createdAt
-        mergedAt
-        url
-        author {
-          login
-          url
-        }
-        closingIssuesReferences(first: 10) {
-          nodes {
-            number
-            url
-          }
-        }
-      }
-    }
-  }
-}
-"""
-
 COMMIT_REFERENCES_PR = """
 query ($owner: String!, $name: String!, $prNumber: Int!) {
   repository(owner: $owner, name: $name) {
@@ -87,16 +35,15 @@ query ($owner: String!, $name: String!, $issueNumber: Int!) {
 """
 
 REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY = """
-query ($owner: String!, $name: String!, $after: String) {
-  repository(owner: $owner, name: $name) {
-    createdAt
-    issues(first: 20, after: $after, states: CLOSED) {
-      totalCount
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-      nodes {
+query ($queryString: String!, $first: Int!, $after: String) {
+  search(query: $queryString, type: ISSUE, first: $first, after: $after) {
+    issueCount
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    nodes {
+      ... on Issue {
         number
         title
         body
@@ -119,7 +66,6 @@ query ($owner: String!, $name: String!, $after: String) {
                   title
                   createdAt
                   mergedAt
-                  url
                   commits(last: 1) {
                     nodes {
                       commit {
@@ -152,6 +98,14 @@ query ($owner: String!, $name: String!, $after: String) {
         }
       }
     }
+  }
+}
+"""
+
+REPO_CREATION_DATE_QUERY = """
+query ($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    createdAt
   }
 }
 """
