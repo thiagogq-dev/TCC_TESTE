@@ -16,7 +16,7 @@ def calculate_test_changes(data, reporter):
 
     for d in data:
 
-        if d.get("has_tests") == "Yes":
+        if d.get("test_files_with_asserts_changes") > 0:
             asserts += 1
 
         if d.get("asserts_changes_type") == "Removed":
@@ -31,12 +31,12 @@ def calculate_test_changes(data, reporter):
                 no_real_tests += 1
 
     reporter.write("=== PROPORÇÃO DE ASSERTS NOS COMMITS ===")
-    reporter.write(f"Com asserts: {asserts} ({asserts/total*100:.2f}%)")
-    reporter.write(f"Sem asserts: {no_asserts} ({no_asserts/total*100:.2f}%)")
-    reporter.write(f"Sem asserts com arquivos de testes: {no_real_tests} ({no_real_tests/no_asserts*100:.2f}%)")
+    reporter.write(f"Com mudança de asserts: {asserts} ({asserts/total*100:.2f}%)")
     reporter.write(f"Com asserts mais fortes (adição de asserts): {stronger_asserts} ({stronger_asserts/asserts*100:.2f}%)")
     reporter.write(f"Com asserts mais fracos (remoção de asserts): {weaker_asserts} ({weaker_asserts/asserts*100:.2f}%)")
-    reporter.write(f"Manutenção de asserts: {maintenance_asserts} ({maintenance_asserts/asserts*100:.2f}%)")
+    reporter.write(f"Manutenção de asserts: {maintenance_asserts} ({maintenance_asserts/asserts*100:.2f}%)\n")
+    reporter.write(f"Sem asserts com arquivos de testes: {no_real_tests} ({no_real_tests/no_asserts*100:.2f}%)")
+    reporter.write(f"Sem mudança de asserts: {no_asserts} ({no_asserts/total*100:.2f}%)")
     reporter.write("")
 
 # ==========================================================

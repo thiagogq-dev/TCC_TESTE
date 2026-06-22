@@ -28,7 +28,6 @@ def get_commit_that_references_issue(repo_path, issue_number, headers):
     except Exception:
         return None
 
-    # caminho conciso até nodes; usa listas/dicts vazios como fallback
     nodes = data.get('data', {}).get('repository', {}).get('issue', {}).get('timelineItems', {}).get('nodes') or []
     if not nodes:
         return None
@@ -144,27 +143,57 @@ def is_commit_valid(repo_path, commit_hash):
         commit = gr.get_commit(commit_hash)
         if commit.merge:
             return False, "Commit é um merge"
-    except Exception:
+    except Exception as e:
         return False, "Commit não encontrado"
 
     return True, "Commit válido"
 
-def extract_metrics_from_commit(commit, author_commits_map):
+def extract_metrics_from_commit(commit, author_commits_map, pranalyzer_fn=None):
     has_test_files = False
-    real_lines_changed = 0
-    
+    java_lines_changed = 0
+    java_files = 0
+    files_with_asserts_changes = 0
+    test_files_with_asserts_changes = 0
+    added_asserts = 0
+    removed_asserts = 0
+
+
     for mf in commit.modified_files:
         if mf.filename.endswith(".java"):
-            real_lines_changed += mf.added_lines + mf.deleted_lines
-                
-            if "test" in mf.filename.lower() or (mf.new_path and "test" in mf.new_path.lower()) or (mf.old_path and "test" in mf.old_path.lower()):
+            java_lines_changed += mf.added_lines + mf.deleted_lines
+            java_files += 1
+
+            is_test_file = (
+                "test" in mf.filename.lower()
+                or (mf.new_path and "test" in mf.new_path.lower())
+                or (mf.old_path and "test" in mf.old_path.lower())
+            )
+
+            if is_test_file:
                 has_test_files = True
 
+            has_asserts_changes, file_added_asserts, file_removed_asserts = pranalyzer_fn('JAVA', mf.diff)
+            if has_asserts_changes:
+                files_with_asserts_changes += 1
+                if is_test_file:
+                    test_files_with_asserts_changes += 1
+                    added_asserts += file_added_asserts
+                    removed_asserts += file_removed_asserts
+                    
     # Calcula contributor_activity para o autor até a data do commit - 1 dia
     author = commit.author.name
     commit_date = commit.author_date
     contributor_activity = get_contributor_activity_from_index(author, commit_date - timedelta(days=1), author_commits_map)
 
+    if test_files_with_asserts_changes <= 0:
+        asserts_changes_type = "None"
+    else:
+        asserts_changes_type = (
+            "Added" if added_asserts > removed_asserts
+            else "Removed" if removed_asserts > added_asserts
+            else "Maintained"
+        )
+    
     data = {
         "commit_author": author,
         "committer": commit.committer.name,
@@ -174,12 +203,19 @@ def extract_metrics_from_commit(commit, author_commits_map):
         "deletions": commit.deletions,
         "insertions": commit.insertions,
         "lines": commit.lines,
-        "has_test_files": has_test_files,
-        "real_lines_changed": real_lines_changed,
+        "java_lines_changed": java_lines_changed,
+        "java_files": java_files,
         "dmm_unit_size": commit.dmm_unit_size,
         "dmm_unit_complexity": commit.dmm_unit_complexity,
         "dmm_unit_interfacing": commit.dmm_unit_interfacing,
-        "contributor_activity": contributor_activity
+        "contributor_activity": contributor_activity,
+        "has_test_files": has_test_files,
+        "has_asserts_changes": files_with_asserts_changes > 0,
+        "files_with_asserts_changes": files_with_asserts_changes,
+        "test_files_with_asserts_changes": test_files_with_asserts_changes,
+        "added_asserts": added_asserts,
+        "removed_asserts": removed_asserts,
+        "asserts_changes_type": asserts_changes_type
     }
     return data
 

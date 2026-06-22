@@ -29,7 +29,7 @@ def calculate_avg_metrics_by_tests(data, reporter):
     }
 
     for record in data:
-        has_asserts = record.get("has_asserts_changes")
+        has_asserts = record.get("test_files_with_asserts_changes") > 0
         for _, (field, with_asserts_list, without_asserts_list) in metrics.items():
             value = safe_float(record.get(field))
             if value is None:
@@ -76,7 +76,7 @@ def calculate_added_asserts_churn(data, reporter):
     for record in data:
         added_asserts = record.get("added_asserts")
         removed_asserts = record.get("removed_asserts")
-        lines = record.get("real_lines_changed")
+        lines = record.get("java_lines_changed")
 
         if added_asserts is None or lines is None:
             continue
@@ -136,7 +136,7 @@ def calculate_experience_vs_tests(data, reporter, results_folder):
         if bucket is None:
             continue
         bucket_total[bucket] += 1
-        if relation.get("has_tests") == "Yes":
+        if relation.get("test_files_with_asserts_changes") > 0:
             bucket_with[bucket] += 1
 
     total_tests_global = sum(bucket_with.values())
@@ -169,42 +169,6 @@ def calculate_experience_vs_tests(data, reporter, results_folder):
         result = teste_chi2(tabela, "experiência × presença de testes", reporter)
 
     reporter.write("")
-
-    # --- plot ---
-    # if not any(proportions):
-    #     return result
-
-    # global_props_per_bucket = [
-    #     (bucket_with[b] / total_tests_global * 100) if total_tests_global > 0 else 0
-    #     for b in ACTIVITY_BUCKETS
-    # ]
-
-    # fig, ax = plt.subplots(figsize=(10, 5), dpi=150)
-    # x     = np.arange(len(ACTIVITY_BUCKETS))
-    # width = 0.35
-
-    # bars1 = ax.bar(x - width/2, proportions,            width, color="#1f77b4", alpha=0.85, label="Por bucket")
-    # bars2 = ax.bar(x + width/2, global_props_per_bucket, width, color="gray",    alpha=0.5,  label="Proporção geral (por bucket)")
-
-    # for bar, prop, total in zip(bars1, proportions, totals):
-    #     ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.8,
-    #             f"{prop:.1f}%\n(n={total})", ha="center", va="bottom", fontsize=9)
-
-    # for bar, prop in zip(bars2, global_props_per_bucket):
-    #     ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.8,
-    #             f"{prop:.1f}%", ha="center", va="bottom", fontsize=9, color="gray")
-
-    # ax.set_xticks(x)
-    # ax.set_xticklabels(ACTIVITY_BUCKETS)
-    # ax.set_xlabel("Número de commits anteriores do autor (experiência)")
-    # ax.set_ylabel("% de commits com testes")
-    # ax.set_title(f"Proporção de commits com testes por faixa de experiência — {repo_name}")
-    # ax.set_ylim(0, max(proportions + global_props_per_bucket) * 1.2 if proportions else 100)
-    # ax.grid(axis="y", linestyle="--", alpha=0.4)
-    # ax.legend()
-    # plt.tight_layout()
-    # plt.savefig(f"{results_folder}/contributor_activity_bar.png", dpi=300, bbox_inches="tight")
-    # plt.close()
 
     return result
 
