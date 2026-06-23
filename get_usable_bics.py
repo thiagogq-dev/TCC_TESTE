@@ -73,6 +73,7 @@ def prepare_data(input_folder: str, first_actions_attempt: bool = False, known_r
             if first_actions_attempt:
                 bics = entry.get("bic") or []
                 candidate_bic = bics[-1] if bics else None
+                
                 if candidate_bic and known_results and candidate_bic in known_results:
                     print(f"Commit {entry['fix_commit_hash']} em repo {entry['repo_name']} já processado, atualizando para não processar novamente.")
                     cached = known_results[candidate_bic]
@@ -100,7 +101,7 @@ def prepare_data(input_folder: str, first_actions_attempt: bool = False, known_r
         with json_file.open("w", encoding="utf-8") as f:
             json.dump(data, f, indent=4)
 
-    if next_version_folder:
+    if next_version_folder and already_processed_count:
         with open(f"out/{next_version_folder}", "w", encoding="utf-8") as f:
             json.dump(already_processed_count, f, indent=4)
 
@@ -139,7 +140,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--next_version_folder",
-        required=True,
+        required=False,
         help="A versão referente a próxima tentativa, para salvar os commits já processados",
     )
     parser.add_argument(
@@ -173,18 +174,19 @@ def main() -> None:
 
     input_folder = Path(args.input_folder)
     first_actions_attempt = args.first_actions_attempt
-
-    if not os.path.exists(args.already_processed_folder):
-        confirmation = input(
-            f"Aviso: A pasta '{args.already_processed_folder}' não existe. "
-            "Deseja continuar mesmo assim? [y/N]: "
-            "Caso resposta 'y', o sript não verificará se há commits já processados e todos serão executados no pyszz. "
-        ).strip().lower()
-        if confirmation not in {"y", "yes", "s", "sim"}:
-            print("Execução cancelada pelo usuário.")
-            sys.exit(1)
-        else:
-            args.already_processed_folder = None
+    
+    if args.already_processed_folder:
+        if not os.path.exists(args.already_processed_folder):
+            confirmation = input(
+                f"Aviso: A pasta '{args.already_processed_folder}' não existe. "
+                "Deseja continuar mesmo assim? [y/N]: "
+                "Caso resposta 'y', o sript não verificará se há commits já processados e todos serão executados no pyszz. "
+            ).strip().lower()
+            if confirmation not in {"y", "yes", "s", "sim"}:
+                print("Execução cancelada pelo usuário.")
+                sys.exit(1)
+            else:
+                args.already_processed_folder = None
 
     if not input_folder.exists():
         raise FileNotFoundError(
@@ -203,6 +205,7 @@ def main() -> None:
         if confirmation not in {"y", "yes", "s", "sim"}:
             print("Execução cancelada pelo usuário.")
             sys.exit(1)
+
 
     latest_folder = get_latest_version_folder(input_folder)
     if latest_folder and input_folder.name != latest_folder.name:
