@@ -63,11 +63,11 @@ def process_retry(entry: dict) -> dict:
     )
 
 
-def prepare_data(input_folder: str, first_actions_attempt: bool = False, known_results: dict[str, dict] | None = None, next_version_folder: str | None = None) -> list[dict]:
+def prepare_data(input_folder: str, first_actions_attempt: bool = False, known_results: dict[str, dict] | None = None, next_version_folder: str | None = None, file_prefix: str | None = None) -> list[dict]:
     results: list[dict] = []
     seen_commits: set[tuple[str, str]] = set()
     already_processed_count = []
-
+    
     for json_file in Path(input_folder).glob("*.json"):
         with json_file.open("r", encoding="utf-8") as f:
             data = json.load(f)
@@ -100,12 +100,14 @@ def prepare_data(input_folder: str, first_actions_attempt: bool = False, known_r
                     results.append(result)
                 else:
                     print(f"Commit {result['fix_commit_hash']} em repo {result['repo_name']} armazenado para iteração futura, pulando.")
-
-        with json_file.open("w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4)
+        
+        if first_actions_attempt: 
+            with json_file.open("w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
 
     if next_version_folder and already_processed_count:
-        with open(f"out/{next_version_folder}", "w", encoding="utf-8") as f:
+        os.makedirs(f"out/{next_version_folder}", exist_ok=True)
+        with open(f"out/{next_version_folder}/{file_prefix}_already_processed.json", "w", encoding="utf-8") as f:
             json.dump(already_processed_count, f, indent=4)
 
     print(f"Total de commits já processados: {len(already_processed_count)}")
@@ -162,26 +164,32 @@ def main() -> None:
     first_actions_attempt = args.first_actions_attempt
     version_folder = args.next_version_folder
 
-    latest_folder = get_latest_version_folder(ITERATIONS_FOLDER)
-    if latest_folder:
-        print(
-            f"Aviso: o input_folder mais recente encontrado é '{latest_folder}'. "
-            "Por favor verifique se você deseja continuar com este diretório de entrada."
-        )
-        confirmation = input(
-            "Deseja continuar mesmo assim? [y/N]: "
-        ).strip().lower()
-        if confirmation not in {"y", "yes", "s", "sim"}:
-            print("Execução cancelada pelo usuário.")
-            sys.exit(1)
+    if first_actions_attempt:
+        latest_folder = get_latest_version_folder(Path(ITERATIONS_FOLDER))
+        if latest_folder:
+            print(
+                f"Aviso: o input_folder mais recente encontrado é '{latest_folder}'. "
+                "Por favor verifique se você deseja continuar com este diretório de entrada."
+            )
+            confirmation = input(
+                "Deseja continuar mesmo assim? [y/N]: "
+            ).strip().lower()
+            if confirmation not in {"y", "yes", "s", "sim"}:
+                print("Execução cancelada pelo usuário.")
+                sys.exit(1)
+            else:
+                input_folder = str(latest_folder)
+    else:
+        input_folder = OUTPUT_FOLDER
 
     known_results = build_known_results(ITERATIONS_FOLDER) if version_folder else None
 
     data = prepare_data(
-        input_folder=str(latest_folder),
+        input_folder,
         first_actions_attempt=first_actions_attempt,
         known_results=known_results,
-        next_version_folder=version_folder
+        next_version_folder=version_folder,
+        file_prefix=args.file_prefix
     )
 
     split_json_file(
