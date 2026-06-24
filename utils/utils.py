@@ -90,8 +90,18 @@ def split_json_file(input_data, output_folder, file_prefix, max_items_per_file=1
             json.dump(chunk, f, indent=4)
         print(f"File {output_file} created with {len(chunk)} items.")
               
-def merge_files(folder_path):
-    json_files = glob.glob(folder_path + "/**/*.json", recursive=True)
+def merge_files(folder_path, ignored_folder=None):
+    """
+    Lê todos os arquivos JSON em uma pasta e seus subdiretórios, combinando-os em uma única lista.
+    :param folder_path: Caminho para a pasta contendo os arquivos JSON.
+    :param ignored_folder: Nome da pasta a ser ignorada durante a leitura dos arquivos.
+    :return: Lista combinada de todos os registros dos arquivos JSON.
+    """
+    json_files = [
+        f for f in glob.glob(folder_path + "/**/*.json", recursive=True)
+        if ignored_folder not in f.split(os.sep)
+    ]
+    
     combined_data = []
     for file in json_files:
         with open(file, 'r') as f:
