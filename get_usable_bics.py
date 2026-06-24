@@ -7,6 +7,8 @@ import json
 import re
 import sys
 
+OUTPUT_FOLDER = "data"
+
 def build_known_results(out_folder: str) -> dict[str, dict]:
     """
     Cria um índice:
@@ -14,7 +16,7 @@ def build_known_results(out_folder: str) -> dict[str, dict]:
     """
     known_results = {}
 
-    for entry in merge_files(out_folder):
+    for entry in merge_files(out_folder, "v1"):
         fix_commit = entry.get("fix_commit_hash")
 
         if fix_commit:
@@ -149,11 +151,6 @@ def main() -> None:
         help="Pasta contendo os arquivos de entrada JSON da última execução do GitHub Actions",
     )
     parser.add_argument(
-        "--output_folder",
-        required=True,
-        help="Pasta onde os arquivos JSON de saída serão salvos",
-    )
-    parser.add_argument(
         "--file_prefix",
         required=True,
         help="Prefixo para os arquivos JSON de saída",
@@ -231,7 +228,7 @@ def main() -> None:
 
     split_json_file(
         data,
-        args.output_folder,
+        OUTPUT_FOLDER,
         args.file_prefix,
         args.batch_size,
     )
