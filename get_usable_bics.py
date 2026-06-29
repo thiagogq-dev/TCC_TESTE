@@ -63,7 +63,7 @@ def process_retry(entry: dict) -> dict:
     )
 
 
-def prepare_data(input_folder: str, first_actions_attempt: bool = False, known_results: dict[str, dict] | None = None, next_version_folder: str | None = None) -> list[dict]:
+def prepare_data(input_folder: str, first_actions_attempt: bool = False, known_results: dict[str, dict] | None = None, next_version_folder: str | None = None, file_prefix: str | None = None) -> list[dict]:
     results: list[dict] = []
     seen_commits: set[tuple[str, str]] = set()
     already_processed_count = []
@@ -106,7 +106,8 @@ def prepare_data(input_folder: str, first_actions_attempt: bool = False, known_r
                 json.dump(data, f, indent=4)
 
     if next_version_folder and already_processed_count:
-        with open(f"out/{next_version_folder}", "w", encoding="utf-8") as f:
+        os.makedirs(f"out/{next_version_folder}", exist_ok=True)
+        with open(f"out/{next_version_folder}/{file_prefix}_already_processed.json", "w", encoding="utf-8") as f:
             json.dump(already_processed_count, f, indent=4)
 
     print(f"Total de commits já processados: {len(already_processed_count)}")
@@ -187,7 +188,8 @@ def main() -> None:
         input_folder,
         first_actions_attempt=first_actions_attempt,
         known_results=known_results,
-        next_version_folder=version_folder
+        next_version_folder=version_folder,
+        file_prefix=args.file_prefix
     )
 
     split_json_file(
