@@ -35,15 +35,16 @@ query ($owner: String!, $name: String!, $issueNumber: Int!) {
 """
 
 REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY = """
-query ($queryString: String!, $first: Int!, $after: String) {
-  search(query: $queryString, type: ISSUE, first: $first, after: $after) {
-    issueCount
-    pageInfo {
-      hasNextPage
-      endCursor
-    }
-    nodes {
-      ... on Issue {
+query ($owner: String!, $name: String!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    createdAt
+    issues(first: 20, after: $after, states: CLOSED) {
+      totalCount
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      nodes {
         number
         title
         body
@@ -66,6 +67,7 @@ query ($queryString: String!, $first: Int!, $after: String) {
                   title
                   createdAt
                   mergedAt
+                  url
                   commits(last: 1) {
                     nodes {
                       commit {
@@ -98,14 +100,6 @@ query ($queryString: String!, $first: Int!, $after: String) {
         }
       }
     }
-  }
-}
-"""
-
-REPO_CREATION_DATE_QUERY = """
-query ($owner: String!, $name: String!) {
-  repository(owner: $owner, name: $name) {
-    createdAt
   }
 }
 """
