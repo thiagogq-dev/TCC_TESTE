@@ -1,35 +1,16 @@
-import os
 from pathlib import Path
 from typing import Any
-from utils.utils import is_commit_valid, split_json_file, merge_files
+from utils.utils import is_commit_valid, split_json_file
 import argparse
 import json
 import re
 import sys
 
-OUTPUT_FOLDER = "data"
-ITERATIONS_FOLDER = "out"
-
-def build_known_results(out_folder: str) -> dict[str, dict]:
-    """
-    Cria um índice:
-        fix_commit_hash -> registro completo
-    """
-    known_results = {}
-
-    for entry in merge_files(out_folder, "v1"):
-        fix_commit = entry.get("fix_commit_hash")
-
-        if fix_commit:
-            known_results[fix_commit] = entry
-
-    print(f"Carregados {len(known_results)} commits já processados.")
-    return known_results
-
-def build_szz_data(repo_name: str, commit_hash: str) -> dict:
+def build_szz_data(repo_name: str, commit_hash: str, path_id: Any) -> dict:
     return {
         "repo_name": repo_name,
         "fix_commit_hash": commit_hash,
+        "path_id": path_id,
     }
 
 def process_first_attempt(entry: dict) -> dict | None:
@@ -53,6 +34,7 @@ def process_first_attempt(entry: dict) -> dict | None:
     return build_szz_data(
         repo_name=repo_name,
         commit_hash=candidate_bic,
+        path_id=entry.get("path_id"),
     )
 
 
@@ -60,61 +42,46 @@ def process_retry(entry: dict) -> dict:
     return build_szz_data(
         repo_name=entry["repo_name"],
         commit_hash=entry["fix_commit_hash"],
+        path_id=entry.get("path_id"),
     )
 
 
-def prepare_data(input_folder: str, first_actions_attempt: bool = False, known_results: dict[str, dict] | None = None, next_version_folder: str | None = None, file_prefix: str | None = None) -> list[dict]:
+def prepare_data(input_folder: str, first_actions_attempt: bool = False) -> list[dict]:
+    if first_actions_attempt:
+        print(
+            "Primeira tentativa usando GitHub Actions para os BICs. "
+            "Verificando merge commits..."
+        )
+    else:
+        print(
+            "Processamento anterior falhou no GitHub Actions "
+            "(tempo ou memória). Reduzindo tamanho dos chunks..."
+        )
+
     results: list[dict] = []
-    seen_commits: set[tuple[str, str]] = set()
-    already_processed_count = []
-    
+
     for json_file in Path(input_folder).glob("*.json"):
         with json_file.open("r", encoding="utf-8") as f:
             data = json.load(f)
 
         for entry in data:
             if first_actions_attempt:
-                bics = entry.get("bic") or []
-                candidate_bic = bics[-1] if bics else None
-                
-                if candidate_bic and known_results and candidate_bic in known_results:
-                    print(f"Commit {entry['fix_commit_hash']} em repo {entry['repo_name']} já processado pelo SZZ, atualizando para não processar novamente.")
-                    cached = known_results[candidate_bic]
-                    already_processed_count.append({
-                        **cached,
-                    })
-                    continue
-
                 result = process_first_attempt(entry)
             else:
                 result = process_retry(entry)
 
             if result:
-                key = (
-                    result["repo_name"],
-                    result["fix_commit_hash"]
-                )
+                results.append(result)
 
-                if key not in seen_commits:
-                    seen_commits.add(key)
-                    results.append(result)
-                else:
-                    print(f"Commit {result['fix_commit_hash']} em repo {result['repo_name']} armazenado para iteração futura, pulando.")
-        
-        if first_actions_attempt: 
-            with json_file.open("w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4)
+        with json_file.open("w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4) # re-escreve o arquivo original para atualizar os BICs inválidos
 
-    if next_version_folder and already_processed_count:
-        os.makedirs(f"out/{next_version_folder}", exist_ok=True)
-        with open(f"out/{next_version_folder}/{file_prefix}_already_processed.json", "w", encoding="utf-8") as f:
-            json.dump(already_processed_count, f, indent=4)
-
-    print(f"Total de commits já processados: {len(already_processed_count)}")
     return results
 
-def get_latest_version_folder(parent_folder: Path) -> Path | None:
+
+def get_latest_version_folder(input_folder: Path) -> Path | None:
     version_pattern = re.compile(r"^v(\d+)$")
+    parent_folder = input_folder.parent
 
     version_folders = []
     for child in parent_folder.iterdir():
@@ -135,66 +102,83 @@ def get_latest_version_folder(parent_folder: Path) -> Path | None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Prepare data for SZZ analysis"
-    )   
+    )
 
     parser.add_argument(
-        "--next_version_folder",
-        required=False,
-        help="A versão referente a próxima tentativa, para salvar os commits já processados, se for None, será considerado que não há necessidade de salvar os commits já processados.",
+        "--input_folder",
+        required=True,
+        help="Folder containing input JSON files",
     )
+
+    parser.add_argument(
+        "--output_folder",
+        required=True,
+        help="Folder where output JSON files will be saved",
+    )
+
     parser.add_argument(
         "--file_prefix",
         required=True,
-        help="Prefixo para os arquivos JSON de saída",
+        help="Prefix for output files",
     )
+
     parser.add_argument(
         "--batch_size",
         type=int,
         default=50,
-        help="Número de registros por arquivo JSON de saída",
+        help="Number of entries per output file",
     )
+
     parser.add_argument(
         "--first_actions_attempt",
         action="store_true",
-        help="Indica se esta é a primeira tentativa de processar os arquivos do GitHub Actions. Se ativado, o script tentará extrair o 'bic' diretamente dos arquivos de entrada e verificará se já foi processado anteriormente usando a pasta de versões anteriores.",
+        help="Indicates first GitHub Actions attempt for BIC processing",
     )
 
     args = parser.parse_args()
 
+    input_folder = Path(args.input_folder)
     first_actions_attempt = args.first_actions_attempt
-    version_folder = args.next_version_folder
+    
+    if not input_folder.exists():
+        raise FileNotFoundError(
+            f"Input folder '{input_folder}' does not exist."
+        )
+    
+    if not first_actions_attempt and "out/v" in str(input_folder):
+        print(
+            "Aviso: Parece que você está tentando processar arquivos de erro do GitHub Actions, mas o input_folder contém 'out/v', indicando que pode ser a "
+            "primeira tentativa. Considere usar a flag --first_actions_attempt "
+            "ou verificar se o input_folder está correto."
+        )
+        confirmation = input(
+            "Deseja continuar mesmo assim? [y/N]: "
+        ).strip().lower()
+        if confirmation not in {"y", "yes", "s", "sim"}:
+            print("Execução cancelada pelo usuário.")
+            sys.exit(1)
 
-    if first_actions_attempt:
-        latest_folder = get_latest_version_folder(Path(ITERATIONS_FOLDER))
-        if latest_folder:
-            print(
-                f"Aviso: o input_folder mais recente encontrado é '{latest_folder}'. "
-                "Por favor verifique se você deseja continuar com este diretório de entrada."
-            )
-            confirmation = input(
-                "Deseja continuar mesmo assim? [y/N]: "
-            ).strip().lower()
-            if confirmation not in {"y", "yes", "s", "sim"}:
-                print("Execução cancelada pelo usuário.")
-                sys.exit(1)
-            else:
-                input_folder = str(latest_folder)
-    else:
-        input_folder = OUTPUT_FOLDER
-
-    known_results = build_known_results(ITERATIONS_FOLDER) if version_folder else None
+    latest_folder = get_latest_version_folder(input_folder)
+    if latest_folder and input_folder.name != latest_folder.name:
+        print(
+            f"Aviso: o input_folder informado foi '{input_folder}', mas o "
+            f"mais recente encontrado é '{latest_folder}'."
+        )
+        confirmation = input(
+            "Deseja continuar mesmo assim? [y/N]: "
+        ).strip().lower()
+        if confirmation not in {"y", "yes", "s", "sim"}:
+            print("Execução cancelada pelo usuário.")
+            sys.exit(1)
 
     data = prepare_data(
-        input_folder,
+        input_folder=str(input_folder),
         first_actions_attempt=first_actions_attempt,
-        known_results=known_results,
-        next_version_folder=version_folder,
-        file_prefix=args.file_prefix
     )
 
     split_json_file(
         data,
-        OUTPUT_FOLDER,
+        args.output_folder,
         args.file_prefix,
         args.batch_size,
     )
