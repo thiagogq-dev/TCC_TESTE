@@ -1,0 +1,1227 @@
+[
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17187,
+        "issue_title": "Docker auth: IllegalArgumentException on multiple resource scopes",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have searched existing issues\n- [X] I have reproduced the issue with the latest release\n\n### Area\n\nauthorization-services\n\n### Describe the bug\n\nI am using keycloak with the docker auth feature as authentication for a docker registry (official registry image). I am building and pushing a new image to this registry which has a base image also located in this registry with kaniko.\r\n\r\nThis fails with following error:\r\n```\r\n2023-02-19 22:11:57,326 WARN  [org.keycloak.services] (executor-thread-0) KC-SERVICES0013: Failed authentication: java.lang.IllegalArgumentException: Expecting input string to have 3 parts delineated by a ':' character.  Found 5 parts: repository:my-image:pull,push repository:my-base-image:pull\r\n        at org.keycloak.representations.docker.DockerAccess.<init>(DockerAccess.java:47)\r\n        at org.keycloak.protocol.docker.mapper.AllowAllDockerProtocolMapper.transformDockerResponseToken(AllowAllDockerProtocolMapper.java:46)\r\n        at org.keycloak.protocol.docker.DockerAuthV2Protocol.lambda$authenticated$2(DockerAuthV2Protocol.java:117)\r\n```\r\nThis is because the parser of the resource scope is only expecting a single resource scope but kaniko sends multiple (one with pull,push for the image being built and one with pull for the base image in the FROM clause in the Dockerfile). This is valid according to the docker spec: https://docs.docker.com/registry/spec/auth/scope/#authorization-server-use\r\n\r\n\"The POST request only takes in a single scope field but **may use a space to separate a list of multiple resource scopes**.\"\r\n\r\n\n\n### Version\n\n20.0.3\n\n### Expected behavior\n\nThere is no error: the authentication succeeds and the image is allowed to be pushed to the registry.\r\n\r\nThe docker auth protocol follows the docker spec.\r\n\r\n\n\n### Actual behavior\n\nAuthentication fails with following stacktrace:\r\n\r\n```\r\n2023-02-19 22:11:57,326 WARN  [org.keycloak.services] (executor-thread-0) KC-SERVICES0013: Failed authentication: java.lang.IllegalArgumentException: Expecting input string to have 3 parts delineated by a ':' character.  Found 5 parts: repository:my-image:pull,push repository:my-base-image:pull\r\n        at org.keycloak.representations.docker.DockerAccess.<init>(DockerAccess.java:47)\r\n        at org.keycloak.protocol.docker.mapper.AllowAllDockerProtocolMapper.transformDockerResponseToken(AllowAllDockerProtocolMapper.java:46)\r\n        at org.keycloak.protocol.docker.DockerAuthV2Protocol.lambda$authenticated$2(DockerAuthV2Protocol.java:117)\r\n        at java.base/java.util.stream.ForEachOps$ForEachOp$OfRef.accept(ForEachOps.java:183)\r\n        at java.base/java.util.stream.ReferencePipeline$2$1.accept(ReferencePipeline.java:177)\r\n        at java.base/java.util.stream.ReferencePipeline$2$1.accept(ReferencePipeline.java:177)\r\n        at java.base/java.util.ArrayList.forEach(ArrayList.java:1541)\r\n        at java.base/java.util.stream.SortedOps$RefSortingSink.end(SortedOps.java:395)\r\n        at java.base/java.util.stream.Sink$ChainedReference.end(Sink.java:258)\r\n        at java.base/java.util.stream.Sink$ChainedReference.end(Sink.java:258)\r\n        at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:485)\r\n        at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:474)\r\n        at java.base/java.util.stream.ForEachOps$ForEachOp.evaluateSequential(ForEachOps.java:150)\r\n        at java.base/java.util.stream.ForEachOps$ForEachOp$OfRef.evaluateSequential(ForEachOps.java:173)\r\n        at java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)\r\n        at java.base/java.util.stream.ReferencePipeline.forEach(ReferencePipeline.java:497)\r\n        at org.keycloak.protocol.docker.DockerAuthV2Protocol.authenticated(DockerAuthV2Protocol.java:116)\r\n        at org.keycloak.services.managers.AuthenticationManager.redirectAfterSuccessfulFlow(AuthenticationManager.java:973)\r\n        at org.keycloak.services.managers.AuthenticationManager.redirectAfterSuccessfulFlow(AuthenticationManager.java:921)\r\n        at org.keycloak.services.managers.AuthenticationManager.finishedRequiredActions(AuthenticationManager.java:1073)\r\n        at org.keycloak.authentication.AuthenticationProcessor.authenticationComplete(AuthenticationProcessor.java:1118)\r\n        at org.keycloak.authentication.AuthenticationProcessor.authenticate(AuthenticationProcessor.java:881)\r\n        at org.keycloak.protocol.AuthorizationEndpointBase.handleBrowserAuthenticationRequest(AuthorizationEndpointBase.java:151)\r\n        at org.keycloak.protocol.docker.DockerEndpoint.build(DockerEndpoint.java:77)\r\n        at jdk.internal.reflect.GeneratedMethodAccessor50.invoke(Unknown Source)\r\n        at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n        at java.base/java.lang.reflect.Method.invoke(Method.java:566)\r\n        at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:170)\r\n        at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:130)\r\n        at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:660)\r\n        at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:524)\r\n        at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:474)\r\n        at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:364)\r\n        at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:476)\r\n        at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:434)\r\n        at org.jboss.resteasy.core.ResourceLocatorInvoker.invokeOnTargetObject(ResourceLocatorInvoker.java:192)\r\n        at org.jboss.resteasy.core.ResourceLocatorInvoker.invoke(ResourceLocatorInvoker.java:152)\r\n        at org.jboss.resteasy.core.ResourceLocatorInvoker.invokeOnTargetObject(ResourceLocatorInvoker.java:183)\r\n        at org.jboss.resteasy.core.ResourceLocatorInvoker.invoke(ResourceLocatorInvoker.java:141)\r\n        at org.jboss.resteasy.core.ResourceLocatorInvoker.invoke(ResourceLocatorInvoker.java:32)\r\n        at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:492)\r\n        at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invoke$4(SynchronousDispatcher.java:261)\r\n        at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:161)\r\n        at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:364)\r\n        at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:164)\r\n        at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:247)\r\n        at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:73)\r\n        at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)\r\n        at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.handle(VertxRequestHandler.java:82)\r\n        at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.handle(VertxRequestHandler.java:42)\r\n        at io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1284)\r\n        at io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:173)\r\n        at io.vertx.ext.web.impl.RoutingContextImpl.next(RoutingContextImpl.java:140)\r\n        at io.quarkus.vertx.http.runtime.StaticResourcesRecorder$2.handle(StaticResourcesRecorder.java:84)\r\n        at io.quarkus.vertx.http.runtime.StaticResourcesRecorder$2.handle(StaticResourcesRecorder.java:71)\r\n        at io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1284)\r\n        at io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:173)\r\n        at io.vertx.ext.web.impl.RoutingContextImpl.next(RoutingContextImpl.java:140)\r\n        at io.quarkus.vertx.http.runtime.VertxHttpRecorder$6.handle(VertxHttpRecorder.java:430)\r\n        at io.quarkus.vertx.http.runtime.VertxHttpRecorder$6.handle(VertxHttpRecorder.java:408)\r\n        at io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1284)\r\n        at io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:173)\r\n        at io.vertx.ext.web.impl.RoutingContextImpl.next(RoutingContextImpl.java:140)\r\n        at org.keycloak.quarkus.runtime.integration.web.QuarkusRequestFilter.lambda$createBlockingHandler$0(QuarkusRequestFilter.java:82)\r\n        at io.quarkus.vertx.core.runtime.VertxCoreRecorder$14.runWith(VertxCoreRecorder.java:576)\r\n        at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2449)\r\n        at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1478)\r\n        at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:29)\r\n        at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:29)\r\n        at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)\r\n        at java.base/java.lang.Thread.run(Thread.java:829)\r\n```\n\n### How to Reproduce?\n\n1) Have a docker image in a registry protected by keycloak auth\r\n2) build and push a Dockerfile with a FROM referencing image in 1 to that same registry with kaniko (or perhaps also other container building tools)\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17187",
+        "assignees": [],
+        "labels": [
+            "area/authentication",
+            "kind/bug",
+            "help wanted"
+        ],
+        "issue_closed_at": "2023-03-23T08:43:45.000Z",
+        "fix_commit_hash": "705d20d4a23aef9d2429779b79e4dc978a6aa5e6",
+        "commit_type": "pr",
+        "commit_message": "AllowAllDockerProtocolMapper now allows multiple resourceScopes delimited by spaces as specified by the docker auth token spec.\n\nCloses #17187",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17267",
+        "earliest_issue_date": "2023-02-19T22:32:30Z",
+        "predicted_class": "bug",
+        "bic": [
+            "89fcddd605ed03cbef0562d8c44219c6a036deac"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17192,
+        "issue_title": "Duplicated set-cookie headers sent causing issues with proxies",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have searched existing issues\r\n- [X] I have reproduced the issue with the latest release\r\n\r\n### Area\r\n\r\ncore\r\n\r\n### Describe the bug\r\n\r\nI'm using the keycloak-js (20.0.3)  plugin for javascript and when I upgrade the keycloak to version 20.0.2 or 20.0.3 fails with a 502 after session expired or deleted manually. \r\nIn the brokens keycloak versions I need to every time clear the cookies in the edge browser. \r\nWhen I clear the cookies it works again.\r\nThe version 20.0.1 it works well when the session expired the cookies are removed automatically KEYCLOAK_SESSION, etc.\r\n\r\n![image](https://user-images.githubusercontent.com/26796175/220076361-db11b525-3984-4c5d-828e-128c89c0c1ae.png)\r\n\r\n\r\n### Version\r\n\r\n20.0.3\r\n\r\n### Expected behavior\r\n\r\nWhen the session is expired or deleted for a user in a realm, it shows the login page without error (for example in version 20.0.1)\r\n\r\n### Actual behavior\r\n\r\nWhen the session is expired or deleted for a user in a realm it shows a 502 error until manually clear the cookies KEYCLOAK_SESSION, etc.  the login page with an error 502  (for example in version 20.0.3)\r\n\r\n### How to Reproduce?\r\n\r\nUse de npm package keycloak-js (20.0.3)  in a web-app try to login in a keycloak-20.0.3 it will not work well after the session is deleted or expired. (But if you clear the cookies or incgonite page yes) In version 20.0.1 it works well without doing nothing.\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17192",
+        "assignees": [
+            "pedroigor"
+        ],
+        "labels": [
+            "area/authentication",
+            "kind/bug"
+        ],
+        "issue_closed_at": "2023-02-27T17:17:29.000Z",
+        "fix_commit_hash": "fbf55418027fe494e18758c8d9892d3c9779a74b",
+        "commit_type": "pr",
+        "commit_message": "Remove duplicated set-cookie header from response when expiring cookies\n\nCloses #17192",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17265",
+        "earliest_issue_date": "2023-02-20T10:21:09Z",
+        "predicted_class": "bug",
+        "bic": [
+            "54048f1e6c6c20dfffe26f27448c543956d80fb6"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17212,
+        "issue_title": "Fix  model test placement",
+        "issue_body": "There are couple of model tests in root package of model tests which violates other tests which respect map storage hierarchy. Fix it",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17212",
+        "assignees": [
+            "hmlnarik"
+        ],
+        "labels": [
+            "area/storage",
+            "kind/task"
+        ],
+        "issue_closed_at": "2023-03-13T13:35:17.000Z",
+        "fix_commit_hash": "fe5d89295fe1b419ed8ac62e5801b67164d4ebdc",
+        "commit_type": "pr",
+        "commit_message": "Fix client (scope) model test placement\n\nFixes: #17212",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17213",
+        "earliest_issue_date": "2023-02-21T10:15:41Z",
+        "predicted_class": "bug",
+        "bic": [
+            "6249e341777c1a733f0cc1e8b0511b76a373514b"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17216,
+        "issue_title": "Link \"Sign out\" incorrectly hardcoded to localhost in the authz example applications",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have searched existing issues\r\n- [X] I have reproduced the issue with the latest release\r\n\r\n### Area\r\n\r\ntestsuite\r\n\r\n### Describe the bug\r\n\r\nThere is a regression in https://github.com/keycloak/keycloak/commit/496c6d59 .In the `authUri`, the host is hardcoded to `localhost`. This is fine in the `hello-world-authz-service` where the host was hardcoded even before this change.\r\n\r\nHowever it is not fine in `servlet-authz` and `servlet-policy-enforcer` where the host was not hardcoded to `localhost` before this change.\r\n\r\n### Version\r\n\r\n20.0.3\r\n",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17216",
+        "assignees": [
+            "mposolda"
+        ],
+        "labels": [
+            "area/testsuite",
+            "kind/bug"
+        ],
+        "issue_closed_at": "2023-02-21T14:49:23.000Z",
+        "fix_commit_hash": "5ac8f7c1ef342317f92b4a7dabd9d34f07571d95",
+        "commit_type": "pr",
+        "commit_message": "Link 'Sign out' incorrectly hardcoded to localhost in the authz example applications\ncloses #17216",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17217",
+        "earliest_issue_date": "2023-02-21T10:56:34Z",
+        "predicted_class": "bug",
+        "bic": [
+            "496c6d598ebc04c3d3c07aef27017ffb6c13879c"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17700,
+        "issue_title": "\"View all users\" should be enabled if all federated providers are disabled.",
+        "issue_body": "### Describe the bug\n\nIf you go to the User section and you have a federated provider, you will get a message that says, `\"This realm may have a federated provider. Viewing all users may cause the system to slow down, but it can be done by searching for \"*\". Please search for a user above.`\r\n\r\nIf all federation providers are disabled, there is no reason for this and it would be safe to revert to the default behavior of searching for all users.\n\n### Version\n\nmain\n\n### Environment\n\n_No response_\n\n### Expected behavior\n\n\"View all users\" should be enabled if all federated providers are disabled.\n\n### Actual behavior\n\n_No response_\n\n### How to Reproduce?\n\n_No response_\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17700",
+        "assignees": [
+            "edewit"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2023-03-21T10:37:53.000Z",
+        "fix_commit_hash": "4f88e41fc763a291bff4f36d32f06be9ac29c2ee",
+        "commit_type": "pr",
+        "commit_message": "Filter out disabled user storage providers (#19063)",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/19063",
+        "earliest_issue_date": "2023-02-21T17:18:34Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17233,
+        "issue_title": "the InfoPage after an ExecuteActionsEmail is not localized based on the user's locale",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have searched existing issues\r\n- [X] I have reproduced the issue with the latest release\r\n\r\n### Area\r\n\r\ntoken-exchange\r\n\r\n### Describe the bug\r\n\r\nIn my case an execute-actions-email is sent to a user for them to update their password. After the user clicks on the link in the execute-action-email they will visit an infopage listing the actions to execute followed by the update-password-page. The infopage is translated according to the locale accepted by the browser-request but update-password-page is translated according to the locale set in the user's profile.\r\n\r\nIf these two locales are not equal the translation changes during the workflow.\r\n\r\n### Version\r\n\r\n20.0.5\r\n\r\n### Expected behavior\r\n\r\nThe first page should be translated by the user's locale aswell.\r\n\r\n### Actual behavior\r\n\r\nThe first page and the second page are translated differently if the browser-requested locale and the user-profile's locale are not equal. \r\n\r\n### How to Reproduce?\r\n\r\nprecondition:\r\n- a realm with a working smtp config and two supported languages (for example: german and english)\r\n- a browser without a cookie specifying a locale for keycloak that is set to one of the supported languages (for example: german)\r\n\r\n1. create a user with a specific locale (for example: english)\r\n2. trigger an execute-actions-email for the UPDATE_PASSWORD action\r\n3. the email is in english\r\n4. open the link send by mail in the browser\r\n5. the infopage will open in german, the language accepted by the browser\r\n6. the following update-password-page will open in englisch, the use-profile's locale\r\n\r\n\r\n\r\n### Anything else?\r\n\r\nI might have already identified the underlying issue: the authenticed user is not loaded into the loginformsprovider in ExecuteActionsActionTokenHandler::handleToken.\r\n\r\nI plan to provide a pull-request shortly.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17233",
+        "assignees": [],
+        "labels": [
+            "area/authentication",
+            "kind/bug",
+            "help wanted",
+            "team/core-clients",
+            "team/core-iam",
+            "priority/low",
+            "status/reopened",
+            "release/26.1.0",
+            "release/26.0.7",
+            "release/24.0.10"
+        ],
+        "issue_closed_at": "2024-11-29T08:55:09.000Z",
+        "fix_commit_hash": "8cad78b1dfff5b9154d0068702544e6ef62cbc29",
+        "commit_type": "commit",
+        "commit_message": "setting the user in ExecuteActionsActionTokenHandler.handleToken to manage user null case in FreeMarkerLoginFormsProvider.createResponse\n\nCloses #17233\n\nSigned-off-by: Rishabh Singh <rishabhsvats@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/commit/8cad78b1dfff5b9154d0068702544e6ef62cbc29",
+        "earliest_issue_date": "2023-02-22T11:13:32Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17589,
+        "issue_title": "admin-ui: authz viewing of a group requires also view-members permission",
+        "issue_body": "### Describe the bug\n\nWhen using fine-grained permissions on a group and only having the view permission, I am unable to open a group in the admin ui.\r\n\r\n![image](https://user-images.githubusercontent.com/1793007/220675748-71f1ac93-a518-4e25-b968-2f9534b307f9.png)\n\n### Version\n\n20.0.3\n\n### Environment\n\n_No response_\n\n### Expected behavior\n\nThe group is opened and the members tab is hidden, as the user has no permissions do view or manage the members of the group.\n\n### Actual behavior\n\n![image](https://user-images.githubusercontent.com/1793007/220675748-71f1ac93-a518-4e25-b968-2f9534b307f9.png)\r\n\r\nRequest failed with status code 403\n\n### How to Reproduce?\n\n1. Create a realm `testrealm`\r\n2. Create a user `testuser` with `query-groups` role\r\n3. Add credentials for that user\r\n4. Create a group `A` and enable fine grained permissions for that group\r\n5. In `clients` -> `realm-management` -> `authorization` -> `policies` create a user policy for the `testuser`\r\n6. Assign that policy to the view permission of the group.\r\n7. Log in to the admin console of the `testrealm` with the created `testuser`\r\n8. Open `Groups`\r\n9. Click on group `A`\n\n### Anything else?\n\nDebugging the network traffic reveals that the group details are returned, but then the UI proceeds to request the members of the group which then returns a `403` error. The members should not be requested if the user does not have the permissions to do so (view-/manage-members).",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17589",
+        "assignees": [
+            "ssilvert"
+        ],
+        "labels": [
+            "kind/enhancement",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2023-03-31T19:11:15.000Z",
+        "fix_commit_hash": "c595e3430e1952b023f6db79d9ae8f0fa6340294",
+        "commit_type": "pr",
+        "commit_message": "Add access to full group tree.  Fix access for members tab. Add missing (#19423)\n\nprops to Access object.\r\nFixes #17589",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/19423",
+        "earliest_issue_date": "2023-02-22T15:47:25Z",
+        "predicted_class": "bug",
+        "bic": [
+            "5f8ee1c49d0f8f6d6458a7df7a14c93942708068"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17242,
+        "issue_title": "Typo in Outgoing HTTP requests documentation",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have searched existing issues\n- [X] I have reproduced the issue with the latest release\n\n### Area\n\ndocs\n\n### Describe the bug\n\nThe documentation [outgoinghttp.adoc](docs/guides/src/main/server/outgoinghttp.adoc) gives an example Proxy mapping command line `*\\.(google|googleapis)\\.com` which is incorrect. It should be `.*\\.(google|googleapis)\\.com` with a dot at the beginning.\r\n\r\nWithout the `.`, keycloak prints an error message when issuing a outgoing request and the proxy configuration is not taken into account.\n\n### Version\n\n20.0.5\n\n### Expected behavior\n\nThis is a typo in the documentation only.\n\n### Actual behavior\n\nThis is a typo in the documentation only.\n\n### How to Reproduce?\n\nThis is a typo in the documentation only.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17242",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/docs"
+        ],
+        "issue_closed_at": "2023-03-28T08:04:12.000Z",
+        "fix_commit_hash": "a96ff792d8bab620a717affcae6509ff139901e2",
+        "commit_type": "pr",
+        "commit_message": "Typo in Outgoing HTTP requests documentation\n\ncloses #17242",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/19367",
+        "earliest_issue_date": "2023-02-23T09:30:45Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17248,
+        "issue_title": "MigrateT021_0_0 fails with NPE if adminTheme is not configured explictly",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have searched existing issues\n- [X] I have reproduced the issue with the latest release\n\n### Area\n\ncore\n\n### Describe the bug\n\nServer fails to start with database which contains realms that have no explict admin-console theme configured due to a missing null-check in the migration here: https://github.com/keycloak/keycloak/blob/557a22968cf36ef67ec02971e3b93c785c5853ec/model/legacy-private/src/main/java/org/keycloak/migration/migrators/MigrateTo21_0_0.java#L28\n\n### Version\n\n21.0.0\n\n### Expected behavior\n\nMigration should pass\n\n### Actual behavior\n\nServer crashes\n\n### How to Reproduce?\n\n1) Create a realm without explict admin-console configuration in an older keycloak version\r\n2) Run Keycloak 21.0.0 against the same database.\n\n### Anything else?\n\n````\r\ndev-acme-keycloak-1               | 13:11:33 ERROR traceId=, parentId=, spanId=, sampled= [or.ke.qu.ru.cl.ExecutionExceptionHandler] (main) ERROR: Failed to start server in (development) mode\r\ndev-acme-keycloak-1               | 13:11:33 ERROR traceId=, parentId=, spanId=, sampled= [or.ke.qu.ru.cl.ExecutionExceptionHandler] (main) Error details:: java.lang.NullPointerException: Cannot invoke \"String.equals(Object)\" because \"adminTheme\" is null\r\ndev-acme-keycloak-1               | \tat org.keycloak.migration.migrators.MigrateTo21_0_0.updateAdminTheme(MigrateTo21_0_0.java:28)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.ForEachOps$ForEachOp$OfRef.accept(ForEachOps.java:183)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.ReferencePipeline$2$1.accept(ReferencePipeline.java:179)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.Iterator.forEachRemaining(Iterator.java:133)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.Spliterators$IteratorSpliterator.forEachRemaining(Spliterators.java:1845)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.ForEachOps$ForEachOp.evaluateSequential(ForEachOps.java:150)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.ForEachOps$ForEachOp$OfRef.evaluateSequential(ForEachOps.java:173)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.ReferencePipeline.forEach(ReferencePipeline.java:596)\r\ndev-acme-keycloak-1               | \tat org.hibernate.query.spi.StreamDecorator.forEach(StreamDecorator.java:153)\r\ndev-acme-keycloak-1               | \tat org.keycloak.utils.ClosingStream.forEach(ClosingStream.java:128)\r\ndev-acme-keycloak-1               | \tat org.keycloak.migration.migrators.MigrateTo21_0_0.migrate(MigrateTo21_0_0.java:18)\r\ndev-acme-keycloak-1               | \tat org.keycloak.storage.datastore.LegacyMigrationManager.migrate(LegacyMigrationManager.java:135)\r\ndev-acme-keycloak-1               | \tat org.keycloak.migration.MigrationModelManager.migrate(MigrationModelManager.java:33)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.storage.legacy.database.LegacyJpaConnectionProviderFactory.migrateModel(LegacyJpaConnectionProviderFactory.java:216)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.storage.legacy.database.LegacyJpaConnectionProviderFactory.initSchema(LegacyJpaConnectionProviderFactory.java:210)\r\ndev-acme-keycloak-1               | \tat org.keycloak.models.utils.KeycloakModelUtils.lambda$runJobInTransaction$1(KeycloakModelUtils.java:256)\r\ndev-acme-keycloak-1               | \tat org.keycloak.models.utils.KeycloakModelUtils.runJobInTransactionWithResult(KeycloakModelUtils.java:269)\r\ndev-acme-keycloak-1               | \tat org.keycloak.models.utils.KeycloakModelUtils.runJobInTransaction(KeycloakModelUtils.java:255)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.storage.legacy.database.LegacyJpaConnectionProviderFactory.postInit(LegacyJpaConnectionProviderFactory.java:135)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.integration.QuarkusKeycloakSessionFactory.init(QuarkusKeycloakSessionFactory.java:105)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.integration.jaxrs.QuarkusKeycloakApplication.createSessionFactory(QuarkusKeycloakApplication.java:41)\r\ndev-acme-keycloak-1               | \tat org.keycloak.services.resources.KeycloakApplication.startup(KeycloakApplication.java:124)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.integration.QuarkusLifecycleObserver.onStartupEvent(QuarkusLifecycleObserver.java:37)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.integration.QuarkusLifecycleObserver_Observer_onStartupEvent_b0e82415b143738dc1f986a5fa4668e83d0a5dea.notify(Unknown Source)\r\ndev-acme-keycloak-1               | \tat io.quarkus.arc.impl.EventImpl$Notifier.notifyObservers(EventImpl.java:326)\r\ndev-acme-keycloak-1               | \tat io.quarkus.arc.impl.EventImpl$Notifier.notify(EventImpl.java:308)\r\ndev-acme-keycloak-1               | \tat io.quarkus.arc.impl.EventImpl.fire(EventImpl.java:76)\r\ndev-acme-keycloak-1               | \tat io.quarkus.arc.runtime.ArcRecorder.fireLifecycleEvent(ArcRecorder.java:131)\r\ndev-acme-keycloak-1               | \tat io.quarkus.arc.runtime.ArcRecorder.handleLifecycleEvents(ArcRecorder.java:100)\r\ndev-acme-keycloak-1               | \tat io.quarkus.deployment.steps.LifecycleEventsBuildStep$startupEvent1144526294.deploy_0(Unknown Source)\r\ndev-acme-keycloak-1               | \tat io.quarkus.deployment.steps.LifecycleEventsBuildStep$startupEvent1144526294.deploy(Unknown Source)\r\ndev-acme-keycloak-1               | \tat io.quarkus.runner.ApplicationImpl.doStart(Unknown Source)\r\ndev-acme-keycloak-1               | \tat io.quarkus.runtime.Application.start(Application.java:101)\r\ndev-acme-keycloak-1               | \tat io.quarkus.runtime.ApplicationLifecycleManager.run(ApplicationLifecycleManager.java:110)\r\ndev-acme-keycloak-1               | \tat io.quarkus.runtime.Quarkus.run(Quarkus.java:70)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.KeycloakMain.start(KeycloakMain.java:102)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.cli.command.AbstractStartCommand.run(AbstractStartCommand.java:37)\r\ndev-acme-keycloak-1               | \tat picocli.CommandLine.executeUserObject(CommandLine.java:1939)\r\ndev-acme-keycloak-1               | \tat picocli.CommandLine.access$1300(CommandLine.java:145)\r\ndev-acme-keycloak-1               | \tat picocli.CommandLine$RunLast.executeUserObjectOfLastSubcommandWithSameParent(CommandLine.java:2358)\r\ndev-acme-keycloak-1               | \tat picocli.CommandLine$RunLast.handle(CommandLine.java:2352)\r\ndev-acme-keycloak-1               | \tat picocli.CommandLine$RunLast.handle(CommandLine.java:2314)\r\ndev-acme-keycloak-1               | \tat picocli.CommandLine$AbstractParseResultHandler.execute(CommandLine.java:2179)\r\ndev-acme-keycloak-1               | \tat picocli.CommandLine$RunLast.execute(CommandLine.java:2316)\r\ndev-acme-keycloak-1               | \tat picocli.CommandLine.execute(CommandLine.java:2078)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.cli.Picocli.parseAndRun(Picocli.java:93)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.KeycloakMain.main(KeycloakMain.java:88)\r\ndev-acme-keycloak-1               | \tat java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\r\ndev-acme-keycloak-1               | \tat java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)\r\ndev-acme-keycloak-1               | \tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\ndev-acme-keycloak-1               | \tat java.base/java.lang.reflect.Method.invoke(Method.java:568)\r\ndev-acme-keycloak-1               | \tat io.quarkus.bootstrap.runner.QuarkusEntryPoint.doRun(QuarkusEntryPoint.java:61)\r\ndev-acme-keycloak-1               | \tat io.quarkus.bootstrap.runner.QuarkusEntryPoint.main(QuarkusEntryPoint.java:32)\r\ndev-acme-keycloak-1               | 13:11:33 ERROR traceId=, parentId=, spanId=, sampled= [or.ke.qu.ru.cl.ExecutionExceptionHandler] (main) ERROR: Failed to start server in (development) mode\r\ndev-acme-keycloak-1               | 13:11:33 ERROR traceId=, parentId=, spanId=, sampled= [or.ke.qu.ru.cl.ExecutionExceptionHandler] (main) Error details:: java.lang.NullPointerException: Cannot invoke \"String.equals(Object)\" because \"adminTheme\" is null\r\ndev-acme-keycloak-1               | \tat org.keycloak.migration.migrators.MigrateTo21_0_0.updateAdminTheme(MigrateTo21_0_0.java:28)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.ForEachOps$ForEachOp$OfRef.accept(ForEachOps.java:183)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.ReferencePipeline$2$1.accept(ReferencePipeline.java:179)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.Iterator.forEachRemaining(Iterator.java:133)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.Spliterators$IteratorSpliterator.forEachRemaining(Spliterators.java:1845)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.ForEachOps$ForEachOp.evaluateSequential(ForEachOps.java:150)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.ForEachOps$ForEachOp$OfRef.evaluateSequential(ForEachOps.java:173)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.AbstractPipeline.evaluate(AbstractPipeline.java:234)\r\ndev-acme-keycloak-1               | \tat java.base/java.util.stream.ReferencePipeline.forEach(ReferencePipeline.java:596)\r\ndev-acme-keycloak-1               | \tat org.hibernate.query.spi.StreamDecorator.forEach(StreamDecorator.java:153)\r\ndev-acme-keycloak-1               | \tat org.keycloak.utils.ClosingStream.forEach(ClosingStream.java:128)\r\ndev-acme-keycloak-1               | \tat org.keycloak.migration.migrators.MigrateTo21_0_0.migrate(MigrateTo21_0_0.java:18)\r\ndev-acme-keycloak-1               | \tat org.keycloak.storage.datastore.LegacyMigrationManager.migrate(LegacyMigrationManager.java:135)\r\ndev-acme-keycloak-1               | \tat org.keycloak.migration.MigrationModelManager.migrate(MigrationModelManager.java:33)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.storage.legacy.database.LegacyJpaConnectionProviderFactory.migrateModel(LegacyJpaConnectionProviderFactory.java:216)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.storage.legacy.database.LegacyJpaConnectionProviderFactory.initSchema(LegacyJpaConnectionProviderFactory.java:210)\r\ndev-acme-keycloak-1               | \tat org.keycloak.models.utils.KeycloakModelUtils.lambda$runJobInTransaction$1(KeycloakModelUtils.java:256)\r\ndev-acme-keycloak-1               | \tat org.keycloak.models.utils.KeycloakModelUtils.runJobInTransactionWithResult(KeycloakModelUtils.java:269)\r\ndev-acme-keycloak-1               | \tat org.keycloak.models.utils.KeycloakModelUtils.runJobInTransaction(KeycloakModelUtils.java:255)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.storage.legacy.database.LegacyJpaConnectionProviderFactory.postInit(LegacyJpaConnectionProviderFactory.java:135)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.integration.QuarkusKeycloakSessionFactory.init(QuarkusKeycloakSessionFactory.java:105)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.integration.jaxrs.QuarkusKeycloakApplication.createSessionFactory(QuarkusKeycloakApplication.java:41)\r\ndev-acme-keycloak-1               | \tat org.keycloak.services.resources.KeycloakApplication.startup(KeycloakApplication.java:124)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.integration.QuarkusLifecycleObserver.onStartupEvent(QuarkusLifecycleObserver.java:37)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.integration.QuarkusLifecycleObserver_Observer_onStartupEvent_b0e82415b143738dc1f986a5fa4668e83d0a5dea.notify(Unknown Source)\r\ndev-acme-keycloak-1               | \tat io.quarkus.arc.impl.EventImpl$Notifier.notifyObservers(EventImpl.java:326)\r\ndev-acme-keycloak-1               | \tat io.quarkus.arc.impl.EventImpl$Notifier.notify(EventImpl.java:308)\r\ndev-acme-keycloak-1               | \tat io.quarkus.arc.impl.EventImpl.fire(EventImpl.java:76)\r\ndev-acme-keycloak-1               | \tat io.quarkus.arc.runtime.ArcRecorder.fireLifecycleEvent(ArcRecorder.java:131)\r\ndev-acme-keycloak-1               | \tat io.quarkus.arc.runtime.ArcRecorder.handleLifecycleEvents(ArcRecorder.java:100)\r\ndev-acme-keycloak-1               | \tat io.quarkus.deployment.steps.LifecycleEventsBuildStep$startupEvent1144526294.deploy_0(Unknown Source)\r\ndev-acme-keycloak-1               | \tat io.quarkus.deployment.steps.LifecycleEventsBuildStep$startupEvent1144526294.deploy(Unknown Source)\r\ndev-acme-keycloak-1               | \tat io.quarkus.runner.ApplicationImpl.doStart(Unknown Source)\r\ndev-acme-keycloak-1               | \tat io.quarkus.runtime.Application.start(Application.java:101)\r\ndev-acme-keycloak-1               | \tat io.quarkus.runtime.ApplicationLifecycleManager.run(ApplicationLifecycleManager.java:110)\r\ndev-acme-keycloak-1               | \tat io.quarkus.runtime.Quarkus.run(Quarkus.java:70)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.KeycloakMain.start(KeycloakMain.java:102)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.cli.command.AbstractStartCommand.run(AbstractStartCommand.java:37)\r\ndev-acme-keycloak-1               | \tat picocli.CommandLine.executeUserObject(CommandLine.java:1939)\r\ndev-acme-keycloak-1               | \tat picocli.CommandLine.access$1300(CommandLine.java:145)\r\ndev-acme-keycloak-1               | \tat picocli.CommandLine$RunLast.executeUserObjectOfLastSubcommandWithSameParent(CommandLine.java:2358)\r\ndev-acme-keycloak-1               | \tat picocli.CommandLine$RunLast.handle(CommandLine.java:2352)\r\ndev-acme-keycloak-1               | \tat picocli.CommandLine$RunLast.handle(CommandLine.java:2314)\r\ndev-acme-keycloak-1               | \tat picocli.CommandLine$AbstractParseResultHandler.execute(CommandLine.java:2179)\r\ndev-acme-keycloak-1               | \tat picocli.CommandLine$RunLast.execute(CommandLine.java:2316)\r\ndev-acme-keycloak-1               | \tat picocli.CommandLine.execute(CommandLine.java:2078)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.cli.Picocli.parseAndRun(Picocli.java:93)\r\ndev-acme-keycloak-1               | \tat org.keycloak.quarkus.runtime.KeycloakMain.main(KeycloakMain.java:88)\r\ndev-acme-keycloak-1               | \tat java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\r\ndev-acme-keycloak-1               | \tat java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)\r\ndev-acme-keycloak-1               | \tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\ndev-acme-keycloak-1               | \tat java.base/java.lang.reflect.Method.invoke(Method.java:568)\r\ndev-acme-keycloak-1               | \tat io.quarkus.bootstrap.runner.QuarkusEntryPoint.doRun(QuarkusEntryPoint.java:61)\r\ndev-acme-keycloak-1               | \tat io.quarkus.bootstrap.runner.QuarkusEntryPoint.main(QuarkusEntryPoint.java:32)\r\n",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17248",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "priority/blocker",
+            "area/core"
+        ],
+        "issue_closed_at": "2023-02-23T15:38:03.000Z",
+        "fix_commit_hash": "16efddc9082061980b13ec8cf2f34931e3c54089",
+        "commit_type": "pr",
+        "commit_message": "Fix NPE in MigrateTo21_0_0 when admin theme is not set explicitly (#17249)\n\nOnly update admin-console theme to keycloak.v2 if it is explicitly set to \"keycloak\" or \"rh-sso\".\r\n\r\nFixes #17248\r\n\r\nSigned-off-by: Thomas Darimont <thomas.darimont@googlemail.com>\r\nCo-authored-by: Stian Thorgersen <stian@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17249",
+        "earliest_issue_date": "2023-02-23T13:16:37Z",
+        "predicted_class": "bug",
+        "bic": [
+            "d3ba2ecbed463607af298a519fac9083d95539cc"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17253,
+        "issue_title": "Container image from FIPS docs doesn't work",
+        "issue_body": "",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17253",
+        "assignees": [
+            "mposolda"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/core"
+        ],
+        "issue_closed_at": "2023-03-09T09:38:28.000Z",
+        "fix_commit_hash": "bc0e2d04b71b58e6ad9de3d84f669445c2326862",
+        "commit_type": "pr",
+        "commit_message": "Make Keycloak container working on FIPS environment - adding sqlite-libs package back to the dist\ncloses #17253",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17302",
+        "earliest_issue_date": "2023-02-23T14:03:43Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17258,
+        "issue_title": "Data too long for column 'DETAILS_JSON'",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have searched existing issues\n- [X] I have reproduced the issue with the latest release\n\n### Area\n\noidc\n\n### Describe the bug\n\nWhen spamming keycloak-javascript-adapter initiated logins by refreshing my frontend many times in a row, I can find the following exception in the Keycloak logs. The user is being redirected to the \"500 internal server error\" Keycloak website. \r\n\r\nLogs: \r\n\r\n```\r\n2023-02-22 11:27:16,457 WARN  [org.hibernate.engine.jdbc.spi.SqlExceptionHelper] (executor-thread-521) SQL Error: 1406, SQLState: 22001\r\n2023-02-22 11:27:16,457 ERROR [org.hibernate.engine.jdbc.spi.SqlExceptionHelper] (executor-thread-521) Data truncation: Data too long for column 'DETAILS_JSON' at row 1\r\n2023-02-22 11:27:16,458 INFO  [org.hibernate.engine.jdbc.batch.internal.AbstractBatchImpl] (executor-thread-521) HHH000010: On release of batch it still contained JDBC statements\r\n2023-02-22 11:27:16,465 WARN  [com.arjuna.ats.arjuna] (executor-thread-521) ARJUNA012125: TwoPhaseCoordinator.beforeCompletion - failed for SynchronizationImple< 0:ffff6443074d:a937:63ea0e5c:1beeac, org.hibernate.resource.transaction.backend.jta.internal.synchronization.RegisteredSynchronization@2f772455 >: javax.persistence.PersistenceException: org.hibernate.exception.DataException: could not execute statement\r\n\tat org.hibernate.internal.ExceptionConverterImpl.convert(ExceptionConverterImpl.java:154)\r\n\tat org.hibernate.internal.ExceptionConverterImpl.convert(ExceptionConverterImpl.java:181)\r\n\tat org.hibernate.internal.ExceptionConverterImpl.convert(ExceptionConverterImpl.java:188)\r\n\tat org.hibernate.internal.SessionImpl.doFlush(SessionImpl.java:1411)\r\n\tat org.hibernate.internal.SessionImpl.managedFlush(SessionImpl.java:489)\r\n\tat org.hibernate.internal.SessionImpl.flushBeforeTransactionCompletion(SessionImpl.java:3303)\r\n\tat org.hibernate.internal.SessionImpl.beforeTransactionCompletion(SessionImpl.java:2438)\r\n\tat org.hibernate.engine.jdbc.internal.JdbcCoordinatorImpl.beforeTransactionCompletion(JdbcCoordinatorImpl.java:449)\r\n\tat org.hibernate.resource.transaction.backend.jta.internal.JtaTransactionCoordinatorImpl.beforeCompletion(JtaTransactionCoordinatorImpl.java:356)\r\n\tat org.hibernate.resource.transaction.backend.jta.internal.synchronization.SynchronizationCallbackCoordinatorNonTrackingImpl.beforeCompletion(SynchronizationCallbackCoordinatorNonTrackingImpl.java:47)\r\n\tat org.hibernate.resource.transaction.backend.jta.internal.synchronization.RegisteredSynchronization.beforeCompletion(RegisteredSynchronization.java:37)\r\n\tat com.arjuna.ats.internal.jta.resources.arjunacore.SynchronizationImple.beforeCompletion(SynchronizationImple.java:76)\r\n\tat com.arjuna.ats.arjuna.coordinator.TwoPhaseCoordinator.beforeCompletion(TwoPhaseCoordinator.java:360)\r\n\tat com.arjuna.ats.arjuna.coordinator.TwoPhaseCoordinator.end(TwoPhaseCoordinator.java:91)\r\n\tat com.arjuna.ats.arjuna.AtomicAction.commit(AtomicAction.java:162)\r\n\tat com.arjuna.ats.internal.jta.transaction.arjunacore.TransactionImple.commitAndDisassociate(TransactionImple.java:1295)\r\n\tat com.arjuna.ats.internal.jta.transaction.arjunacore.BaseTransaction.commit(BaseTransaction.java:128)\r\n\tat io.quarkus.narayana.jta.runtime.CDIDelegatingTransactionManager.commit(CDIDelegatingTransactionManager.java:105)\r\n\tat org.keycloak.transaction.JtaTransactionWrapper.commit(JtaTransactionWrapper.java:90)\r\n\tat org.keycloak.services.DefaultKeycloakTransactionManager.commit(DefaultKeycloakTransactionManager.java:136)\r\n\tat org.keycloak.quarkus.runtime.transaction.TransactionalSessionHandler.close(TransactionalSessionHandler.java:64)\r\n\tat org.keycloak.quarkus.runtime.integration.jaxrs.TransactionalResponseFilter.filter(TransactionalResponseFilter.java:47)\r\n\tat org.jboss.resteasy.core.interception.jaxrs.ContainerResponseContextImpl.filter(ContainerResponseContextImpl.java:367)\r\n\tat org.jboss.resteasy.core.ServerResponseWriter.executeFilters(ServerResponseWriter.java:252)\r\n\tat org.jboss.resteasy.core.ServerResponseWriter.writeNomapResponse(ServerResponseWriter.java:101)\r\n\tat org.jboss.resteasy.core.ServerResponseWriter.writeNomapResponse(ServerResponseWriter.java:74)\r\n\tat org.jboss.resteasy.core.SynchronousDispatcher.writeResponse(SynchronousDispatcher.java:594)\r\n\tat org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:524)\r\n\tat org.jboss.resteasy.core.SynchronousDispatcher.lambda$invoke$4(SynchronousDispatcher.java:261)\r\n\tat org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:161)\r\n\tat org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:364)\r\n\tat org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:164)\r\n\tat org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:247)\r\n\tat io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:73)\r\n\tat io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)\r\n\tat io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.handle(VertxRequestHandler.java:82)\r\n\tat io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.handle(VertxRequestHandler.java:42)\r\n\tat io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1284)\r\n\tat io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:173)\r\n\tat io.vertx.ext.web.impl.RoutingContextWrapper.next(RoutingContextWrapper.java:200)\r\n\tat io.quarkus.vertx.http.runtime.StaticResourcesRecorder$2.handle(StaticResourcesRecorder.java:84)\r\n\tat io.quarkus.vertx.http.runtime.StaticResourcesRecorder$2.handle(StaticResourcesRecorder.java:71)\r\n\tat io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1284)\r\n\tat io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:173)\r\n\tat io.vertx.ext.web.impl.RoutingContextWrapper.next(RoutingContextWrapper.java:200)\r\n\tat io.quarkus.vertx.http.runtime.VertxHttpRecorder$6.handle(VertxHttpRecorder.java:430)\r\n\tat io.quarkus.vertx.http.runtime.VertxHttpRecorder$6.handle(VertxHttpRecorder.java:408)\r\n\tat io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1284)\r\n\tat io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:173)\r\n\tat io.vertx.ext.web.impl.RoutingContextWrapper.next(RoutingContextWrapper.java:200)\r\n\tat org.keycloak.quarkus.runtime.integration.web.QuarkusRequestFilter.lambda$createBlockingHandler$0(QuarkusRequestFilter.java:82)\r\n\tat io.quarkus.vertx.core.runtime.VertxCoreRecorder$14.runWith(VertxCoreRecorder.java:576)\r\n\tat org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2449)\r\n\tat org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1478)\r\n\tat org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:29)\r\n\tat org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:29)\r\n\tat io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)\r\n\tat java.base/java.lang.Thread.run(Thread.java:829)\r\nCaused by: org.hibernate.exception.DataException: could not execute statement\r\n\tat org.hibernate.exception.internal.SQLExceptionTypeDelegate.convert(SQLExceptionTypeDelegate.java:52)\r\n\tat org.hibernate.exception.internal.StandardSQLExceptionConverter.convert(StandardSQLExceptionConverter.java:37)\r\n\tat org.hibernate.engine.jdbc.spi.SqlExceptionHelper.convert(SqlExceptionHelper.java:113)\r\n\tat org.hibernate.engine.jdbc.spi.SqlExceptionHelper.convert(SqlExceptionHelper.java:99)\r\n\tat org.hibernate.engine.jdbc.internal.ResultSetReturnImpl.executeUpdate(ResultSetReturnImpl.java:200)\r\n\tat org.hibernate.engine.jdbc.batch.internal.NonBatchingBatch.addToBatch(NonBatchingBatch.java:46)\r\n\tat org.hibernate.persister.entity.AbstractEntityPersister.insert(AbstractEntityPersister.java:3375)\r\n\tat org.hibernate.persister.entity.AbstractEntityPersister.insert(AbstractEntityPersister.java:3937)\r\n\tat org.hibernate.action.internal.EntityInsertAction.execute(EntityInsertAction.java:107)\r\n\tat org.hibernate.engine.spi.ActionQueue.executeActions(ActionQueue.java:604)\r\n\tat org.hibernate.engine.spi.ActionQueue.lambda$executeActions$1(ActionQueue.java:478)\r\n\tat java.base/java.util.LinkedHashMap.forEach(LinkedHashMap.java:684)\r\n\tat org.hibernate.engine.spi.ActionQueue.executeActions(ActionQueue.java:475)\r\n\tat org.hibernate.event.internal.AbstractFlushingEventListener.performExecutions(AbstractFlushingEventListener.java:344)\r\n\tat org.hibernate.event.internal.DefaultFlushEventListener.onFlush(DefaultFlushEventListener.java:40)\r\n\tat org.hibernate.event.service.internal.EventListenerGroupImpl.fireEventOnEachListener(EventListenerGroupImpl.java:107)\r\n\tat org.hibernate.internal.SessionImpl.doFlush(SessionImpl.java:1407)\r\n\t... 54 more\r\nCaused by: com.mysql.cj.jdbc.exceptions.MysqlDataTruncation: Data truncation: Data too long for column 'DETAILS_JSON' at row 1\r\n\tat com.mysql.cj.jdbc.exceptions.SQLExceptionsMapping.translateException(SQLExceptionsMapping.java:104)\r\n\tat com.mysql.cj.jdbc.ClientPreparedStatement.executeInternal(ClientPreparedStatement.java:916)\r\n\tat com.mysql.cj.jdbc.ClientPreparedStatement.executeUpdateInternal(ClientPreparedStatement.java:1061)\r\n\tat com.mysql.cj.jdbc.ClientPreparedStatement.executeUpdateInternal(ClientPreparedStatement.java:1009)\r\n\tat com.mysql.cj.jdbc.ClientPreparedStatement.executeLargeUpdate(ClientPreparedStatement.java:1320)\r\n\tat com.mysql.cj.jdbc.ClientPreparedStatement.executeUpdate(ClientPreparedStatement.java:994)\r\n\tat com.mysql.cj.jdbc.PreparedStatementWrapper.executeUpdate(PreparedStatementWrapper.java:596)\r\n\tat io.agroal.pool.wrapper.PreparedStatementWrapper.executeUpdate(PreparedStatementWrapper.java:88)\r\n\tat org.hibernate.engine.jdbc.internal.ResultSetReturnImpl.executeUpdate(ResultSetReturnImpl.java:197)\r\n\t... 66 more\r\n```\n\n### Version\n\n20.0.5\n\n### Expected behavior\n\nThe Keycloak server does not get internal server errors when the user attempts to login multiple times in a row\n\n### Actual behavior\n\nRefreshing/requesting the token of the user does end up in a 500 internal server error response\n\n### How to Reproduce?\n\nUse a frontend library to initiate the OIDC login automatically when you open the frontend website.\r\nRefresh the website in your browser in a quick succession after the login was successful using the same session (do not use private windows or clear cookies in-between). \r\nAfter some attempts, the abovementioned exception will be thrown. \n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17258",
+        "assignees": [
+            "vramik"
+        ],
+        "labels": [
+            "kind/enhancement",
+            "area/storage"
+        ],
+        "issue_closed_at": "2023-11-02T19:29:37.000Z",
+        "fix_commit_hash": "593c14cd26cfcba9a5921cb0c39149dc32d012d3",
+        "commit_type": "pr",
+        "commit_message": "Data too long for column 'DETAILS_JSON'\n\nCloses #17258",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/24296",
+        "earliest_issue_date": "2023-02-23T15:42:02Z",
+        "predicted_class": "bug",
+        "bic": [
+            "791c457c32da32884ce723ed36a980f67bdfd4c1"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17264,
+        "issue_title": "Keycloak 21.0.0 startup fails with JDK 19",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have searched existing issues\r\n- [X] I have reproduced the issue with the latest release\r\n\r\n### Area\r\n\r\ninfinispan\r\n\r\n### Describe the bug\r\n\r\nKeycloak 21.0.0 startup fails on Windows Server 2019. \r\n\r\nLog:\r\n\r\n```\r\n2023-02-23 21:48:30,193 WARN  [io.quarkus.vertx.http.runtime.VertxHttpRecorder] (main) The X-Forwarded-* and Forwarded headers will be considered when determining the proxy address. This configuration can cause a security issue as clients can forge requests and send a forwarded header that is not overwritten by the proxy. Please consider use one of these headers just to forward the proxy address in requests.\r\n2023-02-23 21:48:30,355 WARN  [org.infinispan.CONFIG] (keycloak-cache-init) ISPN000569: Unable to persist Infinispan internal caches as no global state enabled\r\n2023-02-23 21:48:30,368 WARN  [org.infinispan.PERSISTENCE] (keycloak-cache-init) ISPN000554: jboss-marshalling is deprecated and planned for removal\r\n2023-02-23 21:48:32,244 ERROR [org.infinispan.CONFIG] (keycloak-cache-init) ISPN000660: DefaultCacheManager start failed, stopping any running components: org.infinispan.commons.CacheConfigurationException: ISPN000085: Error while trying to create a channel using the specified configuration file: default-configs/default-jgroups-udp.xml\r\n\tat org.infinispan.remoting.transport.jgroups.JGroupsTransport.buildChannel(JGroupsTransport.java:758)\r\n\tat org.infinispan.remoting.transport.jgroups.JGroupsTransport.initChannel(JGroupsTransport.java:504)\r\n\tat org.infinispan.remoting.transport.jgroups.JGroupsTransport.start(JGroupsTransport.java:485)\r\n\tat org.infinispan.remoting.transport.jgroups.CorePackageImpl$1.start(CorePackageImpl.java:42)\r\n\tat org.infinispan.remoting.transport.jgroups.CorePackageImpl$1.start(CorePackageImpl.java:27)\r\n\tat org.infinispan.factories.impl.BasicComponentRegistryImpl.invokeStart(BasicComponentRegistryImpl.java:617)\r\n\tat org.infinispan.factories.impl.BasicComponentRegistryImpl.doStartWrapper(BasicComponentRegistryImpl.java:608)\r\n\tat org.infinispan.factories.impl.BasicComponentRegistryImpl.startWrapper(BasicComponentRegistryImpl.java:577)\r\n\tat org.infinispan.factories.impl.BasicComponentRegistryImpl$ComponentWrapper.running(BasicComponentRegistryImpl.java:808)\r\n\tat org.infinispan.metrics.impl.MetricsCollector.start(MetricsCollector.java:78)\r\n\tat org.infinispan.metrics.impl.CorePackageImpl$1.start(CorePackageImpl.java:41)\r\n\tat org.infinispan.metrics.impl.CorePackageImpl$1.start(CorePackageImpl.java:34)\r\n\tat org.infinispan.factories.impl.BasicComponentRegistryImpl.invokeStart(BasicComponentRegistryImpl.java:617)\r\n\tat org.infinispan.factories.impl.BasicComponentRegistryImpl.doStartWrapper(BasicComponentRegistryImpl.java:608)\r\n\tat org.infinispan.factories.impl.BasicComponentRegistryImpl.startWrapper(BasicComponentRegistryImpl.java:577)\r\n\tat org.infinispan.factories.impl.BasicComponentRegistryImpl$ComponentWrapper.running(BasicComponentRegistryImpl.java:808)\r\n\tat org.infinispan.factories.impl.BasicComponentRegistryImpl.startDependencies(BasicComponentRegistryImpl.java:635)\r\n\tat org.infinispan.factories.impl.BasicComponentRegistryImpl.doStartWrapper(BasicComponentRegistryImpl.java:599)\r\n\tat org.infinispan.factories.impl.BasicComponentRegistryImpl.startWrapper(BasicComponentRegistryImpl.java:577)\r\n\tat org.infinispan.factories.impl.BasicComponentRegistryImpl$ComponentWrapper.running(BasicComponentRegistryImpl.java:808)\r\n\tat org.infinispan.factories.AbstractComponentRegistry.internalStart(AbstractComponentRegistry.java:357)\r\n\tat org.infinispan.factories.AbstractComponentRegistry.start(AbstractComponentRegistry.java:250)\r\n\tat org.infinispan.manager.DefaultCacheManager.internalStart(DefaultCacheManager.java:774)\r\n\tat org.infinispan.manager.DefaultCacheManager.start(DefaultCacheManager.java:742)\r\n\tat org.infinispan.manager.DefaultCacheManager.<init>(DefaultCacheManager.java:406)\r\n\tat org.keycloak.quarkus.runtime.storage.legacy.infinispan.CacheManagerFactory.startCacheManager(CacheManagerFactory.java:96)\r\n\tat java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)\r\n\tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)\r\n\tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)\r\n\tat java.base/java.lang.Thread.run(Thread.java:1589)\r\nCaused by: java.lang.IllegalArgumentException: failed initializing component ThreadPool in protocol UDP: java.lang.IllegalStateException: failed to create virtual thread pool: java.lang.UnsupportedOperationException: Preview Features not enabled, need to run with --enable-preview\r\n\tat org.jgroups.stack.ProtocolStack.lambda$initComponents$7(ProtocolStack.java:861)\r\n\tat org.jgroups.util.Util.forAllComponents(Util.java:3368)\r\n\tat org.jgroups.stack.ProtocolStack.initComponents(ProtocolStack.java:839)\r\n\tat org.jgroups.stack.ProtocolStack.initProtocolStack(ProtocolStack.java:795)\r\n\tat org.jgroups.stack.ProtocolStack.setup(ProtocolStack.java:438)\r\n\tat org.jgroups.JChannel.init(JChannel.java:899)\r\n\tat org.jgroups.JChannel.<init>(JChannel.java:123)\r\n\tat org.jgroups.JChannel.<init>(JChannel.java:113)\r\n\tat org.infinispan.remoting.transport.jgroups.JGroupsTransport.buildChannel(JGroupsTransport.java:756)\r\n\t... 29 more\r\n\r\n2023-02-23 21:48:32,385 ERROR [org.keycloak.quarkus.runtime.cli.ExecutionExceptionHandler] (main) ERROR: Failed to start server in (production) mode\r\n2023-02-23 21:48:32,386 ERROR [org.keycloak.quarkus.runtime.cli.ExecutionExceptionHandler] (main) ERROR: Failed to start caches\r\n2023-02-23 21:48:32,386 ERROR [org.keycloak.quarkus.runtime.cli.ExecutionExceptionHandler] (main) ERROR: org.infinispan.manager.EmbeddedCacheManagerStartupException: org.infinispan.commons.CacheConfigurationException: ISPN000085: Error while trying to create a channel using the specified configuration file: default-configs/default-jgroups-udp.xml\r\n2023-02-23 21:48:32,386 ERROR [org.keycloak.quarkus.runtime.cli.ExecutionExceptionHandler] (main) ERROR: org.infinispan.commons.CacheConfigurationException: ISPN000085: Error while trying to create a channel using the specified configuration file: default-configs/default-jgroups-udp.xml\r\n2023-02-23 21:48:32,387 ERROR [org.keycloak.quarkus.runtime.cli.ExecutionExceptionHandler] (main) ERROR: ISPN000085: Error while trying to create a channel using the specified configuration file: default-configs/default-jgroups-udp.xml\r\n2023-02-23 21:48:32,387 ERROR [org.keycloak.quarkus.runtime.cli.ExecutionExceptionHandler] (main) ERROR: failed initializing component ThreadPool in protocol UDP: java.lang.IllegalStateException: failed to create virtual thread pool: java.lang.UnsupportedOperationException: Preview Features not enabled, need to run with --enable-preview\r\n2023-02-23 21:48:32,387 ERROR [org.keycloak.quarkus.runtime.cli.ExecutionExceptionHandler] (main) For more details run the same command passing the '--verbose' option. Also you can use '--help' to see the details about the usage of the particular command.\r\n```\r\n\r\n### Version\r\n\r\nKeycloak 21.0.0\r\nJDK 19.0.2\r\n\r\n### Expected behavior\r\n\r\nKeycloak starts without fatal errors.\r\n\r\n### Actual behavior\r\n\r\nKeycloak startup fails.\r\n\r\n### How to Reproduce?\r\n\r\nTry to run Keycloak 21.0.0 on Windows Server 2019.\r\n\r\n### Anything else?\r\n\r\nKeycloak 20.0.5. doesn't have this problem. ",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17264",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/dist/quarkus",
+            "area/infinispan",
+            "team/cloud-native"
+        ],
+        "issue_closed_at": "2023-04-03T06:20:15.000Z",
+        "fix_commit_hash": "17022ad13ca2693cb564f8b5cc3bb7144acd1793",
+        "commit_type": "pr",
+        "commit_message": "Bump infinispan to 14.0.7.Final",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/19402",
+        "earliest_issue_date": "2023-02-23T20:53:56Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17277,
+        "issue_title": "Can't accept terms and conditions after upgrade from 20.0.3 to 21.0.0",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have searched existing issues\r\n- [X] I have reproduced the issue with the latest release\r\n\r\n### Area\r\n\r\nauthentication\r\n\r\n### Describe the bug\r\n\r\nWe have enabled Terms and Conditions and Email verificiation as required default actions when a new user is registered.\r\n\r\nWe updated to keycloak 21 today and new users can't accept the terms and conditions any more.\r\nWhen Accept is clicked it just reloads the page, and the action isn't removed from the list of required user actions for the user.\r\n\r\n\r\n### Version\r\n\r\n21.0.0\r\n\r\n### Expected behavior\r\n\r\nWhen accept is clicked on the terms and conditions page the next required action is triggered, or the user is logged in and redirected to the application\r\n\r\n### Actual behavior\r\n\r\nTerms and conditions page is refreshed when clicking accept.\r\n\r\n### How to Reproduce?\r\n\r\nEnable terms and conditions as required default action in the realm authentication settings.\r\n\r\nCreate a new user. Click on accept on the terms and conditions page\r\n\r\n### Anything else?\r\n\r\nSome logs around the issue:\r\n```\r\nDEBUG [org.hibernate.resource.jdbc.internal.LogicalConnectionManagedImpl] (executor-thread-16) `hibernate.connection.provider_disables_autocommit` was enabled.  This setting should only be enabled when you are certain that the Connections given to Hibernate by the ConnectionProvider have auto-commit disabled.  Enabling this setting when the Connections do not have auto-commit disabled will lead to Hibernate executing SQL operations outside of any JDBC/SQL transaction.\r\nDEBUG [org.hibernate.resource.transaction.backend.jta.internal.JtaTransactionCoordinatorImpl] (executor-thread-16) Hibernate RegisteredSynchronization successfully registered with JTA platform\r\nDEBUG [org.keycloak.services.resources.SessionCodeChecks] (executor-thread-16) Will use client 'web-md-app' in back-to-application link\r\nDEBUG [org.keycloak.services.util.CookieHelper] (executor-thread-16) Could not find any cookies with name {0}, trying {1}\r\nDEBUG [org.keycloak.services.util.CookieHelper] (executor-thread-16) AUTH_SESSION_ID_LEGACY cookie found in the request header\r\nDEBUG [org.keycloak.services.util.CookieHelper] (executor-thread-16) AUTH_SESSION_ID_LEGACY cookie found in the cookie field\r\nDEBUG [org.keycloak.services.managers.AuthenticationSessionManager] (executor-thread-16) Found AUTH_SESSION_ID cookie with value 4bc3b110-fdc9-43e7-8678-9237b771faeb\r\nDEBUG [org.keycloak.services.resources.SessionCodeChecks] (executor-thread-16) required action doesn't match current required action\r\nDEBUG [org.keycloak.transaction.JtaTransactionWrapper] (executor-thread-16) JtaTransactionWrapper  commit\r\nDEBUG [org.hibernate.engine.transaction.internal.TransactionImpl] (executor-thread-16) On TransactionImpl creation, JpaCompliance#isJpaTransactionComplianceEnabled == false\r\nDEBUG [org.hibernate.resource.jdbc.internal.LogicalConnectionManagedImpl] (executor-thread-16) Initiating JDBC connection release from beforeTransactionCompletion\r\nDEBUG [org.hibernate.resource.jdbc.internal.LogicalConnectionManagedImpl] (executor-thread-16) Initiating JDBC connection release from afterTransaction\r\nDEBUG [org.keycloak.transaction.JtaTransactionWrapper] (executor-thread-16) JtaTransactionWrapper end\r\nDEBUG [org.keycloak.transaction.JtaTransactionWrapper] (executor-thread-16) new JtaTransactionWrapper\r\nDEBUG [org.keycloak.transaction.JtaTransactionWrapper] (executor-thread-16) was existing? false\r\nDEBUG [org.hibernate.resource.jdbc.internal.LogicalConnectionManagedImpl] (executor-thread-16) `hibernate.connection.provider_disables_autocommit` was enabled.  This setting should only be enabled when you are certain that the Connections given to Hibernate by the ConnectionProvider have auto-commit disabled.  Enabling this setting when the Connections do not have auto-commit disabled will lead to Hibernate executing SQL operations outside of any JDBC/SQL transaction.\r\nDEBUG [org.hibernate.resource.transaction.backend.jta.internal.JtaTransactionCoordinatorImpl] (executor-thread-16) Hibernate RegisteredSynchronization successfully registered with JTA platform\r\nDEBUG [org.keycloak.services.resources.SessionCodeChecks] (executor-thread-16) Will use client 'web-md-app' in back-to-application link\r\nDEBUG [org.keycloak.services.util.CookieHelper] (executor-thread-16) Could not find any cookies with name {0}, trying {1}\r\nDEBUG [org.keycloak.services.util.CookieHelper] (executor-thread-16) AUTH_SESSION_ID_LEGACY cookie found in the request header\r\nDEBUG [org.keycloak.services.util.CookieHelper] (executor-thread-16) AUTH_SESSION_ID_LEGACY cookie found in the cookie field\r\nDEBUG [org.keycloak.services.managers.AuthenticationSessionManager] (executor-thread-16) Found AUTH_SESSION_ID cookie with value 4bc3b110-fdc9-43e7-8678-9237b771faeb\r\nDEBUG [org.keycloak.services.managers.AuthenticationManager] (executor-thread-16) processAccessCode: go to oauth page?: false\r\n```\r\n\r\nespecially the line `DEBUG [org.keycloak.services.resources.SessionCodeChecks] (executor-thread-16) required action doesn't match current required action` seems strange.\r\n\r\n\r\nIt seems even worse, I can't remove the terms and conditions action using the admin console. If I remove the action from required actions of the user and save, it seems like it has been removed, but if I refresh the page, the action reappears again.\r\n",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17277",
+        "assignees": [
+            "mhajas"
+        ],
+        "labels": [
+            "area/authentication",
+            "kind/bug",
+            "priority/important"
+        ],
+        "issue_closed_at": "2023-03-29T14:43:03.000Z",
+        "fix_commit_hash": "e49dfe534e979db7f401021b7e2bb7d8c4c7cd73",
+        "commit_type": "pr",
+        "commit_message": "Fix missing migration when reading TERMS_AND_CONDITIONS required action in legacy store\n\nCloses #17277",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/19098",
+        "earliest_issue_date": "2023-02-24T14:37:02Z",
+        "predicted_class": "bug",
+        "bic": [
+            "de7dd77aebe5f81cf108d4e642400feddcbae150"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17288,
+        "issue_title": "New Referrer-policy breaks cross-origin SP<->IdP (KC)",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have searched existing issues\n- [X] I have reproduced the issue with the latest release\n\n### Area\n\nsaml\n\n### Describe the bug\n\nFacing same issue as  [12008](https://github.com/keycloak/keycloak/issues/12008#issue-1237144963) in latest releases\r\nSometimes some Service Providers (SAML) hosted on a specific domain implements CORS policy directive to prevent illegal cross-domain acess. When Keycloak is used as an Identity Provider (SAML) to secure access of these Service Providers with POST-binding profile it fails because of default Referrer-Policy set to 'no-referrer' from 11.0.1 Keycloak Version.\r\n\r\nHere is a sample\r\n\r\nUser-Agent -> Service Provider A (a.com) : User wants to access Service Provider A\r\nUser-Agent <- Service Provider A (a.com) : Service Provider returns an html resource with form containing SAMLRequest and the action pointing to the Identity Provider B (b.com)\r\nUser-Agent -> Identity Provider B (b.com) : User-Agent POSTs (when page is loaded) SAMLRequest form\r\nUser-Agent <- Identity Provider B (b.com) : ... After user authentication ... Identity Provider B returns an html with form containing SAMLResponse and the action pointing to the Service Provider A (a.com) + an http header 'Referrer-Policy' with no-referrer' policy set.\r\nUser-Agent -> User-Agent : As Identity Provider B tells to the User-Agent it doesn't want the Referer header (and moreover Origin) be valued (no-referrer policy definition), User-Agent remove http header Referer and set Origin http header to null before POSTing SAMLResponse form\r\nUser-Agent -> Service Provider A (a.com) : User agent POSTs (when page is loaded) SAMLResponse form. Origin is at this time null.\r\nService Provider A (a.com) -> Service Provider A (a.com) : The Service Provider A detects a cross-origin invocation (coming from b.com) and check Origin (which is null). null being not permitted, the Service Provider stops the request and returns to the User-Agent an 'invalid CORS request' error response.\n\n### Version\n\n20.0.5 , 21.0.0\n\n### Expected behavior\n\nReferrer-Policy shoud be computed considering the different use case : If the SP has a cross-origin (can be obtain through the ACS URL) we should override the default policy when returning saml-post-form resource to accept cross-origin invocation.\r\n\r\n\n\n### Actual behavior\n\nDue to Referrer-Policy set to no-referrer, the User-Agent send html form without Referer header nor Origin (which is set to null).\r\n\r\n\n\n### How to Reproduce?\n\nCreate a SP with a domain (a.com) and an IdP with a domain (b.com)\r\nImplements CORS Policy on SP domain\r\nRegister SP on IdP\r\nTriggers a 'login' flow.\n\n### Anything else?\n\nDefault policy strict-origin-when-cross-origin should be more appropriate.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17288",
+        "assignees": [
+            "pedroigor"
+        ],
+        "labels": [
+            "area/saml",
+            "kind/bug"
+        ],
+        "issue_closed_at": "2023-05-30T16:27:13.000Z",
+        "fix_commit_hash": "8aeee928e866202178abd0069ab1c0247b41cd51",
+        "commit_type": "pr",
+        "commit_message": "Allow configuring the referrer policy (#19917)\n\n* Allow configuring the referrer policy\r\n\r\nCloses #17288\r\n\r\n* fixed indentation\r\n\r\n---------\r\n\r\nCo-authored-by: Erik Jan de Wit <erikjan.dewit@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/19917",
+        "earliest_issue_date": "2023-02-26T09:42:37Z",
+        "predicted_class": "bug",
+        "bic": [
+            "f7e0af438d5a2d24b76bd3f34f71693c109738d5"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17294,
+        "issue_title": "Make LDAP `searchForUsersStream` consistent with other storages",
+        "issue_body": "Searching in LDAP works differently than other storages.\n\nWhen we use the following method:\nhttps://github.com/keycloak/keycloak/blob/923a321a55747d401d87b7958fe0dee81fabe010/federation/ldap/src/main/java/org/keycloak/storage/ldap/LDAPStorageProvider.java#L368-L393\n\nwith an empty `params` argument, it returns an empty result list. This is inconsistent with other storages, where empty params return all users. \n\n",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17294",
+        "assignees": [
+            "vramik"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/storage",
+            "area/ldap"
+        ],
+        "issue_closed_at": "2023-05-19T06:40:43.000Z",
+        "fix_commit_hash": "fd6a6ec3ad328cf9581369299c68317f7fcc5d00",
+        "commit_type": "pr",
+        "commit_message": "Make LDAP `searchForUsersStream` consistent with other storages\n\nCo-authored-by: mhajas <mhajas@redhat.com>\n\nCloses #17294",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/19050",
+        "earliest_issue_date": "2023-02-27T07:12:38Z",
+        "predicted_class": "bug",
+        "bic": [
+            "b7188c38916f8c623866456fd12c8a9b73ed116d"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17301,
+        "issue_title": "Not installed commands is used in container documentation example",
+        "issue_body": "### Description\n\nThe Keycloak base image does not include curl. And it does not include dnf to set up curl.\r\n\r\nTo get the provider module over the network as in the original documentation, replacing it with the ADD command is closest in feel.\r\n\r\nRelated issue:\r\nhttps://github.com/keycloak/keycloak/issues/17273#issuecomment-1446064834",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17301",
+        "assignees": [],
+        "labels": [
+            "kind/task"
+        ],
+        "issue_closed_at": "2023-02-28T08:50:10.000Z",
+        "fix_commit_hash": "2429d18d78cc48a79658baa6e89e540fe12659c9",
+        "commit_type": "pr",
+        "commit_message": "Update containers.adoc #17301",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17292",
+        "earliest_issue_date": "2023-02-27T10:49:47Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17304,
+        "issue_title": "javax.net.ssl.SSLException exceptions because org.keycloak.adapters.HttpClientBuilder ignores connectionTTL setting",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have searched existing issues\r\n- [X] I have reproduced the issue with the latest release\r\n\r\n### Area\r\n\r\noidc\r\n\r\n### Describe the bug\r\n\r\nThe property connectionTTL can be set but it is never used in the org.keycloak.adapters.HttpClientBuilder#build method. This results that connections live forever, resulting in Connection reset Exceptions, when the connection was closed on the server.\r\n\r\nThe PoolingHttpClientConnectionManager should be created like this:\r\n\r\n```\r\nPoolingHttpClientConnectionManager tcm = new PoolingHttpClientConnectionManager(sf.build(), null, null, null, connectionTTL, connectionTTLUnit);\r\n```\r\n\r\nIf the poolsize is set to 1 its more difficult. Could be fixed by setting the keepAliveStrategy on BasicHttpClientConnectionManager\r\n\r\n### Version\r\n\r\n20.0.1\r\n\r\n### Expected behavior\r\n\r\nProperty connectionTTL  of org.keycloak.adapters.HttpClientBuilder should be used when creating a httpClient\r\n\r\n### Actual behavior\r\n\r\nProperty connectionTTL  of org.keycloak.adapters.HttpClientBuilder is ignored when creating a httpClient\r\n\r\n### How to Reproduce?\r\n\r\n- Use a code like this to create an httpClient:\r\n```\r\n            HttpClientBuilder httpClientBuilder = new HttpClientBuilder();\r\n\r\n            LOGGER.info(\"Setting timeouts socketTimeoutSeconds={}, connectionTTLSeconds={}, establishConnectionTimeoutSeconds={}\",\r\n                    adapterConfig.getSocketTimeoutSeconds(), adapterConfig.getConnectionTtlSeconds(), adapterConfig.getEstablishConnectionTimeoutSeconds());\r\n            httpClientBuilder.socketTimeout(adapterConfig.getSocketTimeoutSeconds(), TimeUnit.SECONDS);\r\n            httpClientBuilder.connectionTTL(adapterConfig.getConnectionTtlSeconds(), TimeUnit.SECONDS);\r\n            httpClientBuilder.establishConnectionTimeout(adapterConfig.getEstablishConnectionTimeoutSeconds(), TimeUnit.SECONDS);\r\n            HttpClient client = httpClientBuilder.build(adapterConfig);\r\n```\r\n\r\n- Use this client to fetch tokens from keycloak. \r\n- Have some component in between that closes idle connection. This happens for example when an AWS NAT Gateway is in between, that closes the connection after  350 seconds with an RST packet\r\n- Try to fetch the token again\r\n\r\n=> javax.net.ssl.SSLException: Connection reset\r\n\r\n### Anything else?\r\nhttps://stackoverflow.com/questions/49994901/connection-reset-by-keycloaks-java-adapter\r\nhttps://docs.aws.amazon.com/vpc/latest/userguide/nat-gateway-troubleshooting.html",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17304",
+        "assignees": [
+            "douglaspalmer"
+        ],
+        "labels": [
+            "area/oidc",
+            "kind/bug"
+        ],
+        "issue_closed_at": "2023-04-25T18:06:31.000Z",
+        "fix_commit_hash": "52eeac76e164271a147bb41e67c474739b4c2998",
+        "commit_type": "pr",
+        "commit_message": "Set connection TTL in adapters HttpClientBuilder\ncloses #17304",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/19943",
+        "earliest_issue_date": "2023-02-27T11:21:34Z",
+        "predicted_class": "bug",
+        "bic": [
+            "5b48d727307e12eed701916b46bf7b817ef474f6"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17802,
+        "issue_title": "Accessibility/Clients List: Serious Issues",
+        "issue_body": "### Describe the bug\r\n\r\nThe following issues are found: \r\n1. [ARIA input fields must have an accessible name](https://axe.deque.com/issues/8f6499d0-42e4-44d2-a026-ffde24cba885)\r\n\r\n![Screenshot 2023-02-27 at 15 03 22](https://user-images.githubusercontent.com/4890675/221599481-8e6e25d1-ea20-4323-8ad6-372d1b9be316.png)\r\n\r\n2. [IDs of active elements must be unique](https://axe.deque.com/issues/ddf740ed-c85d-4a18-8d5a-ca72791f79a8)\r\n\r\n![Screenshot 2023-02-27 at 15 04 13](https://user-images.githubusercontent.com/4890675/221599743-b78701bb-9ced-4b68-b9aa-8090c405830a.png)\r\n\r\n3. [IDs of active elements must be unique](https://axe.deque.com/issues/ddf740ed-c85d-4a18-8d5a-ca72791f79a8)\r\n\r\n![Screenshot 2023-02-27 at 15 04 40](https://user-images.githubusercontent.com/4890675/221599862-5735e61c-f67f-4f4f-9874-5fc724cb6f8a.png)\r\n\r\n4. [IDs of active elements must be unique](https://axe.deque.com/issues/d2eb13be-2030-4e18-91a9-89f0f30edb75)\r\n\r\n![Screenshot 2023-02-27 at 15 05 47](https://user-images.githubusercontent.com/4890675/221600120-4760a151-d272-4c7f-9a70-d81c53522ed3.png)\r\n\r\n5. [IDs of active elements must be unique](https://axe.deque.com/issues/d2eb13be-2030-4e18-91a9-89f0f30edb75)\r\n\r\n![Screenshot 2023-02-27 at 15 06 17](https://user-images.githubusercontent.com/4890675/221600266-fcf17d21-d646-486d-9bf5-1e71a5207fc7.png)\r\n\r\n6. [IDs of active elements must be unique](https://axe.deque.com/issues/54fc19b0-e14c-46c2-82e6-c23e53ec302d)\r\n\r\n![Screenshot 2023-02-27 at 15 06 57](https://user-images.githubusercontent.com/4890675/221600466-daeecef5-77dc-444f-bff8-083a8bfa56b0.png)\r\n\r\n7. [IDs of active elements must be unique](https://axe.deque.com/issues/54fc19b0-e14c-46c2-82e6-c23e53ec302d)\r\n\r\n![Screenshot 2023-02-27 at 15 07 24](https://user-images.githubusercontent.com/4890675/221600577-2b334ca1-1f5a-452c-ace0-2dc7d0caea15.png)\r\n\r\n8. [IDs of active elements must be unique](https://axe.deque.com/issues/99e47acd-55da-4e7b-a4bb-c917465d15d9)\r\n\r\n![Screenshot 2023-02-27 at 15 08 30](https://user-images.githubusercontent.com/4890675/221600859-16206a04-2c96-4efd-b300-ea623f724753.png)\r\n\r\n9. [IDs of active elements must be unique](https://axe.deque.com/issues/99e47acd-55da-4e7b-a4bb-c917465d15d9)\r\n\r\n![Screenshot 2023-02-27 at 15 09 03](https://user-images.githubusercontent.com/4890675/221600989-6cac697b-7f16-4f8e-8c6e-ef9b7576eb5e.png)\r\n\r\n10. [IDs of active elements must be unique](https://axe.deque.com/issues/99e47acd-55da-4e7b-a4bb-c917465d15d9)\r\n\r\n![Screenshot 2023-02-27 at 15 09 33](https://user-images.githubusercontent.com/4890675/221601129-5195b3d0-6494-4ad0-8ac1-a73ec500cc72.png)\r\n\r\n11. [IDs of active elements must be unique](https://axe.deque.com/issues/19126696-ce41-4b8f-9ff7-54ab6c87fabf)\r\n\r\n![Screenshot 2023-02-27 at 15 10 28](https://user-images.githubusercontent.com/4890675/221601354-452eea06-53cb-4799-a039-115d563c1f6e.png)\r\n\r\n12. [IDs of active elements must be unique](https://axe.deque.com/issues/19126696-ce41-4b8f-9ff7-54ab6c87fabf)\r\n![Screenshot 2023-02-27 at 15 10 55](https://user-images.githubusercontent.com/4890675/221601498-95ab82c6-116b-4aa9-afd8-4cc8eaeca936.png)\r\n\r\n13. `<ul> and <ol> must only directly contain <li>, <script> or <template> elements `-> (https://axe.deque.com/issues/7541ff25-0bb0-4b56-9192-0b9cf1152aa5)\r\n\r\n![Screenshot 2023-02-27 at 15 11 32](https://user-images.githubusercontent.com/4890675/221601645-7811e875-25dc-4d43-88c7-08860a7c054f.png)\r\n\r\n\r\n### Version\r\n\r\n21.0.0\r\n\r\n### Environment\r\n\r\n_No response_\r\n\r\n### Expected behavior\r\n\r\nReported issues are fixed.\r\n\r\n### Actual behavior\r\n\r\nReported issues are not foxed.\r\n\r\n### How to Reproduce?\r\n\r\nUse Deque Browser Extension.\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17802",
+        "assignees": [
+            "agagancarczyk"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2023-03-10T09:55:41.000Z",
+        "fix_commit_hash": "598076368c19c8f5995ce70eaefe557657c57ed9",
+        "commit_type": "pr",
+        "commit_message": "fixed a11y violations (#17550)\n\nCo-authored-by: Agnieszka Gancarczyk <agancarc@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17550",
+        "earliest_issue_date": "2023-02-27T15:12:29Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17313,
+        "issue_title": "When upgrading from v20.0.2 to v21.0.0 I get a NPE on Theme",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have searched existing issues\n- [X] I have reproduced the issue with the latest release\n\n### Area\n\nadmin/ui\n\n### Describe the bug\n\nAfter trying to start the application I got the error described on: https://github.com/keycloak/keycloak/issues/17248\r\n\r\nSo I executed following command on the db as suggested:\r\n`update realm set admin_theme = 'keycloak' where admin_theme is null`\r\n\r\nThis worked and now my server starts, but when I log in on the admin section, I get an error:\r\n2023-02-27 15:48:30,310 ERROR [org.keycloak.services.error.KeycloakErrorHandler] (executor-thread-7) Uncaught server error: \r\njava.lang.NullPointerException: Cannot invoke \"org.keycloak.theme.Theme.getImportName()\" because \"theme\" is null\r\n\tat org.keycloak.theme.DefaultThemeManager.loadTheme(DefaultThemeManager.java:119)\r\n\tat org.keycloak.theme.DefaultThemeManager.getTheme(DefaultThemeManager.java:68)\r\n\tat org.keycloak.services.resources.admin.info.ServerInfoAdminResource.setThemes(ServerInfoAdminResource.java:182)\r\n\tat org.keycloak.services.resources.admin.info.ServerInfoAdminResource.getInfo(ServerInfoAdminResource.java:103)\r\n\tat java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\r\n\tat java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)\r\n\tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n\tat java.base/java.lang.reflect.Method.invoke(Method.java:568)\r\n\tat org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:170)\r\n\tat org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:130)\r\n\tat org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:660)\r\n\tat org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:524)\r\n\tat org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:474)\r\n\tat org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:364)\r\n\tat org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:476)\r\n\tat org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:434)\r\n\tat org.jboss.resteasy.core.ResourceLocatorInvoker.invokeOnTargetObject(ResourceLocatorInvoker.java:192)\r\n\tat org.jboss.resteasy.core.ResourceLocatorInvoker.invoke(ResourceLocatorInvoker.java:141)\r\n\tat org.jboss.resteasy.core.ResourceLocatorInvoker.invoke(ResourceLocatorInvoker.java:32)\r\n\tat org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:492)\r\n\tat org.jboss.resteasy.core.SynchronousDispatcher.lambda$invoke$4(SynchronousDispatcher.java:261)\r\n\tat org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:161)\r\n\tat org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:364)\r\n\tat org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:164)\r\n\tat org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:247)\r\n\tat io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:73)\r\n\tat io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)\r\n\tat io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.handle(VertxRequestHandler.java:82)\r\n\tat io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.handle(VertxRequestHandler.java:42)\r\n\tat io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1284)\r\n\tat io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:173)\r\n\tat io.vertx.ext.web.impl.RoutingContextWrapper.next(RoutingContextWrapper.java:200)\r\n\tat io.quarkus.vertx.http.runtime.StaticResourcesRecorder$2.handle(StaticResourcesRecorder.java:84)\r\n\tat io.quarkus.vertx.http.runtime.StaticResourcesRecorder$2.handle(StaticResourcesRecorder.java:71)\r\n\tat io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1284)\r\n\tat io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:173)\r\n\tat io.vertx.ext.web.impl.RoutingContextWrapper.next(RoutingContextWrapper.java:200)\r\n\tat io.quarkus.vertx.http.runtime.VertxHttpRecorder$6.handle(VertxHttpRecorder.java:430)\r\n\tat io.quarkus.vertx.http.runtime.VertxHttpRecorder$6.handle(VertxHttpRecorder.java:408)\r\n\tat io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1284)\r\n\tat io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:173)\r\n\tat io.vertx.ext.web.impl.RoutingContextWrapper.next(RoutingContextWrapper.java:200)\r\n\tat org.keycloak.quarkus.runtime.integration.web.QuarkusRequestFilter.lambda$createBlockingHandler$0(QuarkusRequestFilter.java:82)\r\n\tat io.quarkus.vertx.core.runtime.VertxCoreRecorder$14.runWith(VertxCoreRecorder.java:576)\r\n\tat org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2449)\r\n\tat org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1478)\r\n\tat org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:29)\r\n\tat org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:29)\r\n\tat io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)\r\n\tat java.base/java.lang.Thread.run(Thread.java:833)\r\nLooking at the code I see that findTheme(parentName, type); can return null and there is no nullpointer check before theme.getImportName()\r\n\r\nCan this also be corrected in v21.0.1?\r\n \n\n### Version\n\n21.0.0\n\n### Expected behavior\n\nAfter the upgrade you should be able to log into the admin console and manage your realms, clients, identity providers...\r\n\r\nThey are visible in the dropdown to the left, but on the right the error message is shown due to the theme not being found.\n\n### Actual behavior\n\n![error-in-admin](https://user-images.githubusercontent.com/68843812/221610741-cd567073-9554-447e-99d3-3df10b3aafaf.png)\r\n![Source_code](https://user-images.githubusercontent.com/68843812/221610758-a2c1dd56-7203-4497-a46c-7bbe69cb9c51.png)\r\n\n\n### How to Reproduce?\n\n```\r\n    private Theme findTheme(String name, Theme.Type type) {\r\n        for (ThemeProvider p : getProviders()) {\r\n            if (p.hasTheme(name, type)) {\r\n                try {\r\n                    return p.getTheme(name, type);\r\n                } catch (IOException e) {\r\n                    log.errorv(e, p.getClass() + \" failed to load theme, type={0}, name={1}\", type, name);\r\n                }\r\n            }\r\n        }\r\n        return null;\r\n    }\r\n```\r\nSo maybe getProviders() is empty or p.getTheme(name, type) returns null\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17313",
+        "assignees": [
+            "mposolda"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/core"
+        ],
+        "issue_closed_at": "2023-03-01T15:46:40.000Z",
+        "fix_commit_hash": "59f4fe1c60a74bf4eb018ef4fecb00f27c766e52",
+        "commit_type": "pr",
+        "commit_message": "NPE on Theme after upgrade to 21 when parent or import theme not exists (#17350)\n\n* NPE on Theme after upgrade to 21 when parent or import theme not exists\r\ncloses #17313\r\n\r\n* Update per review",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17350",
+        "earliest_issue_date": "2023-02-27T15:51:56Z",
+        "predicted_class": "bug",
+        "bic": [
+            "1c2eafeb80e60754de0d1f86c6fed3ecd6750e7d"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17681,
+        "issue_title": "Accessibility/Users: Serious Issues",
+        "issue_body": "### Describe the bug\n\nThe following issues were found: \r\n\r\n1. [Elements must have sufficient color contrast](https://axe.deque.com/issues/14c1e80d-c652-4590-bafc-f0f4918dce45)\r\n\r\n![Screenshot 2023-02-27 at 18 06 29](https://user-images.githubusercontent.com/4890675/221646916-111e4b07-56cc-46d6-9b2f-1869327f5064.png)\r\n\r\n2. [IDs of active elements must be unique](https://axe.deque.com/issues/2e55f656-2909-432b-b153-acc4b882e6a2)\r\n![Screenshot 2023-02-27 at 18 07 10](https://user-images.githubusercontent.com/4890675/221647078-ae375511-9f9c-40df-828a-553be1671993.png)\r\n\r\n3. [IDs of active elements must be unique](https://axe.deque.com/issues/2e55f656-2909-432b-b153-acc4b882e6a2)\r\n\r\n![Screenshot 2023-02-27 at 18 07 39](https://user-images.githubusercontent.com/4890675/221647192-fa7d9aee-baf7-43e5-b399-ada0aff62de4.png)\r\n\r\n4. [IDs of active elements must be unique](https://axe.deque.com/issues/3cc01dcc-f7be-4219-a1f5-926e0559efe9)\r\n\r\n![Screenshot 2023-02-27 at 18 08 25](https://user-images.githubusercontent.com/4890675/221647341-43dbc4d8-79c8-499d-a9ae-19852e261eb1.png)\r\n\r\n5. [IDs of active elements must be unique](https://axe.deque.com/issues/3cc01dcc-f7be-4219-a1f5-926e0559efe9)\r\n\r\n![Screenshot 2023-02-27 at 18 08 57](https://user-images.githubusercontent.com/4890675/221647467-e454e0ba-c7a6-4092-9056-7faeb3997786.png)\r\n\r\n6. [IDs of active elements must be unique](https://axe.deque.com/issues/a316bdfd-7e14-4a8e-a18c-68c3a17c00fd)\r\n![Screenshot 2023-02-27 at 18 09 41](https://user-images.githubusercontent.com/4890675/221647583-7b024a93-3783-4852-9acf-704291a33f5b.png)\r\n\r\n\r\n\n\n### Version\n\n21.0.0\n\n### Environment\n\n_No response_\n\n### Expected behavior\n\nReported issues are fixed.\n\n### Actual behavior\n\nReported issues are not fixed.\n\n### How to Reproduce?\n\nUse Deque Browser Extension.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17681",
+        "assignees": [
+            "agagancarczyk"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2023-03-30T10:48:44.000Z",
+        "fix_commit_hash": "639d93125182464342ff3fa8c76c5c0c30c91e87",
+        "commit_type": "pr",
+        "commit_message": "fixed color contrast serious a11y violation (#19434)",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/19434",
+        "earliest_issue_date": "2023-02-27T18:10:44Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17798,
+        "issue_title": "Accessibility/Realm Settings: Serious Issues",
+        "issue_body": "### Describe the bug\n\nThe following issues were found: \r\n\r\n1. [IDs of active elements must be unique](https://axe.deque.com/issues/818ddfd0-4fc1-4abe-8821-e59789855a01)\r\n\r\n![Screenshot 2023-02-27 at 18 31 41](https://user-images.githubusercontent.com/4890675/221652028-2c83a76f-43dd-4f54-a1e2-71a5b880ef15.png)\r\n\r\n2. [IDs of active elements must be unique](https://axe.deque.com/issues/818ddfd0-4fc1-4abe-8821-e59789855a01)\r\n\r\n![Screenshot 2023-02-27 at 18 32 07](https://user-images.githubusercontent.com/4890675/221652121-cea46387-823f-4793-89f8-a6823b276212.png)\r\n\r\n3. [IDs of active elements must be unique](https://axe.deque.com/issues/53ba0b72-112f-4b8e-8204-ab3c677c0bab)\r\n![Screenshot 2023-02-27 at 18 32 38](https://user-images.githubusercontent.com/4890675/221652225-9623e048-31a1-4320-89ec-22b759aed260.png)\r\n\r\n4. [Elements must have sufficient color contrast](https://axe.deque.com/issues/35803f59-7c07-4cc7-8b35-0c27e2ce6ec6)\r\n\r\n![Screenshot 2023-02-27 at 18 33 15](https://user-images.githubusercontent.com/4890675/221652330-1ba54f32-0402-44d7-a778-1630ee12b175.png)\r\n\r\n5. [Elements must have sufficient color contrast](https://axe.deque.com/issues/35803f59-7c07-4cc7-8b35-0c27e2ce6ec6)\r\n![Screenshot 2023-02-27 at 18 33 50](https://user-images.githubusercontent.com/4890675/221652458-a84f2602-46f8-4f94-867d-5a73e6ba9f92.png)\r\n\r\n6. [IDs of active elements must be unique](https://axe.deque.com/issues/818ddfd0-4fc1-4abe-8821-e59789855a01)\r\n\r\n![Screenshot 2023-02-27 at 18 34 26](https://user-images.githubusercontent.com/4890675/221652569-13f7feef-6236-435a-9bdf-e21925c96a8b.png)\r\n\r\n7. [IDs of active elements must be unique](https://axe.deque.com/issues/818ddfd0-4fc1-4abe-8821-e59789855a01)\r\n\r\n![Screenshot 2023-02-27 at 18 34 57](https://user-images.githubusercontent.com/4890675/221652674-105758a2-63e9-4eae-b196-b03a29a901ca.png)\r\n\r\n8. [Links must be distinguishable without relying on color](https://axe.deque.com/issues/50667cce-1139-4b15-b9b0-a36668fbec4d)\r\n\r\n\r\n![Screenshot 2023-02-27 at 18 35 24](https://user-images.githubusercontent.com/4890675/221652775-61c42c37-2645-4443-b25c-948f8c38bb01.png)\r\n\r\n9. [IDs of active elements must be unique](https://axe.deque.com/issues/818ddfd0-4fc1-4abe-8821-e59789855a01)\r\n\r\n\r\n![Screenshot 2023-02-27 at 18 35 51](https://user-images.githubusercontent.com/4890675/221652860-83322dc9-9c71-495b-9940-43f16065df25.png)\r\n\r\n10. [IDs of active elements must be unique](https://axe.deque.com/issues/818ddfd0-4fc1-4abe-8821-e59789855a01)\r\n\r\n![Screenshot 2023-02-27 at 18 36 18](https://user-images.githubusercontent.com/4890675/221652963-68683499-cb07-41e6-9157-d140613bdcfd.png)\r\n\r\n\n\n### Version\n\n21.0.0\n\n### Environment\n\n_No response_\n\n### Expected behavior\n\nReported issues are fixed\n\n### Actual behavior\n\nReported issues are not fixed.\n\n### How to Reproduce?\n\nUse Deque Browser Extension.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17798",
+        "assignees": [
+            "edewit"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2023-03-09T13:50:14.000Z",
+        "fix_commit_hash": "d7388c479bea2565f11e46cfe119c3e3da333aaf",
+        "commit_type": "pr",
+        "commit_message": "changed id of dropdown (#17512)\n\nfixes: https://github.com/keycloak/keycloak-ui/issues/4483",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17512",
+        "earliest_issue_date": "2023-02-27T18:37:04Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17797,
+        "issue_title": "Accessibility/Authentication: Serious Issues",
+        "issue_body": "### Describe the bug\n\nThe following issues were found:\r\n\r\n1. [ID attribute value must be unique](https://axe.deque.com/issues/9096e6aa-a9d4-42d2-9c16-c4ef232cac3d)\r\n\r\n![Screenshot 2023-02-27 at 18 38 05](https://user-images.githubusercontent.com/4890675/221653323-8ec33b5d-e424-4e17-8ae3-6a0b775aa8e9.png)\r\n\n\n### Version\n\n21.0.0\n\n### Environment\n\n_No response_\n\n### Expected behavior\n\nReported issues are fixed.\n\n### Actual behavior\n\nReported issues are not fixed.\n\n### How to Reproduce?\n\nUse Deque Browser Extension.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17797",
+        "assignees": [
+            "edewit"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2023-03-09T11:36:37.000Z",
+        "fix_commit_hash": "e2a0c0df8e83b96fe574b73b6e4e88a2d7a5ef9b",
+        "commit_type": "pr",
+        "commit_message": "based id on keyfield instead of id (#17509)\n\nfixes: https://github.com/keycloak/keycloak-ui/issues/4484",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17509",
+        "earliest_issue_date": "2023-02-27T18:38:54Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17682,
+        "issue_title": "Accessibility/User Federation: Serious Issues",
+        "issue_body": "### Describe the bug\n\nThe following issues were found: \r\n\r\n1. [Interactive controls must not be nested](https://axe.deque.com/issues/68343b46-37e8-425c-be83-5cbad94b7bdf)\r\n\r\n![Screenshot 2023-02-27 at 18 39 57](https://user-images.githubusercontent.com/4890675/221653663-d02f2b51-a3bc-4fad-baa8-960a4f969969.png)\r\n\n\n### Version\n\n21.0.0\n\n### Environment\n\n_No response_\n\n### Expected behavior\n\nReported issues are fixed.\n\n### Actual behavior\n\nReported issues are not fixed.\n\n### How to Reproduce?\n\nUse Deque Browser Extension.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17682",
+        "assignees": [
+            "edewit"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2023-03-21T09:25:59.000Z",
+        "fix_commit_hash": "1cde3dd30e50413db1f42d26fd6f2c409f04da1f",
+        "commit_type": "pr",
+        "commit_message": "Make title clickable instead of card (#17511)",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17511",
+        "earliest_issue_date": "2023-02-27T18:40:46Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17322,
+        "issue_title": "Disabling features with disabled dependencies fails \"Feature account2 depends on disabled feature account-api\"",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have searched existing issues\n- [X] I have reproduced the issue with the latest release\n\n### Area\n\ncore\n\n### Describe the bug\n\nI'm building Keycloak as part of a docker container build and the below command fails:\r\nbin/kc.sh build \\\r\n--http-relative-path=/auth \\\r\n--features=admin-api,admin-fine-grained-authz,admin2,js-adapter \\\r\n--features-disabled=**account-api,account2**,authorization,ciba,client-policies,client-secret-rotation,declarative-user-profile,docker,dynamic-scopes,fips,impersonation,kerberos,map-storage,openshift-integration,par,preview,recovery-codes,scripts,step-up-authentication,token-exchange,update-email,web-authn\r\n\r\nwith:\r\n```\r\n2023-02-28 15:27:17,657 TRACE [io.quarkus.bootstrap.classloading.QuarkusClassLoader] (main) Class quarkus.properties not found in parent first load from java.net.URLClassLoader@6aeb35e6\r\n\r\n2023-02-28 15:27:17,657 TRACE [io.quarkus.bootstrap.classloading.QuarkusClassLoader] (main) Class quarkus.properties not found in parent first load from java.net.URLClassLoader@6aeb35e6\r\n\r\nERROR: Failed to run 'build' command.\r\nERROR: Feature account2 depends on disabled feature account-api\r\nERROR: Feature account2 depends on disabled feature account-api\r\nFor more details run the same command passing the '--verbose' option. Also you can use '--help' to see the details about the usage of the particular command.\r\n```\r\n\r\nBoth features in the error messages are in the --features-disabled argument (as highlighted).\r\n\r\nI traced the code to the keycloak-common project in the class org.keycloak.common.Profile and it seams the below check to make sure dependencies are correct is failing.\r\n```\r\n    private static void verifyConfig(Map<Feature, Boolean> features) {\r\n        for (Feature f : features.keySet()) {\r\n            if (f.getDependencies() != null) {\r\n                for (Feature d : f.getDependencies()) {\r\n                    if (!features.get(d)) {\r\n                        throw new ProfileException(\"Feature \" + f.getKey() + \" depends on disabled feature \" + d.getKey());\r\n                    }\r\n                }\r\n            }\r\n        }\r\n    }\r\n```\r\nThe if statement on the 3rd line should check if the feature itself is enabled before continuing with the checks.  \r\n\r\n\r\nOn a side note, the message in the error output to use --verbose should be removed.  add --verbose to the command outputs \r\n`Unknown option: '--verbose'`\n\n### Version\n\n21.0.0\n\n### Expected behavior\n\n[keycloak-success-output.txt](https://github.com/keycloak/keycloak/files/10847001/keycloak-success-output.txt)\r\n\n\n### Actual behavior\n\n[keycloak-failed-output.txt](https://github.com/keycloak/keycloak/files/10846992/keycloak-failed-output.txt)\r\n\n\n### How to Reproduce?\n\nexecute the following:\r\n\r\nbin/kc.sh build \\\r\n--http-relative-path=/auth \\\r\n--features=admin-api,admin-fine-grained-authz,admin2,js-adapter \\\r\n--features-disabled=account-api,account2,authorization,ciba,client-policies,client-secret-rotation,declarative-user-profile,docker,dynamic-scopes,fips,impersonation,kerberos,map-storage,openshift-integration,par,preview,recovery-codes,scripts,step-up-authentication,token-exchange,update-email,web-authn\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17322",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/core",
+            "help wanted"
+        ],
+        "issue_closed_at": "2023-03-02T08:29:10.000Z",
+        "fix_commit_hash": "b4050b9fa8b72ad41e6e95618214d271009a44b9",
+        "commit_type": "pr",
+        "commit_message": "Fix configuration for disabled features throwing errors with disabled dependencies (#17323)\n\nCloses #17322",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17323",
+        "earliest_issue_date": "2023-02-28T05:58:33Z",
+        "predicted_class": "bug",
+        "bic": [
+            "f3bf1456abecf66e326f4b7dcd8b610f58243df2"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17329,
+        "issue_title": "Model tests not running because of missing `DeviceRepresentationProvider`",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have searched existing issues\n- [X] I have reproduced the issue with the latest release\n\n### Area\n\ntestsuite\n\n### Describe the bug\n\nCaused by: #17134\r\n\r\nAfter https://github.com/keycloak/keycloak/issues/17134 the model tests annotated with \r\n```\r\n@RequireProvider(DeviceRepresentationProvider.class)\r\n```\r\n\r\nare not running because the spi is not allowed in any profile.\n\n### Version\n\nmain\n\n### Expected behavior\n\nModel tests should be running\n\n### Actual behavior\n\nModel tests are skipped\n\n### How to Reproduce?\n\nRun any model test annotated with `@RequireProvider(DeviceRepresentationProvider.class)`\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17329",
+        "assignees": [
+            "mhajas"
+        ],
+        "labels": [
+            "area/testsuite",
+            "kind/bug"
+        ],
+        "issue_closed_at": "2023-02-28T13:55:50.000Z",
+        "fix_commit_hash": "7899c6c80adebebc651688c9e2b7741b18f99d82",
+        "commit_type": "pr",
+        "commit_message": "Make DeviceRepresentationProvider available for all model test profiles\n\nCloses #17329",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17330",
+        "earliest_issue_date": "2023-02-28T10:13:02Z",
+        "predicted_class": "bug",
+        "bic": [
+            "1d75000a0effee9ed52a950e1559de4232dd5ba7"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17339,
+        "issue_title": "Entity version is not updated when the entity is root entity",
+        "issue_body": "When updating entity which is instance of `JpaRootEntity` and in the same time **NOT** instance of `JpaChildEntity` its entityVersion is not updated. ",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17339",
+        "assignees": [
+            "vramik"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/storage"
+        ],
+        "issue_closed_at": "2023-03-02T14:21:45.000Z",
+        "fix_commit_hash": "d923aa5d5da2aab2e89705f6742836991d34370a",
+        "commit_type": "pr",
+        "commit_message": "Entity version is not updated when the entity is root entity\n\nCloses #17339",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17340",
+        "earliest_issue_date": "2023-02-28T13:02:42Z",
+        "predicted_class": "bug",
+        "bic": [
+            "e5408884f6e60783b70f0a0d28baf013d40a2468"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17359,
+        "issue_title": "Connection string for ldap user federation with multiple hosts no longer supported",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have searched existing issues\n- [X] I have reproduced the issue with the latest release\n\n### Area\n\nldap\n\n### Describe the bug\n\nSince 21.0.0 the connection string \"ldaps://ldap-server-1 ldaps://ldap-server-2\" is not longer supported.\r\n\n\n### Version\n\n21.0.0\n\n### Expected behavior\n\nThe connection string is still valid and will be used for failover scenarios.\r\nWhen the first host is down the second one will be used\n\n### Actual behavior\n\nConnection string is not valid\r\nMigration guide from 20.x does not contain a note for migrating this connection string\n\n### How to Reproduce?\n\nTry to use the ldap connection string \"ldaps://ldap-server-1 ldaps://ldap-server-2\"\n\n### Anything else?\n\nWhen the first host is down the second will be used.\r\nIf there is another way to provide this kind of \"failover\" feature I would use it.\r\n\r\nAnother way could be to \"clone\" oder \"duplicate\" the ldap user fedaration but there is no function for this. So all mappers must be entered twice.\r\n\r\nAre there any plans to readd the support for failover ldap connection strings?",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17359",
+        "assignees": [
+            "mposolda"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/core"
+        ],
+        "issue_closed_at": "2023-04-16T15:41:23.000Z",
+        "fix_commit_hash": "1cbdf4d17e26e43d661672143bdc48ce5a1a4024",
+        "commit_type": "pr",
+        "commit_message": "Fix the issue with LDAP connectionUrl containing multiple hosts\nCloses #17359",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/19719",
+        "earliest_issue_date": "2023-03-01T08:25:40Z",
+        "predicted_class": "bug",
+        "bic": [
+            "f616495b051ae9555fe97df0e269c8332401b8d5"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17794,
+        "issue_title": "Accessibility/Home: Moderate Issues",
+        "issue_body": "### Describe the bug\n\nThe following moderate issues were found: \r\n\r\n1. [Heading levels should only increase by one](https://axe.deque.com/issues/fda8bdff-0476-4f08-94ba-a092df45ded2)\r\n![Screenshot 2023-03-01 at 09 15 27](https://user-images.githubusercontent.com/4890675/222095487-7e9fb0c8-9625-4425-96f6-c780f9630940.png)\r\n\r\n2. [Page should contain a level-one heading](https://axe.deque.com/issues/ea36a517-f28d-450c-9dfd-721f0088679c)\r\n\r\n![Screenshot 2023-03-01 at 09 15 56](https://user-images.githubusercontent.com/4890675/222095614-1e1c12c6-c9c3-469a-b704-cead6dbe201c.png)\r\n\r\n\n\n### Version\n\n21.0.0\n\n### Environment\n\n_No response_\n\n### Expected behavior\n\nReported bug fixes are fixed.\n\n### Actual behavior\n\nReported bug fixes are not fixed.\n\n### How to Reproduce?\n\nUse Deque Browser Extension.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17794",
+        "assignees": [
+            "agagancarczyk"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2023-03-10T09:54:37.000Z",
+        "fix_commit_hash": "d3dcab396eaab26484885189e2913cce49f55ef3",
+        "commit_type": "pr",
+        "commit_message": "fixed a11y violations (#17536)\n\nCo-authored-by: Agnieszka Gancarczyk <agancarc@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17536",
+        "earliest_issue_date": "2023-03-01T09:16:54Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17701,
+        "issue_title": "Accessibility/Clients List: Moderate Issues",
+        "issue_body": "### Describe the bug\n\nThe following issues were found: \r\n\r\n1. [Ensure landmarks are unique](https://axe.deque.com/issues/6f2b7f4d-a228-4bc4-b176-fbd6344be217)\r\n\r\n![Screenshot 2023-03-01 at 09 17 48](https://user-images.githubusercontent.com/4890675/222096090-64d956f0-e970-4827-ac9c-273ecef40c01.png)\r\n\r\n2. [Ensures landmarks are unique](https://axe.deque.com/issues/b5ef1ef9-df84-4b0e-8d27-db09021ae45e)\r\n![Screenshot 2023-03-01 at 09 18 50](https://user-images.githubusercontent.com/4890675/222096335-69a521ce-6892-490a-a612-0bb0f17e632c.png)\r\n\r\n3. [Ensures landmarks are unique](https://axe.deque.com/issues/ad2298b6-cb07-4042-bc79-2721084edca6)\r\n\r\n![Screenshot 2023-03-01 at 09 23 04](https://user-images.githubusercontent.com/4890675/222097299-1a9e2203-4aa7-4ebc-9daa-b8ca42bf3006.png)\r\n\r\n4. [Ensures landmarks are unique](https://axe.deque.com/issues/ad2298b6-cb07-4042-bc79-2721084edca6)\r\n\r\n![Screenshot 2023-03-01 at 09 23 33](https://user-images.githubusercontent.com/4890675/222097421-80c3239c-a306-41c0-90b0-1f3a72e84c59.png)\r\n\r\n5. [Document should not have more than one banner landmark](https://axe.deque.com/issues/68a9d890-b8d3-496d-840b-11ffd5bc745d)\r\n\r\n![Screenshot 2023-03-01 at 09 24 04](https://user-images.githubusercontent.com/4890675/222097556-edf8b1fb-44a7-46ab-b724-cfbef6db3ac9.png)\r\n\r\n6. [Ensures landmarks are unique](https://axe.deque.com/issues/e311e61e-6cbe-4bf1-80da-eaed027258a0)\r\n\r\n![Screenshot 2023-03-01 at 09 24 37](https://user-images.githubusercontent.com/4890675/222097685-3653f22d-e6bd-461a-9f6b-bebf36adf187.png)\r\n\r\n7. [Ensures landmarks are unique](https://axe.deque.com/issues/46a3ef69-25d7-4b23-bdc2-7183a8f0e69b)\r\n\r\n![Screenshot 2023-03-01 at 09 25 07](https://user-images.githubusercontent.com/4890675/222097828-3b4a090e-afe2-4e63-afc0-c8bd7a7b47f0.png)\r\n\r\n8. [Heading levels should only increase by one](https://axe.deque.com/issues/ef60b3f4-92c8-4a36-91af-cfd89b2759d6)\r\n\r\n\r\n![Screenshot 2023-03-01 at 09 25 40](https://user-images.githubusercontent.com/4890675/222097988-54e2150c-aea8-49a0-a3ea-3a75495d02b8.png)\r\n\r\n9. [Heading levels should only increase by one](https://axe.deque.com/issues/ef60b3f4-92c8-4a36-91af-cfd89b2759d6)\r\n\r\n![Screenshot 2023-03-01 at 09 26 18](https://user-images.githubusercontent.com/4890675/222098102-3d650ac1-bd27-4511-b5b0-4fca7d9592ec.png)\r\n\r\n10. [Heading levels should only increase by one](https://axe.deque.com/issues/ef60b3f4-92c8-4a36-91af-cfd89b2759d6)\r\n\r\n![Screenshot 2023-03-01 at 09 26 48](https://user-images.githubusercontent.com/4890675/222098215-a75917ca-db92-40fc-b6e8-804e9899c982.png)\r\n\r\n11. [Heading levels should only increase by one](https://axe.deque.com/issues/ef60b3f4-92c8-4a36-91af-cfd89b2759d6)\r\n\r\n![Screenshot 2023-03-01 at 09 27 30](https://user-images.githubusercontent.com/4890675/222098358-297e3624-df4a-4001-8151-b52ea863ecd9.png)\r\n\r\n12. [Ensures landmarks are unique](https://axe.deque.com/issues/c2a6d91b-d834-44f4-8ef3-302a0ebac310)\r\n![Screenshot 2023-03-01 at 09 28 16](https://user-images.githubusercontent.com/4890675/222098565-0bb6ac90-86fd-4701-86f4-45ef0052a668.png)\r\n\r\n13. [Ensures landmarks are unique](https://axe.deque.com/issues/cffa8096-e488-4776-a9aa-c24ce869941c)\r\n![Screenshot 2023-03-01 at 09 28 44](https://user-images.githubusercontent.com/4890675/222098698-d3f2d048-9f3e-4a3f-bf59-90d2a63b9ca8.png)\r\n\r\n14. [Heading levels should only increase by one](https://axe.deque.com/issues/fcc44cdf-11e9-4a86-aa9c-f6fb903b8e48)\r\n\r\n![Screenshot 2023-03-01 at 09 29 12](https://user-images.githubusercontent.com/4890675/222098831-01bf6857-5395-4cd6-aaf5-aecd051ac44c.png)\r\n\r\n15. [Ensures landmarks are unique](https://axe.deque.com/issues/778e7cd4-424a-42b1-8a49-8e5fe58a8abf)\r\n![Screenshot 2023-03-01 at 09 29 49](https://user-images.githubusercontent.com/4890675/222098984-3840407a-065b-4d0d-a1c2-fb2554e245de.png)\r\n\r\n16. [Document should not have more than one banner landmark](https://axe.deque.com/issues/4ea863e2-7b25-4789-92d2-433e4f633dbe)\r\n\r\n\r\n![Screenshot 2023-03-01 at 09 30 17](https://user-images.githubusercontent.com/4890675/222099091-25d0e61b-aad8-4d04-b380-7431405bacfc.png)\r\n\r\n17. [Ensures landmarks are unique](https://axe.deque.com/issues/778e7cd4-424a-42b1-8a49-8e5fe58a8abf)\r\n\r\n![Screenshot 2023-03-01 at 09 30 46](https://user-images.githubusercontent.com/4890675/222099236-23b691db-9f18-478f-92b7-0810fc3ff010.png)\r\n\r\n18. [Document should not have more than one banner landmark](https://axe.deque.com/issues/4b135235-3d17-42cb-95e8-c604218d20cc)\r\n\r\n\r\n![Screenshot 2023-03-01 at 09 31 16](https://user-images.githubusercontent.com/4890675/222099356-d0e48ce1-d6fc-49f1-94e7-cd610b99734d.png)\r\n\r\n19. [Ensures landmarks are unique](https://axe.deque.com/issues/778e7cd4-424a-42b1-8a49-8e5fe58a8abf)\r\n![Screenshot 2023-03-01 at 09 31 48](https://user-images.githubusercontent.com/4890675/222099467-2e523826-2244-472c-952b-9979263bfc21.png)\r\n\r\n20. [Document should not have more than one banner landmark](https://axe.deque.com/issues/a68005a7-96a3-4013-870c-13db2963671d)\r\n\r\n![Screenshot 2023-03-01 at 09 32 20](https://user-images.githubusercontent.com/4890675/222099584-f86e329e-f193-4048-a90d-cd571cec3fce.png)\r\n\r\n21. [Heading levels should only increase by one](https://axe.deque.com/issues/697a3b62-6619-4133-aa3a-378a0d1ee226)\r\n\r\n![Screenshot 2023-03-01 at 09 32 46](https://user-images.githubusercontent.com/4890675/222099682-df3f2b4b-adaf-4fc2-a58c-9bc13f895360.png)\r\n\r\n22. [Document should not have more than one banner landmark](https://axe.deque.com/issues/deb10cee-ff4b-4af0-bd07-540de7848292)\r\n![Screenshot 2023-03-01 at 09 33 14](https://user-images.githubusercontent.com/4890675/222099784-96343dc2-abd7-4b8f-bd67-f1aaa45464bf.png)\r\n\r\n\r\n\r\n\n\n### Version\n\n21.0.0\n\n### Environment\n\n_No response_\n\n### Expected behavior\n\nReported issues are fixed.\n\n### Actual behavior\n\nReported issues are not fixed.\n\n### How to Reproduce?\n\nUse Deque Browser Extension.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17701",
+        "assignees": [
+            "agagancarczyk"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2023-06-29T11:59:09.000Z",
+        "fix_commit_hash": "f67ed6e7fe9cf5992c90857b06107a8f3a22c169",
+        "commit_type": "pr",
+        "commit_message": "fixed a11y issues for clients list (#21255)\n\nCo-authored-by: Agnieszka Gancarczyk <agancarc@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/21255",
+        "earliest_issue_date": "2023-03-01T09:34:09Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17793,
+        "issue_title": "Accessibility/Clients Initial Token: Moderate Issues",
+        "issue_body": "### Describe the bug\n\nThe following issues were found: \r\n\r\n1. [Heading levels should only increase by one](https://axe.deque.com/issues/701a03e6-1763-49fe-8645-4833043c0515)\r\n\r\n![Screenshot 2023-03-01 at 09 35 06](https://user-images.githubusercontent.com/4890675/222100210-de6b2635-f7bd-4cfc-9c88-7dc87937ce2e.png)\r\n\r\n2. [Ensures landmarks are unique](https://axe.deque.com/issues/db1f826b-fc82-4aed-b9e2-6b2f941b3471)\r\n![Screenshot 2023-03-01 at 09 35 32](https://user-images.githubusercontent.com/4890675/222100298-6f91c3f6-82e8-4e28-8eb5-5034f3ac463b.png)\r\n\r\n\n\n### Version\n\n21.0.0\n\n### Environment\n\n_No response_\n\n### Expected behavior\n\nReported issues are fixed.\n\n### Actual behavior\n\nReported issues are not fixed.\n\n### How to Reproduce?\n\nUse Deque Browser Extension.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17793",
+        "assignees": [
+            "agagancarczyk"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2023-03-10T10:32:08.000Z",
+        "fix_commit_hash": "340025b412d7d14673d55932b87506bc468fabfd",
+        "commit_type": "pr",
+        "commit_message": "fixed a11y heading violation for Alert (#17540)\n\nCo-authored-by: Agnieszka Gancarczyk <agancarc@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17540",
+        "earliest_issue_date": "2023-03-01T09:36:24Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17705,
+        "issue_title": "Accessibility/Groups: Moderate Issues",
+        "issue_body": "### Describe the bug\n\nThe following issues were found: \r\n\r\n1. [Ensures landmarks are unique](https://axe.deque.com/issues/85ee07b0-ec36-457c-965a-8befa0a9d51d)\r\n![Screenshot 2023-03-01 at 09 49 31](https://user-images.githubusercontent.com/4890675/222103875-dd1383b1-a41f-4afb-9c18-72df18e94d9f.png)\r\n\r\n2. [Document should not have more than one banner landmark](https://axe.deque.com/issues/0a506e4c-1929-4218-a879-dbecd494d956)\r\n![Screenshot 2023-03-01 at 09 50 07](https://user-images.githubusercontent.com/4890675/222104024-858bad61-339d-4535-9f3b-30ed054c05e4.png)\r\n\r\n3. [Ensures landmarks are unique](https://axe.deque.com/issues/5e766c24-1fa8-401f-be87-4b236e516961)\r\n\r\n![Screenshot 2023-03-01 at 09 50 41](https://user-images.githubusercontent.com/4890675/222104137-f8f2d886-4c89-4ac6-a557-3fecda63c3d4.png)\r\n\r\n4. [Document should not have more than one banner landmark](https://axe.deque.com/issues/0a506e4c-1929-4218-a879-dbecd494d956)\r\n\r\n![Screenshot 2023-03-01 at 09 51 15](https://user-images.githubusercontent.com/4890675/222104287-4d4b6e74-7648-4fc0-b090-328e780ee706.png)\r\n\r\n5. [Document should not have more than one banner landmark](https://axe.deque.com/issues/0a506e4c-1929-4218-a879-dbecd494d956)\r\n![Screenshot 2023-03-01 at 09 51 48](https://user-images.githubusercontent.com/4890675/222104439-763e612f-4099-4750-9d89-bd4ad09ba289.png)\r\n\r\n6. [Ensures landmarks are unique](https://axe.deque.com/issues/442ac2f4-52c4-42a2-b59b-221be14e5114)\r\n\r\n![Screenshot 2023-03-01 at 09 52 18](https://user-images.githubusercontent.com/4890675/222104563-84dfa7b7-44f3-4c78-b2e2-8bf743cef3ee.png)\r\n\r\n\n\n### Version\n\n21.0.0\n\n### Environment\n\n_No response_\n\n### Expected behavior\n\nReported issues are fixed.\n\n### Actual behavior\n\nReported issues are not fixed.\n\n### How to Reproduce?\n\n_No response_\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17705",
+        "assignees": [
+            "agagancarczyk"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2023-06-29T11:59:24.000Z",
+        "fix_commit_hash": "ff40c3d092ccb6f15694f51cfe7e36a05c64c515",
+        "commit_type": "pr",
+        "commit_message": "Fixed a11y issues for groups (#21286)\n\nCo-authored-by: Agnieszka Gancarczyk <agancarc@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/21286",
+        "earliest_issue_date": "2023-03-01T09:53:10Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17708,
+        "issue_title": "Accessibility/Realm setttings: Moderate Issues",
+        "issue_body": "### Describe the bug\n\nThe following moderate issues were found as per the [attached](https://docs.google.com/spreadsheets/d/1KtZJbDHKosSJBQm--1iJKQMwGIOtoohXIdfwMH3rPns/edit?usp=sharing).  \n\n### Version\n\n21.0.0\n\n### Environment\n\n_No response_\n\n### Expected behavior\n\nReported issues are fixed.\n\n### Actual behavior\n\nReported issues are not fixed.\n\n### How to Reproduce?\n\nUse Deque Browser Extension\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17708",
+        "assignees": [
+            "agagancarczyk"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2023-06-29T11:59:55.000Z",
+        "fix_commit_hash": "a8bea494519594a6090ee010856197fa91ef8473",
+        "commit_type": "pr",
+        "commit_message": "Fixed moderate and critical a11y issues for realm settings (#21267)\n\n* Fixed moderate and critical a11y issues for realm settings\r\n\r\n* improved with patternfly colour\r\n\r\n---------\r\n\r\nCo-authored-by: Agnieszka Gancarczyk <agancarc@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/21267",
+        "earliest_issue_date": "2023-03-01T09:59:48Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17709,
+        "issue_title": "Accessibility/Authentication: Moderate Issues",
+        "issue_body": "### Describe the bug\n\nThe following moderate issues were found as per the [attached](https://docs.google.com/spreadsheets/d/1KtZJbDHKosSJBQm--1iJKQMwGIOtoohXIdfwMH3rPns/edit?usp=sharing).\n\n### Version\n\n21.0.0\n\n### Environment\n\n_No response_\n\n### Expected behavior\n\nReported issues are fixed.\n\n### Actual behavior\n\nReported issues are not fixed.\n\n### How to Reproduce?\n\nUse Deque Browser Extension.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17709",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2023-03-30T14:49:37.000Z",
+        "fix_commit_hash": "f0520c855f109d31408f07708ccd220d5951e1c5",
+        "commit_type": "pr",
+        "commit_message": "Fixed moderate a11y violations for Authentication (#19448)",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/19448",
+        "earliest_issue_date": "2023-03-01T10:01:15Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17710,
+        "issue_title": "Accessibility/Identity Providers: Moderate Issues",
+        "issue_body": "### Describe the bug\n\nThe following moderate issues were found as per the [attached](https://docs.google.com/spreadsheets/d/1KtZJbDHKosSJBQm--1iJKQMwGIOtoohXIdfwMH3rPns/edit?usp=sharing). \n\n### Version\n\n21.0.0\n\n### Environment\n\n_No response_\n\n### Expected behavior\n\nReported issues are fixed.\n\n### Actual behavior\n\nReported issues are not fixed.\n\n### How to Reproduce?\n\nUse Deque Browser Extension. \n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17710",
+        "assignees": [
+            "agagancarczyk"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2023-06-29T12:00:08.000Z",
+        "fix_commit_hash": "b9c11c0fd49d7e36fa7ea09eb39f5e0fbc8c57f8",
+        "commit_type": "pr",
+        "commit_message": "fixed moderate a11y issues for identity providers (#21262)\n\nCo-authored-by: Agnieszka Gancarczyk <agancarc@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/21262",
+        "earliest_issue_date": "2023-03-01T10:02:46Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17598,
+        "issue_title": "Accessibility/Account management: Moderate Issues",
+        "issue_body": "### Describe the bug\n\nThe following issues were found as per the [attached](https://docs.google.com/spreadsheets/d/1KtZJbDHKosSJBQm--1iJKQMwGIOtoohXIdfwMH3rPns/edit?usp=sharing).\n\n### Version\n\n21.0.0\n\n### Environment\n\n_No response_\n\n### Expected behavior\n\nReported issues are fixed.\n\n### Actual behavior\n\nReported issues are not fixed.\n\n### How to Reproduce?\n\nUse Deque Browser Extension,\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17598",
+        "assignees": [
+            "agagancarczyk"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/account/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2023-08-28T15:10:17.000Z",
+        "fix_commit_hash": "49959348ad564acee8761d4182f2ec96799b1b38",
+        "commit_type": "pr",
+        "commit_message": "A11y fixes for Account UI (#22665)\n\n* fixed empty <th> violation\r\n\r\n* fixed empty <th> violation\r\n\r\n* fixed empty <th> violation\r\n\r\n* fixed unique attribute id violation in groups\r\n\r\n* fixed a11y violation for account security\r\n\r\n* fixed isShared in <th> element\r\n\r\n* fixed aria-labelledby\r\n\r\n* changed aria-labelledby to aria-label\r\n\r\n---------\r\n\r\nCo-authored-by: Agnieszka Gancarczyk <agancarc@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/22665",
+        "earliest_issue_date": "2023-03-01T10:04:15Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17711,
+        "issue_title": "Accessibility/Clients List: Minor Issues",
+        "issue_body": "### Describe the bug\n\nThe following minor issues were found as per the [attached](https://docs.google.com/spreadsheets/d/1KtZJbDHKosSJBQm--1iJKQMwGIOtoohXIdfwMH3rPns/edit?usp=sharing).\n\n### Version\n\n21.0.0\n\n### Environment\n\n_No response_\n\n### Expected behavior\n\n_No response_\n\n### Actual behavior\n\n_No response_\n\n### How to Reproduce?\n\nUse Deque Browser Extension\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17711",
+        "assignees": [
+            "agagancarczyk"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2023-07-11T12:04:34.000Z",
+        "fix_commit_hash": "01e861a71197ec163e869a7e0b61ce0056ecc3ac",
+        "commit_type": "pr",
+        "commit_message": "Fixed a11y violations for clients (#21310)\n\n* fixed a11y violations for clients\r\n\r\n* feedback\r\n\r\n---------\r\n\r\nCo-authored-by: Agnieszka Gancarczyk <agancarc@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/21310",
+        "earliest_issue_date": "2023-03-01T10:05:49Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17713,
+        "issue_title": "Accessibility/Users: Minor Issues",
+        "issue_body": "### Describe the bug\n\nMinor issues were found as per the [attached](https://docs.google.com/spreadsheets/d/1KtZJbDHKosSJBQm--1iJKQMwGIOtoohXIdfwMH3rPns/edit?usp=sharing).\n\n### Version\n\n21.0.0\n\n### Environment\n\n_No response_\n\n### Expected behavior\n\n_No response_\n\n### Actual behavior\n\n_No response_\n\n### How to Reproduce?\n\nUse Deque Browser Extension\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17713",
+        "assignees": [
+            "agagancarczyk"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2023-06-30T17:24:37.000Z",
+        "fix_commit_hash": "0fc4d6120bee90504bea588ad85c3d04774bf9c6",
+        "commit_type": "pr",
+        "commit_message": "Fixed minor accessibility violations for Users (#21353)\n\n* fixed a11y violations for Users\r\n\r\n* fixed a11y violation on User Consents tab\r\n\r\n* fixed a11y violation on User Consents tab\r\n\r\n---------\r\n\r\nCo-authored-by: Agnieszka Gancarczyk <agancarc@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/21353",
+        "earliest_issue_date": "2023-03-01T10:08:18Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17597,
+        "issue_title": "Accessibility/Account management: Minor Issues",
+        "issue_body": "### Describe the bug\n\nMinor issues were found as per the [attached](https://docs.google.com/spreadsheets/d/1KtZJbDHKosSJBQm--1iJKQMwGIOtoohXIdfwMH3rPns/edit?usp=sharing).\n\n### Version\n\n21.0.0\n\n### Environment\n\n_No response_\n\n### Expected behavior\n\n_No response_\n\n### Actual behavior\n\n_No response_\n\n### How to Reproduce?\n\nUse Deque Browser Extension.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17597",
+        "assignees": [
+            "agagancarczyk"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/account/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2023-08-28T15:10:16.000Z",
+        "fix_commit_hash": "49959348ad564acee8761d4182f2ec96799b1b38",
+        "commit_type": "pr",
+        "commit_message": "A11y fixes for Account UI (#22665)\n\n* fixed empty <th> violation\r\n\r\n* fixed empty <th> violation\r\n\r\n* fixed empty <th> violation\r\n\r\n* fixed unique attribute id violation in groups\r\n\r\n* fixed a11y violation for account security\r\n\r\n* fixed isShared in <th> element\r\n\r\n* fixed aria-labelledby\r\n\r\n* changed aria-labelledby to aria-label\r\n\r\n---------\r\n\r\nCo-authored-by: Agnieszka Gancarczyk <agancarc@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/22665",
+        "earliest_issue_date": "2023-03-01T10:15:46Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17377,
+        "issue_title": "Error: realms.removeSession wrong generic type",
+        "issue_body": "### Describe the bug\n\nMethod on 219 line has wrong generic type\r\n\r\nIts should be \"session\" instead of \"sessionId\" to work correct\r\n\r\nhttps://github.com/keycloak/keycloak-nodejs-admin-client/blob/main/src/resources/realms.ts\n\n### Version\n\n18.0.2\n\n### Expected behavior\n\n_No response_\n\n### Actual behavior\n\n_No response_\n\n### How to Reproduce?\n\n_No response_\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17377",
+        "assignees": [
+            "edewit"
+        ],
+        "labels": [
+            "kind/bug",
+            "team/ui",
+            "area/admin/client-js"
+        ],
+        "issue_closed_at": "2023-05-11T16:09:42.000Z",
+        "fix_commit_hash": "46782ec139be0a55223190feb9f6a5294f8c5775",
+        "commit_type": "pr",
+        "commit_message": "fixed to use parameter (#20242)\n\nfixes: #17377",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/20242",
+        "earliest_issue_date": "2023-03-01T14:23:10Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17374,
+        "issue_title": "User session limit make account console crash and logout the user",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have searched existing issues\r\n- [X] I have reproduced the issue with the latest release\r\n\r\n### Area\r\n\r\nauthentication\r\n\r\n### Describe the bug\r\n\r\nAfter setting the user session limits to 1 per realm and with terminate oldest session behavior, the account console crashes after a simple page refresh showing \"failed to initialize keycloak\" and logging out the user. In the server logs it emits the following warning message:\r\n\r\n` type=CODE_TO_TOKEN_ERROR, realmId=myrealm, clientId=account-console, userId=null, ipAddress=172.19.0.1, error=invalid_code, grant_type=authorization_code, code_id=4103ed42-c407-476e-ae58-9860645c7d74, client_auth_method=client-secret`\r\n\r\nIf i bind again the browser flow to the built-in flow, it works.\r\n\r\n### Version\r\n\r\n21.0.0\r\n\r\n### Expected behavior\r\n\r\nThe refresh doesn't cause any logout / crash.\r\n\r\n### Actual behavior\r\n\r\nThe user is logged out and the account console app crashes.\r\n\r\n### How to Reproduce?\r\n\r\nSetup the user session limits by following the [documentation](https://www.keycloak.org/docs/latest/server_admin/index.html#_user_session_limits). This means that:\r\n- The limiter has to be configured with all the required flows\r\n- Alternative steps/subflows must be wrapped into subflows to avoid ALTERNATIVE - REQUIRED at the same level\r\n\r\nTo check if I misconfigured / wrapped the flows, I provide the JSON of the imported realm at: [https://pastebin.com/uASeP5bz](https://pastebin.com/uASeP5bz)\r\n\r\n### Anything else?\r\n\r\nI had the same bug also with version 20 and 19.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17374",
+        "assignees": [
+            "mposolda"
+        ],
+        "labels": [
+            "area/authentication",
+            "kind/bug",
+            "area/docs"
+        ],
+        "issue_closed_at": "2023-03-29T08:08:47.000Z",
+        "fix_commit_hash": "032ece9f7b9cc7841ac15ae34fbedf371738ea91",
+        "commit_type": "pr",
+        "commit_message": "Clarify user session limits documentation and test SSO scenario (#19372)\n\nCloses #17374\r\n\r\n\r\nCo-authored-by: andymunro <48995441+andymunro@users.noreply.github.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/19372",
+        "earliest_issue_date": "2023-03-01T16:12:58Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17376,
+        "issue_title": "Features guide does not work on Windows",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have searched existing issues\r\n- [X] I have reproduced the issue with the latest release\r\n\r\n### Area\r\n\r\ndist/quarkus\r\n\r\n### Describe the bug\r\n\r\nThe Features guide [instructs](https://github.com/keycloak/keycloak/blob/7899c6c80adebebc651688c9e2b7741b18f99d82/docs/guides/src/main/server/features.adoc?plain=1#L15) the users to use `-features=<name>[,<name>]` pattern which doesn't work on Windows as `,` is taken as a [parameters delimiter](https://github.com/keycloak/keycloak/issues/16188#issuecomment-1372477471).\r\n\r\nThis issue is closely similar to https://github.com/keycloak/keycloak/issues/16188 and fix should be similar to https://github.com/keycloak/keycloak/pull/16298.\r\n\r\n### Version\r\n\r\nmain\r\n\r\n### Expected behavior\r\n\r\nGuide works on Win\r\n\r\n### Actual behavior\r\n\r\nGuide doesn't work on Win\r\n\r\n### How to Reproduce?\r\n\r\nFollow the steps on Win\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17376",
+        "assignees": [
+            "sschu"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/dist/quarkus"
+        ],
+        "issue_closed_at": "2023-03-02T15:44:35.000Z",
+        "fix_commit_hash": "2ad5677e3d0381163a3769c8b2462dc14fc46e7d",
+        "commit_type": "pr",
+        "commit_message": "17376 added quotes to features documentation",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17408",
+        "earliest_issue_date": "2023-03-01T16:51:02Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17388,
+        "issue_title": "Incorrect Url on Keycloak Health - Liveness and Readiness, no Startup Probes",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have searched existing issues\n- [X] I have reproduced the issue with the latest release\n\n### Area\n\noperator\n\n### Describe the bug\n\nI have set the Crds for a deployment, and enabled Health using the Additional Options. \r\n```\r\n    - name: health-enabled\r\n      value: \"true\"\r\n    - name: metrics-enabled\r\n      value: \"true\"\r\n```\r\n\r\nThe pod starts ok, but ends up in a continuous restart loop as the readiness probe is never satisfied\r\n\r\nLooking at the deployed probes, I see an error in the url `http://:8080//health/live` mnnote the `//` before health path\r\n\r\n![image](https://user-images.githubusercontent.com/5503184/222336776-84b71431-6192-4c72-90c1-501cadb5de8d.png)\r\n\r\n\r\n\n\n### Version\n\n21.0.0\n\n### Expected behavior\n\nHealth Probes should work, we should see a startup probe\n\n### Actual behavior\n\nHealth Probes sdo not work, we do not see a startup probe\n\n### How to Reproduce?\n\nAs described above in the CRD\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17388",
+        "assignees": [
+            "mabartos"
+        ],
+        "labels": [
+            "kind/bug",
+            "team/cloud-native",
+            "area/operator"
+        ],
+        "issue_closed_at": "2023-06-22T08:32:55.000Z",
+        "fix_commit_hash": "0ecdebc000ca4450e45b08a8146b1eb28205942b",
+        "commit_type": "pr",
+        "commit_message": "Incorrect Url on Keycloak Health - Liveness and Readiness, no Startup Probes\n\nFixes #17388",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/21048",
+        "earliest_issue_date": "2023-03-02T05:12:07Z",
+        "predicted_class": "bug",
+        "bic": [
+            "610e3044adea39003fdb256585a74d9adea2cd12"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17394,
+        "issue_title": "Update documentation on user storage provider in Quarkus",
+        "issue_body": "Update documentation in https://github.com/keycloak/keycloak-documentation/tree/release/21.0/server_development/topics/user-storage to match Quarkus development for legacy store.\n\nDetermine correct target guide, either in https://github.com/keycloak/keycloak-documentation/tree/main/server_development or https://github.com/keycloak/keycloak/tree/main/docs/guides",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17394",
+        "assignees": [
+            "martin-kanis"
+        ],
+        "labels": [
+            "area/storage",
+            "kind/task"
+        ],
+        "issue_closed_at": "2023-05-16T09:57:28.000Z",
+        "fix_commit_hash": "31557f649faa868b64abac37a662e8cabb70dba0",
+        "commit_type": "pr",
+        "commit_message": "Update documentation on user storage provider in Quarkus\n\nCloses #17394",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/19898",
+        "earliest_issue_date": "2023-03-02T07:41:06Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17403,
+        "issue_title": "Keycloak 21.0.1 - Paging and filtering not working in \"Assign roles\" popup\"",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have searched existing issues\r\n- [X] I have reproduced the issue with the latest release\r\n\r\n### Area\r\n\r\nadmin/ui\r\n\r\n### Describe the bug\r\n\r\nIn the new Admin UI, in \"Role Mapping\" tab for a user, when clicking on \"Assign roles\" button, the popup will display only the first page of role results. Clicking on next, will display the same first page of results, so its not possible to display subsequent pages.\r\n\r\nWhen entering search term in \"Search by role name\" field, the search term doesn't affect the result, but the same unfiltered first page of results is displayed.\r\n\r\nThe requests sent to keycloak server: \r\n- /role-mappings/realm/available?first=**0**&max=11&search=ROLE_USER - result contains first 51 roles (I have 60 in the realm), but the UI displays only first 10\r\n- /role-mappings/realm/available?first=**20**&max=11&search=ROLE_USER - result contains first 51 roles (I have 60 in the realm), but the UI displays only first 10, so the \"first\" and \"search\" parameter are not taken into account at all.\r\n\r\nChanging page size to 100, will display all 51 roles that were loaded, but that's not complete list of roles. If there are more then 51 roles int he realm, the remaining roles above 51 are not displayed.\r\n\r\n### Version\r\n\r\n21.0.1\r\n\r\n### Expected behavior\r\n\r\n- Clicking on next should display next page instead of first page only\r\n- Entering search term should display only matching roles\r\n\r\n### Actual behavior\r\n\r\n- Clicking on next shows first page only\r\n- Entering search term has no effect on search results (non-matching roles are retrieved)\r\n\r\n### How to Reproduce?\r\n\r\n- Add more then 10 roles to the realm\r\n- See that paging and filtering on \"Assign roles\" popup don't work\r\n\r\n### Anything else?\r\n\r\nThis is pretty much a blocker for us for upgrading to version 21. In version 20 the issue also exists, but then at least we had an option to switch back to old admin UI. Now that the old admin UI has been removed, there is no workaround for us any more.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17403",
+        "assignees": [
+            "edewit"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2023-03-14T12:08:24.000Z",
+        "fix_commit_hash": "7aede42b8dccdb0c14f99c6ea4dcae1b914adb91",
+        "commit_type": "pr",
+        "commit_message": "Revert not user realm roles are not paginated (#17619)",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17619",
+        "earliest_issue_date": "2023-03-02T10:49:07Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17413,
+        "issue_title": "InvalidPathException when starting Keycloak in start-dev mode on Windows",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have searched existing issues\r\n- [X] I have reproduced the issue with the latest release\r\n\r\n### Area\r\n\r\ndist/quarkus\r\n\r\n### Describe the bug\r\n\r\nWhen starting Keycloak with \"bin\\kc.sh start-dev\" on windows, this fails with the following error message: \r\n\r\n> General error: \"java.nio.file.InvalidPathException: Illegal char <:> at index 124: D:/a/keycloak/keycloak/testsuite/integration-arquillian/tests/base/target/containers/auth-server-quarkus/bin/..${kc.data.dir:data}/h2/keycloakdb\" [50000-214]\r\n\r\nThis used to work on KC 21.0.0\r\n\r\n### Version\r\n\r\nnightly\r\n\r\n### Expected behavior\r\n\r\nKC should start on Windows in dev mode without problems\r\n\r\n### Actual behavior\r\n\r\nException as seen above.\r\n\r\n### How to Reproduce?\r\n\r\nRun \r\n\r\n```\r\nbin\\kc.sh start-dev\r\n``` \r\n\r\non Keycloak nightly on Windows\r\n\r\n### Anything else?\r\n\r\nI'm about to prepare a PR for this.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17413",
+        "assignees": [
+            "ahus1"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/dist/quarkus",
+            "team/cloud-native"
+        ],
+        "issue_closed_at": "2023-03-07T13:38:45.000Z",
+        "fix_commit_hash": "4cf5c11020c3a7550deb50589ad6cb83029048a9",
+        "commit_type": "pr",
+        "commit_message": "Fix start-dev mode on Windows by avoiding backslashes escaping expressions\n\nCloses #17413",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17416",
+        "earliest_issue_date": "2023-03-02T15:53:36Z",
+        "predicted_class": "bug",
+        "bic": [
+            "97c4495c4f1bd38a6ce04218de64b8fe8ed069cb"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17417,
+        "issue_title": "Build on Windows fails",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have searched existing issues\n- [X] I have reproduced the issue with the latest release\n\n### Area\n\ndocs\n\n### Describe the bug\n\nWhen building Keycloak including the docs, the build fails with an encoding exception when processing the AsciiDoc contents.\n\n### Version\n\nnightly\n\n### Expected behavior\n\nBuild should complete\n\n### Actual behavior\n\nThe following error message appears: \r\n\r\n> [ERROR] Failed to execute goal org.asciidoctor:asciidoctor-maven-plugin:1.5.8:process-asciidoc (server-asciidoc-to-html) on project keycloak-guides: Execution server-asciidoc-to-html of goal org.asciidoctor:asciidoctor-maven-plugin:\r\n1.5.8:process-asciidoc failed: org.jruby.exceptions.RaiseException: (ArgumentError) asciidoctor: FAILED: D:/workspace/keycloak/keycloak-github/docs/guides/target/generated-guides/server/index.adoc: Failed to load AsciiDoc document - invalid byte sequence in UTF-8 -> [Help 1]\r\n\n\n### How to Reproduce?\n\nOn Windows: \r\n\r\n```\r\ncd docs\r\nmvn clean install \r\n```\n\n### Anything else?\n\nThe Freemarker templating writes its output in local encoding and not UTF-8 format. In one of the files there's a typographic quote which causes the problem (see `doesn\u2019t` in `reverseproxy.adoc`). \r\n\r\nI'm about to create a PR. ",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17417",
+        "assignees": [
+            "ahus1"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/docs"
+        ],
+        "issue_closed_at": "2023-03-03T08:45:13.000Z",
+        "fix_commit_hash": "d32b443a27fb48379c249b958eeb1beff209e87c",
+        "commit_type": "pr",
+        "commit_message": "Write AsciiDoc output as UTF-8 independent of system file encoding. (#17419)\n\nThis preserves the UTF-8 encoding of the AsciiDoc input files.\r\n\r\nCloses #17417",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17419",
+        "earliest_issue_date": "2023-03-02T16:28:41Z",
+        "predicted_class": "bug",
+        "bic": [
+            "c7134fd5390d7c650b3dfd4bd2a2855157042271"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17427,
+        "issue_title": "OutOfMemoryError when running Model Tests in CI",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have searched existing issues\r\n- [X] I have reproduced the issue with the latest release\r\n\r\n### Area\r\n\r\nstorage\r\n\r\n### Describe the bug\r\n\r\nSometimes the model tests fail with an OOM error: \r\n\r\n> 2023-02-25T02:47:00.9801885Z [ERROR] java.lang.OutOfMemoryError: Java heap space\r\n2023-02-25T02:47:01.2779542Z [ERROR] Terminating due to java.lang.OutOfMemoryError: Java heap space\r\n\r\n> 2023-02-25T02:47:01.2881118Z [ERROR] Error occurred in starting fork, check output in log\r\n2023-02-25T02:47:01.2881742Z [ERROR] Process Exit Code: 3\r\n2023-02-25T02:47:01.2882072Z [ERROR] Crashed tests:\r\n2023-02-25T02:47:01.2882533Z [ERROR] org.keycloak.testsuite.model.infinispan.CacheExpirationTest\r\n2023-02-25T02:47:01.2883188Z [ERROR]    at org.apache.maven.plugin.surefire.booterclient.ForkStarter.fork(ForkStarter.java:714)\r\n2023-02-25T02:47:01.2883885Z [ERROR]    at org.apache.maven.plugin.surefire.booterclient.ForkStarter.run(ForkStarter.java:311)\r\n2023-02-25T02:47:01.2884579Z [ERROR]    at org.apache.maven.plugin.surefire.booterclient.ForkStarter.run(ForkStarter.java:268)\r\n\r\n\r\nhttps://github.com/keycloak/keycloak/actions/runs/4267884712/jobs/7429994617\r\n\r\n### Version\r\n\r\nnightly\r\n\r\n### Expected behavior\r\n\r\nTests should complete\r\n\r\n### Actual behavior\r\n\r\nTests are flaky\r\n\r\n### How to Reproduce?\r\n\r\nSeems to randomly fail, hard to reproduce. \r\n\r\n### Anything else?\r\n\r\nIncreasing the heap size as a first measure.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17427",
+        "assignees": [
+            "ahus1"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/storage"
+        ],
+        "issue_closed_at": "2023-03-03T09:55:05.000Z",
+        "fix_commit_hash": "95a6effcefc5f9cb7bc3806db02c0a7b31360182",
+        "commit_type": "pr",
+        "commit_message": "Increase memory for the model tests to avoid an OOM error\n\nCloses #17427",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/17428",
+        "earliest_issue_date": "2023-03-03T08:27:59Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17430,
+        "issue_title": "Flaky test: org.keycloak.testsuite.federation.sync.SyncFederationTest#test03ConcurrentSync",
+        "issue_body": "## org.keycloak.testsuite.federation.sync.SyncFederationTest#test03ConcurrentSync\r\n[Keycloak CI - Base IT (5)](https://github.com/keycloak/keycloak/actions/runs/4321308439/jobs/7542484711) / [Pull Request #17378](https://github.com/keycloak/keycloak/pull/17378)\r\n\r\n```\r\njavax.ws.rs.InternalServerErrorException: HTTP 500 Internal Server Error\r\n\tat org.jboss.resteasy.client.jaxrs.internal.ClientInvocation.handleErrorStatus(ClientInvocation.java:278)\r\n\tat org.jboss.resteasy.client.jaxrs.internal.ClientInvocation.extractResult(ClientInvocation.java:240)\r\n\tat org.jboss.resteasy.client.jaxrs.internal.proxy.extractors.BodyEntityExtractor.extractEntity(BodyEntityExtractor.java:64)\r\n\tat org.jboss.resteasy.client.jaxrs.internal.proxy.ClientInvoker.invokeSync(ClientInvoker.java:154)\r\n...\r\n```\r\n",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17430",
+        "assignees": [
+            "rmartinc"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/ci",
+            "flaky-test"
+        ],
+        "issue_closed_at": "2023-03-21T07:30:44.000Z",
+        "fix_commit_hash": "1a622e707fd160080ea314a53a5630d06e6e2875",
+        "commit_type": "pr",
+        "commit_message": "Flaky tests org.keycloak.testsuite.federation.sync.SyncFederationTest (#19095)\n\nCloses: https://github.com/keycloak/keycloak/issues/17430\r\nCloses: https://github.com/keycloak/keycloak/issues/17431",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/19095",
+        "earliest_issue_date": "2023-03-03T08:56:03Z",
+        "predicted_class": "bug",
+        "bic": [
+            "61f2baf65e8b8ca6e827e3bafb1521c373a5a8f9"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17431,
+        "issue_title": "Flaky test: org.keycloak.testsuite.federation.sync.SyncFederationTest#test04IgnoredSync",
+        "issue_body": "## org.keycloak.testsuite.federation.sync.SyncFederationTest#test04IgnoredSync\r\n[Keycloak CI - Base IT (5)](https://github.com/keycloak/keycloak/actions/runs/4321308439/jobs/7542484711) / [Pull Request #17378](https://github.com/keycloak/keycloak/pull/17378)\r\n\r\n```\r\njava.lang.AssertionError\r\n\tat org.junit.Assert.fail(Assert.java:87)\r\n\tat org.junit.Assert.assertTrue(Assert.java:42)\r\n\tat org.junit.Assert.assertTrue(Assert.java:53)\r\n\tat org.keycloak.testsuite.federation.sync.SyncFederationTest.lambda$test04IgnoredSync$26a8868a$2(SyncFederationTest.java:344)\r\n...\r\n```\r\n",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17431",
+        "assignees": [
+            "rmartinc"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/ci",
+            "flaky-test"
+        ],
+        "issue_closed_at": "2023-03-21T07:30:45.000Z",
+        "fix_commit_hash": "1a622e707fd160080ea314a53a5630d06e6e2875",
+        "commit_type": "pr",
+        "commit_message": "Flaky tests org.keycloak.testsuite.federation.sync.SyncFederationTest (#19095)\n\nCloses: https://github.com/keycloak/keycloak/issues/17430\r\nCloses: https://github.com/keycloak/keycloak/issues/17431",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/19095",
+        "earliest_issue_date": "2023-03-03T08:56:14Z",
+        "predicted_class": "bug",
+        "bic": [
+            "61f2baf65e8b8ca6e827e3bafb1521c373a5a8f9"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 17433,
+        "issue_title": "robots.txt causes indexing",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have searched existing issues\n- [X] I have reproduced the issue with the latest release\n\n### Area\n\nauthentication/webauthn\n\n### Describe the bug\n\nThe keycloak subdomain of one of our projects was recently found in the google search results (while searching for the project name, not the url directly). The search result does not contain any page excerpt (not even the title), only the subdomain is displayed. \r\n\r\nThe issue here is that the robots.txt disallows robots from crawling the contents, and then the templates contain `noindex, nofollow` to prevent indexing. However, to my understanding the `noindex, nofollow` never comes into effect because robots are forbidden from crawling the documents in the first place. It does not prevent indexing. \r\n```\r\nUser-agent: *\r\nDisallow: /\r\n```\r\n\r\n```html\r\n<meta name=\"robots\" content=\"noindex, nofollow\">\r\n```\r\n\r\nWe would like to remove the robots.txt altogether. However, this is not a static resource but generated by [RobotsResource.java](https://github.com/keycloak/keycloak/blob/main/services/src/main/java/org/keycloak/services/resources/RobotsResource.java). \n\n### Version\n\n17\n\n### Expected behavior\n\nThere is no robots.txt or the contents is customizable\n\n### Actual behavior\n\nThere is a robots.txt which prevents crawling but not indexing and it is not customizable\n\n### How to Reproduce?\n\nAccess /robots.txt on the keycloak host\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/17433",
+        "assignees": [
+            "jonkoops"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "help wanted",
+            "area/authentication/webauthn",
+            "team/core-clients",
+            "priority/low",
+            "status/bumped-by-bot",
+            "release/26.1.0"
+        ],
+        "issue_closed_at": "2024-10-25T12:09:51.000Z",
+        "fix_commit_hash": "f994cc54d538aad352565ce107924cafe47ec003",
+        "commit_type": "commit",
+        "commit_message": "Remove robots.txt entirely\n\n* remove robots.txt entirely, as blocking page-\r\ncrawling prevents the `X-Robots-Tag` headers\r\n(and similar meta tags) from working as intended.\r\n\r\nCloses #17433\r\n\r\nSigned-off-by: Andy <andy@slice.is>\r\nSigned-off-by: Alexander Schwartz <aschwart@redhat.com>\r\nCo-authored-by: Alexander Schwartz <aschwart@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/commit/f994cc54d538aad352565ce107924cafe47ec003",
+        "earliest_issue_date": "2023-03-03T09:45:04Z",
+        "predicted_class": "bug",
+        "bic": [
+            "6201257f767b69f6cd65c1dea8d8a6959683a7e8"
+        ],
+        "method_type": "rszz"
+    }
+]
