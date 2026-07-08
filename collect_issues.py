@@ -110,36 +110,36 @@ def resolve_fix_commit(issue, repo_owner, repo_name):
         if merge_commit:
             valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", merge_commit)
             if valid:
-                return merge_commit
+                return merge_commit, "pr", node.get("mergeCommit", {}).get("message") if node.get("mergeCommit") else None
             
-        fix_commit = get_commit_that_references_pr(f"{repo_owner}/{repo_name}", pr_number, get_headers())
+        fix_commit, commit_message = get_commit_that_references_pr(f"{repo_owner}/{repo_name}", pr_number, get_headers())
         if fix_commit:
             valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
             if valid:
-                return fix_commit
+                return fix_commit, "commit_ref_pr", commit_message
 
         issue_number = issue.get("number")
-        fix_commit = get_commit_that_references_issue(f"{repo_owner}/{repo_name}", issue_number, get_headers())
+        fix_commit, commit_message = get_commit_that_references_issue(f"{repo_owner}/{repo_name}", issue_number, get_headers())
         if fix_commit:
             valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
             if valid:
-                return fix_commit
+                return fix_commit, "commit_ref_issue", commit_message
     else:
         fix_commit = node.get("oid", None)
         if fix_commit:
             valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
             if valid:
-                return fix_commit
+                return fix_commit, "commit", node.get("message", None)
             
         issue_number = issue.get("number")
-        fix_commit = get_commit_that_references_issue(f"{repo_owner}/{repo_name}", issue_number, get_headers())
+        fix_commit, commit_message = get_commit_that_references_issue(f"{repo_owner}/{repo_name}", issue_number, get_headers())
 
         if fix_commit:
             valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
             if valid:
-                return fix_commit
+                return fix_commit, "commit_ref_issue", commit_message
             
-    return None
+    return None, None, None
 
 def check_data(data):
     if "errors" in data:
@@ -229,14 +229,24 @@ def get_data():
                 if issue["timelineItems"]["nodes"] and issue["timelineItems"]["nodes"][0]["closer"] is not None:
                     issue_number = issue.get("number", "N/A")
 
-                    final_fix_commit = resolve_fix_commit(issue, repo_owner, repo_name)
+                    final_fix_commit, commit_type, commit_message = resolve_fix_commit(issue, repo_owner, repo_name)
                     if not final_fix_commit:
                         log_message(f"Nenhum commit válido encontrado para a issue #{issue_number} de {repo_name}. Pulando...", "warning")
                         continue
 
                     issue_data = {
                         "repo_name": repo_name,
+                        "issue_number": issue_number,
+                        "issue_title": issue.get("title"),
+                        "issue_body": issue.get("body"),
+                        "issue_url": issue.get("url"),
+                        "assignees": [assignee.get("login") for assignee in issue.get("assignees", {}).get("nodes", [])],
+                        "labels": [label.get("name") for label in issue.get("labels", {}).get("nodes", [])],
+                        "issue_closed_at": closed_at,
                         "fix_commit_hash": final_fix_commit,
+                        "commit_type": commit_type,
+                        "commit_message": commit_message,
+                        "closer_url": issue["timelineItems"]["nodes"][0]["closer"].get("url") if issue["timelineItems"]["nodes"][0]["closer"] else None,
                         "earliest_issue_date": issue.get("createdAt"),
                     }
 
