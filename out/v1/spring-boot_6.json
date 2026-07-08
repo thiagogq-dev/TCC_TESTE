@@ -1,0 +1,1119 @@
+[
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1210,
+        "issue_title": "tomcat 8.0.9 does not work with boot when websocket is used",
+        "issue_body": "```\njava.lang.UnsupportedOperationException: Cannot find Tomcat 7 or 8 ApplicationListener class\n    at org.springframework.boot.autoconfigure.websocket.WebSocketAutoConfiguration.findListenerType(WebSocketAutoConfiguration.java:100)\n    at org.springframework.boot.autoconfigure.websocket.WebSocketAutoConfiguration.access$100(WebSocketAutoConfiguration.java:53)\n    at org.springframework.boot.autoconfigure.websocket.WebSocketAutoConfiguration$1$1.customize(WebSocketAutoConfiguration.java:82)\n    at org.springframework.boot.context.embedded.tomcat.TomcatEmbeddedServletContainerFactory.configureContext(TomcatEmbeddedServletContainerFactory.java:266)\n    at org.springframework.boot.context.embedded.tomcat.TomcatEmbeddedServletContainerFactory.prepareContext(TomcatEmbeddedServletContainerFactory.java:175)\n    at org.springframework.boot.context.embedded.tomcat.TomcatEmbeddedServletContainerFactory.getEmbeddedServletContainer(TomcatEmbeddedServletContainerFactory.java:144)\n    at org.springframework.boot.context.embedded.EmbeddedWebApplicationContext.createEmbeddedServletContainer(EmbeddedWebApplicationContext.java:159)\n    at org.springframework.boot.context.embedded.EmbeddedWebApplicationContext.onRefresh(EmbeddedWebApplicationContext.java:132)\n    ... 5 commo\n```\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1210",
+        "assignees": [],
+        "labels": [
+            "type: regression"
+        ],
+        "issue_closed_at": "2014-07-08T08:00:30.000Z",
+        "fix_commit_hash": "4ede9cd1be0eb8b7edea7807e042895ce118639e",
+        "commit_type": "commit",
+        "commit_message": "Support websockets with Tomcat 8.0.8\n\nFixes gh-1210",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/4ede9cd1be0eb8b7edea7807e042895ce118639e",
+        "earliest_issue_date": "2014-07-04T09:34:13Z",
+        "predicted_class": "bug",
+        "bic": [
+            "86054a9c5353d3b0206161973238b711024bed7f"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1212,
+        "issue_title": "Deadlock when health check is run before application has started up when registering new rabbit connection",
+        "issue_body": "When my application starts it will occasionally stop starting and I traced it down to a deadlock between my queue listeners starting up.  In my Spring Configuration I am declaring a binding between a queue and an exchange.   If the health url is called invoking the CompositeHealthIndicator during startup it can obtain a lock on the RabbitMQ Connection factory needed by startup and wait on a lock held by startup.\n\nI am running:\n- Spring Boot version 1.1.3.RELEASE\n- Spring AMQP 1.3.4.RELEASE\n\nI am using embedded Tomcat and exposing it on 8080 and 8443 following these instructions:\nhttp://docs.spring.io/spring-boot/docs/1.1.3.RELEASE/reference/htmlsingle/#howto-enable-multiple-connectors-in-tomcat\n\nHere is my main thread.  It is in the middle of starting up and it is adding some binding to RabbitMQ:\n\n```\n\"main\":\n    at org.springframework.amqp.rabbit.connection.CachingConnectionFactory.createConnection(CachingConnectionFactory.java:357)\n    - waiting to lock <0x00000000e4030d60> (a java.lang.Object)\n    at org.springframework.amqp.rabbit.connection.ConnectionFactoryUtils$1.createConnection(ConnectionFactoryUtils.java:80)\n...\n    at org.springframework.amqp.rabbit.core.RabbitTemplate.execute(RabbitTemplate.java:820)\n    at org.springframework.amqp.rabbit.core.RabbitAdmin.declareBinding(RabbitAdmin.java:216)\n...\n```\n\nMeanwhile, we have a tool pinging the url \"health\" for status.\n\n```\n\"http-nio-8443-exec-7\":\n    at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:186)\n    - waiting to lock <0x00000000e1d23970> (a java.util.concurrent.ConcurrentHashMap)\n    at org.springframework.beans.factory.support.AbstractBeanFactory.isTypeMatch(AbstractBeanFactory.java:488)\n    at org.springframework.beans.factory.support.DefaultListableBeanFactory.doGetBeanNamesForType(DefaultListableBeanFactory.java:387)\n    at org.springframework.beans.factory.support.DefaultListableBeanFactory.getBeanNamesForType(DefaultListableBeanFactory.java:362)\n    at org.springframework.beans.factory.support.DefaultListableBeanFactory.getBeansOfType(DefaultListableBeanFactory.java:466)\n    at org.springframework.beans.factory.support.DefaultListableBeanFactory.getBeansOfType(DefaultListableBeanFactory.java:459)\n    at org.springframework.context.support.AbstractApplicationContext.getBeansOfType(AbstractApplicationContext.java:1063)\n    at org.springframework.amqp.rabbit.core.RabbitAdmin.initialize(RabbitAdmin.java:356)\n    at org.springframework.amqp.rabbit.core.RabbitAdmin$11.onCreate(RabbitAdmin.java:323)\n    at org.springframework.amqp.rabbit.connection.CompositeConnectionListener.onCreate(CompositeConnectionListener.java:32)\n    at org.springframework.amqp.rabbit.connection.CachingConnectionFactory.createConnection(CachingConnectionFactory.java:361)\n    - locked <0x00000000e4030d60> (a java.lang.Object)\n    at org.springframework.amqp.rabbit.connection.ConnectionFactoryUtils$1.createConnection(ConnectionFactoryUtils.java:80)\n    at org.springframework.amqp.rabbit.connection.ConnectionFactoryUtils.doGetTransactionalResourceHolder(ConnectionFactoryUtils.java:130)\n    at org.springframework.amqp.rabbit.connection.ConnectionFactoryUtils.getTransactionalResourceHolder(ConnectionFactoryUtils.java:67)\n    at org.springframework.amqp.rabbit.connection.RabbitAccessor.getTransactionalResourceHolder(RabbitAccessor.java:106)\n    at org.springframework.amqp.rabbit.core.RabbitTemplate.doExecute(RabbitTemplate.java:826)\n    at org.springframework.amqp.rabbit.core.RabbitTemplate.execute(RabbitTemplate.java:820)\n    at org.springframework.boot.actuate.health.RabbitHealthIndicator.getVersion(RabbitHealthIndicator.java:49)\n    at org.springframework.boot.actuate.health.RabbitHealthIndicator.doHealthCheck(RabbitHealthIndicator.java:45)\n    at org.springframework.boot.actuate.health.AbstractHealthIndicator.health(AbstractHealthIndicator.java:38)\n```\n\nThe problem is that health check has obtained a lock on in the rabbitmq Connection factory that startup needs.  At the same time main startup has a lock in DefaultSingletonBeanRegistry.getSingleton that the health check needs.\n\n```\nFound one Java-level deadlock:\n=============================\n\"http-nio-8443-exec-13\":\n  waiting to lock monitor 0x00007fe9e0006dc8 (object 0x00000000e4030d60, a java.lang.Object),\n  which is held by \"http-nio-8443-exec-7\"\n\"http-nio-8443-exec-7\":\n  waiting to lock monitor 0x00007fea08029278 (object 0x00000000e1d23970, a java.util.concurrent.ConcurrentHashMap),\n  which is held by \"main\"\n\"main\":\n  waiting to lock monitor 0x00007fe9e0006dc8 (object 0x00000000e4030d60, a java.lang.Object),\n  which is held by \"http-nio-8443-exec-7\"\n```\n\nHere is the complete stack trace with some redactions:\n\n```\n\"main\" prio=10 tid=0x00007fea146b8000 nid=0x15c4 waiting for monitor entry [0x00007fea0d47b000]\n   java.lang.Thread.State: BLOCKED (on object monitor)\n    at org.springframework.amqp.rabbit.connection.CachingConnectionFactory.createConnection(CachingConnectionFactory.java:357)\n    - waiting to lock <0x00000000e4030d60> (a java.lang.Object)\n    at org.springframework.amqp.rabbit.connection.ConnectionFactoryUtils$1.createConnection(ConnectionFactoryUtils.java:80)\n    at org.springframework.amqp.rabbit.connection.ConnectionFactoryUtils.doGetTransactionalResourceHolder(ConnectionFactoryUtils.java:130)\n    at org.springframework.amqp.rabbit.connection.ConnectionFactoryUtils.getTransactionalResourceHolder(ConnectionFactoryUtils.java:67)\n    at org.springframework.amqp.rabbit.connection.RabbitAccessor.getTransactionalResourceHolder(RabbitAccessor.java:106)\n    at org.springframework.amqp.rabbit.core.RabbitTemplate.doExecute(RabbitTemplate.java:826)\n    at org.springframework.amqp.rabbit.core.RabbitTemplate.execute(RabbitTemplate.java:820)\n    at org.springframework.amqp.rabbit.core.RabbitAdmin.declareBinding(RabbitAdmin.java:216)\n    at com.myapp.MySpringConfiguration.myWorkerListenerContainer(MySpringConfiguration.java:112)\n    at com.myapp.MySpringConfiguration$$EnhancerBySpringCGLIB$$4249b054.CGLIB$myWorkerListenerContainer$0(<generated>)\n    at com.myapp.MySpringConfiguration$$EnhancerBySpringCGLIB$$4249b054$$FastClassBySpringCGLIB$$2ea24afb.invoke(<generated>)\n    at org.springframework.cglib.proxy.MethodProxy.invokeSuper(MethodProxy.java:228)\n    at org.springframework.context.annotation.ConfigurationClassEnhancer$BeanMethodInterceptor.intercept(ConfigurationClassEnhancer.java:312)\n    at com.myapp.MySpringConfiguration$$EnhancerBySpringCGLIB$$4249b054.myWorkerListenerContainer(<generated>)\n    at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n    at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:57)\n    at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\n    at java.lang.reflect.Method.invoke(Method.java:606)\n    at org.springframework.beans.factory.support.SimpleInstantiationStrategy.instantiate(SimpleInstantiationStrategy.java:166)\n    at org.springframework.beans.factory.support.ConstructorResolver.instantiateUsingFactoryMethod(ConstructorResolver.java:586)\n    at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.instantiateUsingFactoryMethod(AbstractAutowireCapableBeanFactory.java:1094)\n    at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBeanInstance(AbstractAutowireCapableBeanFactory.java:989)\n    at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:504)\n    at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(AbstractAutowireCapableBeanFactory.java:475)\n    at org.springframework.beans.factory.support.AbstractBeanFactory$1.getObject(AbstractBeanFactory.java:304)\n    at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:228)\n    - locked <0x00000000e1d23970> (a java.util.concurrent.ConcurrentHashMap)\n    at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:300)\n    at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:195)\n    at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingletons(DefaultListableBeanFactory.java:703)\n    at org.springframework.context.support.AbstractApplicationContext.finishBeanFactoryInitialization(AbstractApplicationContext.java:760)\n    at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:482)\n    - locked <0x00000000e1885d38> (a java.lang.Object)\n    at org.springframework.boot.context.embedded.EmbeddedWebApplicationContext.refresh(EmbeddedWebApplicationContext.java:120)\n    at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:683)\n    at org.springframework.boot.SpringApplication.run(SpringApplication.java:313)\n    at org.springframework.boot.SpringApplication.run(SpringApplication.java:944)\n    at org.springframework.boot.SpringApplication.run(SpringApplication.java:933)\n    at com.myapp.Application.main(Application.java:71)\n    at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n    at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:57)\n    at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\n    at java.lang.reflect.Method.invoke(Method.java:606)\n    at org.springframework.boot.loader.MainMethodRunner.run(MainMethodRunner.java:53)\n    at java.lang.Thread.run(Thread.java:744)\n```\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1212",
+        "assignees": [],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-07-08T06:45:05.000Z",
+        "fix_commit_hash": "aed243fb88030b04b948105848bf1a59dacdd546",
+        "commit_type": "commit",
+        "commit_message": "Only add Tomcat connectors in start() method\n\nUpdate TomcatEmbeddedServletContainer so that Connectors are removed\nduring initialization and re-added when the start() method is called.\n\nThis prevent protocol handlers from being bound then immediately\nunbound. It also ensure that any additional connectors that may have\nbeen added don't accidentally start to accept traffic (which could cause\npotential deadlock issues).\n\nFixes gh-1212",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/aed243fb88030b04b948105848bf1a59dacdd546",
+        "earliest_issue_date": "2014-07-06T22:37:47Z",
+        "predicted_class": "bug",
+        "bic": [
+            "8b77a0298f7871c2ceb548b986b8d957249b88f1"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1215,
+        "issue_title": "Regression (between 1.0.2 and 1.1.3) when building a spring-boot JAR with gradle. External JAR file is not embedded.",
+        "issue_body": "There seems to be a regression from spring-boot plugin 1.0.2.RELEASE to 1.1.3.RELEASE.\n\nI have a project including a local jar file as follows:\n\n```\ndependencies {\n  compile 'org.springframework.boot:spring-boot-starter-web:' + springBootVersion\n  compile files(\"$rootDir/vendor/foo.jar\")\n}\n```\n\nWhen building with plugin 1.0.2.RELEASE, the jar is correctly embedded, and starting my server doesn't throw an error.\n\nWhen building with plugin 1.1.3.RELEASE, the jar is not included, and starting my server through the built jar will throw a ClassNotFoundException when referring a class from foo.jar\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1215",
+        "assignees": [
+            "philwebb"
+        ],
+        "labels": [
+            "type: regression"
+        ],
+        "issue_closed_at": "2014-07-07T20:24:58.000Z",
+        "fix_commit_hash": "7455e4e86fa6ae8c4201ca62516b0e4e4e13d791",
+        "commit_type": "commit",
+        "commit_message": "Restore support for `files` gradle dependencies\n\nAllow `compile files(\"$rootDir/vendor/foo.jar\")` style declarations\nwith the jars repackaged from the gradle plugin.\n\nFixes gh-1215",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/7455e4e86fa6ae8c4201ca62516b0e4e4e13d791",
+        "earliest_issue_date": "2014-07-07T16:15:23Z",
+        "predicted_class": "bug",
+        "bic": [
+            "805442680342d3830948a42834291a4ca67b4ba2"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1219,
+        "issue_title": "spring.profiles.default doesn't load profile-specific properties file",
+        "issue_body": "Repro repo: https://github.com/kryger/spring-boot-problem-profiles (plain web app generated from http://start.spring.io with some extra logging)\n\n**src/main/resources/application.properties** defines the defaults:\n\n```\nserver.port=11111\nspring.profiles.default=production\n```\n\n**application-production.properties** overrides the port:\n\n```\nserver.port=22222\n```\n\n---\n\n**Steps to reproduce:**\n- check out https://github.com/kryger/spring-boot-problem-profiles\n- run with profile specified explicitly: `mvn spring-boot:run -Drun.jvmArguments=\"-Dspring.profiles.active=production\"`\n\n```\nActive: [production]\nDefault: [production]\nProduction profile ON\n(...)\nTomcat started on port(s): 22222/http\n```\n\nThat's what I expect, but since I defined `production` profile to be default if none other specified, I should be able to skip this flag? Let's...\n- ...do `mvn spring-boot:run` on CLI, output is:\n\n```\nActive: []\nDefault: [production]\nProduction profile ON\n(...)\nTomcat started on port(s): 11111/http\n```\n\nResult: `production` profile enabled but port specified in `application-production.properties` is ignored. This seems to suggest that [profile-specific properties](http://docs.spring.io/spring-boot/docs/current/reference/htmlsingle/#boot-features-external-config-profile-specific-properties) are not loaded and evaluated if they're included as a result of defaults? Unless my understanding of what \"default\" means this looks like a bug, doesn't it?\n\n_(note that moving `application-production.properties` to `src/main/resources` makes no difference)_\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1219",
+        "assignees": [],
+        "labels": [
+            "type: enhancement"
+        ],
+        "issue_closed_at": "2015-07-03T14:12:10.000Z",
+        "fix_commit_hash": "dc8ba2c535de51c0f428e9658fe5eea5ff918664",
+        "commit_type": "commit",
+        "commit_message": "Load configuration from default profiles if no others active\n\nBefore this change if no profile is active yaml documents with\nspring.profiles=default were loaded, but they are also loaded\nif there *is* an active profile which is more of a problem. In\naddition if the user chanes the default profile in the\nEnvironmemt Spring Boot ignore that value (\"default\" is a magic\nString).\n\nAfter this change:\n\n* If no profile is explicitly active, the default profiles from\nthe Environment are used explicitly\n* The default profiles cause properties to be loaded just like\nother profiles, so from YAML documents with spring.profiles and\nfrom files in application-default.properties for instance\n* The default profiles are not active when any other profile is\n* Properties defined in \"top-level\" YAML documents with no\nspecific spring.profiles still act as defaults for *all* profiles\n\nFixes gh-1219, fixes gh-2623",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/dc8ba2c535de51c0f428e9658fe5eea5ff918664",
+        "earliest_issue_date": "2014-07-08T11:41:07Z",
+        "predicted_class": "bug",
+        "bic": [
+            "842e037b72c64461b42a868974614899c0779b68"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1228,
+        "issue_title": "Encoding error when using spring-boot 1.1.3, 1.1.4 or 1.1.5 but works great in 1.0.2 version",
+        "issue_body": "Hi,\nseems like there is a bug in later releases of spring boot when message source is used in webapp alone or together with thymeleaf. \nI have tried to pinpoint the bug but could not find the reason why the encoding show up wrong. \n\nI have created a simple github project to reproduce the error in 2 minutes, follow this quick steps\n1. git clone https://github.com/maol74/spring-boot-encoding-error.git\n2. cd spring-boot-encoding-error\n3. Read and follow the README.md file in the root directory\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1228",
+        "assignees": [],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-07-10T11:42:05.000Z",
+        "fix_commit_hash": "ede385d1b6dfd7ba161e3fc5881f47bd54d543fb",
+        "commit_type": "commit",
+        "commit_message": "Modify @Condition for detecting existing message bundle resource\n\nThe problem with the old code is that it worces a ResourceBundle to\ninitialize with the default encoding (and that is then cached in the\nJDK) during @Condition evaluation (so before the encoding is known).\n\nIncludes test for swedish messages\n\nFixes gh-1228",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/ede385d1b6dfd7ba161e3fc5881f47bd54d543fb",
+        "earliest_issue_date": "2014-07-09T21:04:31Z",
+        "predicted_class": "bug",
+        "bic": [
+            "0def7644c2eaefc73328f257d5f53bbf615de397"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1242,
+        "issue_title": "Unable to resolve a Map of configuration properties when the key is an Enumerated type",
+        "issue_body": "I have a @ConfigurationProperties class that accepts a Map where the key is an enumerated type:\n\n```\npublic class Configuration {\n    private Map<BaseUri, String> baseUris = newHashMap();\n\n    public Map<BaseUri, String> getBaseUris() {\n        return baseUris;\n    }\n\n    public enum BaseUri {\n        operations,\n        admin\n    }\n}\n```\n\nAnd a corresponding yml file:\n\n```\nbaseUris:\n  operations: http://localhost:9080/\n  admin: http://localhost:9080/\n```\n\nAttempting to initialise this application gives:\n\n```\nCaused by: java.lang.IllegalStateException: Cannot convert value of type [java.lang.String] to required type [boot.config.Configuration$BaseUri]: no matching editors or conversion strategy found\n    at org.springframework.beans.TypeConverterDelegate.convertIfNecessary(TypeConverterDelegate.java:267)\n    at org.springframework.beans.BeanWrapperImpl.convertIfNecessary(BeanWrapperImpl.java:459)\n```\n\nIf I remove the enumerated type and use Map< String, String >, it works fine.\n\nThe cause seems to be the following line in org.springframework.boot.bind.RelaxedDataBinder:\n\n```\n                wrapper.getPropertyValue(name + \"[foo]\");\n```\n\nBecause 'foo' doesn't correspond to any of the enumerated values, the exception is produced.\n\nI'm sure this is hopelessly naive, but changing it to the following fixed the problem and passed the tests in the current master:\n\n```\n                String mapKey = (path.nodes.size() > 1) ? path.nodes.get(path.nodes.size() - 1).name : \"foo\";\n                wrapper.getPropertyValue(name + \"[\" + mapKey + \"]\");\n```\n\nI note that there is an existing test for properties evaluating to an enumerated type, but I couldn't see how it properly tested this situtation.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1242",
+        "assignees": [
+            "snicoll"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-08-04T22:47:58.000Z",
+        "fix_commit_hash": "76729fdf8568f52358e97a8df32a4c7ffe16149f",
+        "commit_type": "commit",
+        "commit_message": "Propagate RelaxedConversionService\n\nPrior to this commit, the internal BeanWrapper used by the\nRelaxedDataBinder was not using any conversion service at all. This\ncommit makes sure to propagate the one that has been configured\ninternally.\n\nAlso a dummy call to a [foo] key seems to have been left and has\nbeen removed. This allows to support Enum as map key.\n\nFixes gh-1242",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/76729fdf8568f52358e97a8df32a4c7ffe16149f",
+        "earliest_issue_date": "2014-07-12T08:58:18Z",
+        "predicted_class": "bug",
+        "bic": [
+            "c2e16768495d2e6223947e4112d5e8cb5a6f4d88"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1247,
+        "issue_title": "Spring Boot 1.1.4 doesn't read custom logback.xml from war file",
+        "issue_body": "This is only a problem with WAR packaging. This used to work in 1.1.3, but after upgrading to 1.1.4 it always reads from the default logback config.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1247",
+        "assignees": [],
+        "labels": [
+            "type: documentation"
+        ],
+        "issue_closed_at": "2014-07-21T10:40:41.000Z",
+        "fix_commit_hash": "0a70bd44ed0b6e0b456b9a6e3e633c6f5809a1d8",
+        "commit_type": "commit",
+        "commit_message": "Correct the default Logback config location in the documentation\n\nFixes #1247",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/0a70bd44ed0b6e0b456b9a6e3e633c6f5809a1d8",
+        "earliest_issue_date": "2014-07-14T01:58:42Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1251,
+        "issue_title": "Start-Class and Main-Class can end up pointing to same place",
+        "issue_body": "```\n$ cd spring-boot-samples/spring-boot-sample-simple\n$ mvn clean install package # note the mistake\n$ java -jar target/*.jar\n<BANG!>\n```\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1251",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-07-30T10:14:32.000Z",
+        "fix_commit_hash": "6f8d4778add0bbee14cd2bdad55a04f7cd8a4ddd",
+        "commit_type": "commit",
+        "commit_message": "Prevent a jar from being repackaged more than once\n\nPreviously, Repackager would repackage a jar file as many times as\nit was asked to do so. This lead to problems if a user made a mistake\nwhen using Maven that led to the package phase being driven twice,\nfor example by running \"mvn clean install package\".\n\nThis commit updates Repackager so that a repackage call becomes a\nno-op if the source jar's manifest already contains the\nSpring-Boot-Version attribute which is added by repackaging.\n\nFixes #1251",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/6f8d4778add0bbee14cd2bdad55a04f7cd8a4ddd",
+        "earliest_issue_date": "2014-07-14T16:46:26Z",
+        "predicted_class": "bug",
+        "bic": [
+            "c0bcb5e8e9e60f6df6d2bb233ac9ea083a2dcd63"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1257,
+        "issue_title": "Spring Boot with Spring Security as deployable war results in redirect loop",
+        "issue_body": "I'm migrating a JSP based application to Spring Boot, for the moment I'm tied to JSP but I'm planning to move to Thymeleaf. However in the meantime I need JSPs to work and I also need Spring Security (basic auth) to work.\n\nWhen creating an executable jar and run the application, navigating to the URL nicely prompts me with a login box. Supplying credentials is resulting in a login to the application and shows me the default error page. Because JSP doesn't work in a jar file.\n\nThe jar is now packaged as a war which can be deployed on Tomcat, however when doing so navigating to the URL leads to a redirect loop to /error instead of prompting me with a login box. \n\nAn executable war seems to work but I need it to be a deployable war for now (or at least have that as an option!). \n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1257",
+        "assignees": [
+            "dsyer"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-07-17T13:21:58.000Z",
+        "fix_commit_hash": "4a33ab557721cc3d25583e246bf4b5d9173c15c8",
+        "commit_type": "commit",
+        "commit_message": "Make sure ErrorPageFilter is only applied once per request\n\nFixes gh-1257",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/4a33ab557721cc3d25583e246bf4b5d9173c15c8",
+        "earliest_issue_date": "2014-07-16T09:52:09Z",
+        "predicted_class": "bug",
+        "bic": [
+            "0d44e6e0d222d77b057390c6b6411594f7779381"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1262,
+        "issue_title": "RabbitProperties should not reorder addresses",
+        "issue_body": "See https://github.com/spring-projects/spring-boot/commit/aa38d33404829b426699e4723eee62bf97d6ca2f#commitcomment-7017880\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1262",
+        "assignees": [
+            "dsyer"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-07-17T11:33:33.000Z",
+        "fix_commit_hash": "0c52817c884061959e912f7e4a59f7a799c0d7f4",
+        "commit_type": "commit",
+        "commit_message": "Ensure order is preserved in Rabbit addresses\n\nUsing StringUtils.commaDelimitedListToSet() does not preserve order (why?),\nso we have to use commaDelimitedListToStringArray().\n\nFixes gh-1262",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/0c52817c884061959e912f7e4a59f7a799c0d7f4",
+        "earliest_issue_date": "2014-07-17T06:14:58Z",
+        "predicted_class": "bug",
+        "bic": [
+            "aa38d33404829b426699e4723eee62bf97d6ca2f"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1264,
+        "issue_title": "HealthIndicator does not return HTTP Status 503 for Status.DOWN",
+        "issue_body": "Currently HTTP status 200 is returned for Status.DOWN.\n\nIn the [Spring Boot 1.1 release notes](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-1.1-Release-Notes#healthindicators) it is stated that:\n\n> By default Status.DOWN will create a 503; Status.UP will return 200.\n\nStep by step:\n- Create a simple web app configured with the actuator.\n- Add a \"down\" health check:\n\n```\n@Component\npublic class DownHealthIndicator extends AbstractHealthIndicator {\n\n    @Override\n    protected void doHealthCheck(Health.Builder builder) throws Exception {\n        builder.down();\n    }\n}\n```\n- Check the health status: \n\n```\n$ curl -i localhost:8080/health\nHTTP/1.1 200 OK\n[...]\n{\"status\":\"DOWN\"}\n```\n\nSpring Boot version: 1.1.4.RELEASE\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1264",
+        "assignees": [],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-07-21T15:03:11.000Z",
+        "fix_commit_hash": "977c5a988c2e4979f1ab44fb5b3f0647801101b3",
+        "commit_type": "commit",
+        "commit_message": "Ensure custom HTTP code mappings for /health don't remove default mappings\n\nPreviously any custom http code mapping would remove the default mappings. With this commit the behaviour is changed so that default mappings will stay if a custom mapping is registered. Certainly a default mapping can be overridden.\n\nfixes #1264",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/977c5a988c2e4979f1ab44fb5b3f0647801101b3",
+        "earliest_issue_date": "2014-07-17T09:36:11Z",
+        "predicted_class": "bug",
+        "bic": [
+            "f9aeb6aefe6773ab958b86e9965cf956ac0995b0"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1268,
+        "issue_title": "Non-Hibernate JPA config",
+        "issue_body": "I need to configure boot to use EclipseLink, I thought I could just extend JpaBaseConfiguration and provide the createJpaVendorAdapter etc. However, JpaBaseConfiguration includes JpaProperties which has an embedded Hibernate specific class. That class has a DEFAULT_NAMING_STRATEGY which extends ImprovedNamingStrategy. So running boot with EclipseLink (or OpenJPA) results in \"Caused by: java.lang.NoClassDefFoundError: org/hibernate/cfg/ImprovedNamingStrategy\"\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1268",
+        "assignees": [],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-07-21T21:29:40.000Z",
+        "fix_commit_hash": "ac2ab39a540273f33c20454b0a175b043c8a31a2",
+        "commit_type": "commit",
+        "commit_message": "Use class name not value to support non-Hibernate JPA vendors\n\nWith this change I got a simple Eclipselink version of the data-jpa\nsample working. I'll push that when I get time to research it a bit more\n(I needed to set up a Java agent so either that might be a problem\nfor our integration tests if we can't work around it).\n\nFixes gh-1268.",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/ac2ab39a540273f33c20454b0a175b043c8a31a2",
+        "earliest_issue_date": "2014-07-17T19:12:09Z",
+        "predicted_class": "bug",
+        "bic": [
+            "7454c4866b62006f7536476c65eb22aee9adcc51"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1271,
+        "issue_title": "Missing code style configuration file for IntelliJ",
+        "issue_body": "The code formatting template file for IntelliJ is missing. \n\nIn the [CONTRIBUTING.adoc](/spring-projects/spring-boot/blob/master/CONTRIBUTING.adoc#code-conventions-and-housekeeping) it is stated that code style for IntelliJ can be located in the file `spring-intellij-code-style.xml`, but there is no such file in the Spring Boot repo.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1271",
+        "assignees": [
+            "snicoll"
+        ],
+        "labels": [
+            "type: documentation"
+        ],
+        "issue_closed_at": "2014-08-21T19:44:11.000Z",
+        "fix_commit_hash": "d0f493cbeaed09b6a04b3f5d48c0bcdc4433dbf0",
+        "commit_type": "commit",
+        "commit_message": "Fix InteliJ code formatter instructions\n\nUpdate CONTRIBUTING.adoc with improved code formatter instructions.\n\nFixes gh-1271",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/d0f493cbeaed09b6a04b3f5d48c0bcdc4433dbf0",
+        "earliest_issue_date": "2014-07-18T06:50:54Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1289,
+        "issue_title": "MongoHealtIndicator fails without sufficient privileges",
+        "issue_body": "`MongoHealtIndicator` uses command `{ serverStatus: 1 }` to check MongoDB connection status. This command fails in case user has insufficient privileges in database. \n\nFor example if MongoDB user account has only built in roles _read_ and/or _readWrite_ assigned. As result misleading message is shown in `/health` output: \n\n``` json\n\"mongo\":{\"status\":\"DOWN\",\"error\":\"java.lang.IllegalArgumentException: Data must not be null\"}\n```\n\nProposed solution: use MongoDB command `{ buildInfo: 1 }` to get server version. This command is working with built in roles _read_,  _readWrite_, _userAdmin_.\n\nMongoDB version used: 2.6.3. \nNot tested with other versions.\nNot tested with all [built in roles](http://docs.mongodb.org/manual/reference/built-in-roles/). \n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1289",
+        "assignees": [],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-07-24T08:06:48.000Z",
+        "fix_commit_hash": "13ee41d04d10e8e66a503dbd69b77858ee8264c2",
+        "commit_type": "commit",
+        "commit_message": "Change query in MongoHealthIndicator\n\nThis commit changes the query in MongoHealthIndicator from serverStatus to buildInfo to avoid unprivileged access and corresponding errors.\n\nfixes #1289",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/13ee41d04d10e8e66a503dbd69b77858ee8264c2",
+        "earliest_issue_date": "2014-07-24T00:24:21Z",
+        "predicted_class": "bug",
+        "bic": [
+            "db74d27ea0fb8c2b6ae1b2a5b0c7ecf9f43e16f2"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1293,
+        "issue_title": "Registration of HttpMessageConverter should not replace existing converter of same type",
+        "issue_body": "The constructor of `HttpMessageConverters` assumes that additional converters of assignable type of one of the default converters shall replace the default converter. Even more so, multiple additional converters of that type will override each other. This means that the `HttpMessageConverters` e.g. only allow a single converter of type `MappingJackson2HttpMessageConverter`, which is a bug for various reasons:\n- The converter setup includes setting the HTTP media type to be answered. So it's a perfectly valid use case to have multiple converters of the same type as they might be configured with different `ObjectMapper`s to accommodate the needs for certain JSON based media types.\n- Subtypes of `MappingJackson2HttpMessageConverter` might override `canRead(\u2026)`/`canWrite(\u2026)` to restrict the applicability of a converter - again, due to a certain `ObjectMapper` configuration being set up to render particular root types only.\n\nTrying to work around this I played with `@EnableAutoConfiguration(exclude=HttpMessageConvertersAutoConfiguration.class` but using that as is breaks the app as `WebMvcAutoConfiguration` requires an `HttpMessageConverters` instance. After manually adding an empty bean of that type to the config, things are back to work as expected.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1293",
+        "assignees": [],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-07-28T22:41:59.000Z",
+        "fix_commit_hash": "5e1552b71867b657a4985fcfb356ffc489acc48e",
+        "commit_type": "commit",
+        "commit_message": "Retain default order in HttpMessageConverters\n\nThe original fix for gh-1293 (commit 05e6af23) caused test failures due\nto the fact that Spring Boot's MappingJackson2HttpMessageConverter was\nadded before Spring's default StringHttpMessageConverter.\n\nThis commit changes the HttpMessageConverters logic so that additional\nconverts are added just before any default converter of the same type.\nThis allows additional converters to be added whilst still retaining\nthe sensible ordering of the default converters.\n\nFixes gh-1293",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/5e1552b71867b657a4985fcfb356ffc489acc48e",
+        "earliest_issue_date": "2014-07-25T09:21:39Z",
+        "predicted_class": "bug",
+        "bic": [
+            "bdcb94a1399a86b081673b47a45c304d5d211272"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1294,
+        "issue_title": "@ConfigurationProperties cannot bind to Map from CompositePropertySource",
+        "issue_body": "This is a corner case really, but it just bit me, so I'm going to fix it. the problem is that a CompositePropertySource is not enumerable. Making it enumerable will involve some reflection hacks (should be fixed in Spring probably).\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1294",
+        "assignees": [
+            "dsyer"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-07-25T15:36:11.000Z",
+        "fix_commit_hash": "32ede50d190c2c0bd5fe8dff87d1425d18215f5a",
+        "commit_type": "commit",
+        "commit_message": "Extract property sources from composite when binding\n\nOften this change will not be important because you are binding to\na bean with strongly typed properties. A bean with a Map property,\non the other hand, won't oytherwise be able to reason about the\npermitted keys so it will miss any non-enumerable property sources,\nincluding composites whose nested sources are themselves enumerable.\n\nFixed gh-1294",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/32ede50d190c2c0bd5fe8dff87d1425d18215f5a",
+        "earliest_issue_date": "2014-07-25T15:29:36Z",
+        "predicted_class": "bug",
+        "bic": [
+            "edb493044a979c11bef39037747b5a2388c3b624"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1295,
+        "issue_title": "GridFsTemplate should instantiate from MongoDbFactory",
+        "issue_body": "Spring Cloud registers found MongoDB connections as `MongoDbFactory` instances. Spring Boot's `MongoDataAutoConfiguration` wants the actual `Mongo` object to instantiate `GridFsTemplate` and just wraps it into a `SimpleMongoDbFactory` anyway.\n\nThe `GridFsTemplate` method should take the `MongoDbFactory` as a parameter rather than creating its own; if no factory is externally supplied, the one created in the configuration class is identical to the duplicate currently created in `gridFsTemplate()`.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1295",
+        "assignees": [],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-08-06T21:17:45.000Z",
+        "fix_commit_hash": "88828f5097dd1161e753f1c1dacb07c36cfe1ab8",
+        "commit_type": "commit",
+        "commit_message": "Use MongoDbFactory to create GridFsTemplate\n\nUpdate MongoDataAutoConfiguration to use the MongoDbFactory when\ncreating GridFsTemplate.\n\nFixes gh-1295",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/88828f5097dd1161e753f1c1dacb07c36cfe1ab8",
+        "earliest_issue_date": "2014-07-26T09:13:32Z",
+        "predicted_class": "bug",
+        "bic": [
+            "6ac85c17597a482288fb76bd03a64b185bbd200e"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1306,
+        "issue_title": "DataSourceHealthIndicator fails on Java 7+ and MySQL with \"Conversion not supported for type java.lang.Object\"",
+        "issue_body": "This [question on StackOverflow](http://stackoverflow.com/questions/25002294/spring-boot-datasource-is-down-with-exception) caused me to look into this. The failure is specific to Java 7 and later as ResultSet.getObject(index, type) is new in Java 7. The call to this method fails as the type that the health indicator passes in is `java.lang.Object` and MySQL's JDBC driver apparently doesn't know how to create one.\n\nYou could argue that by passing in `java.lang.Object` MySQL's JDBC driver should feel free to return whatever it wants rather than throwing an exception, but that's not the case and we should work around it if possible.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1306",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2014-07-29T14:12:23.000Z",
+        "fix_commit_hash": "333bc3e8425b0cd36bc93224e6fb2ab810ffe141",
+        "commit_type": "commit",
+        "commit_message": "Avoid RS.getObject(index, Object.class) as it breaks MySQL on Java 7\n\nPreviously, when running on Java 7+, the JDBC query driven by\nDataSourceHealthIndicator resulted in a call to\nResultSet.getObject(index, Object.class). When using MySQL's JDBC\ndriver this failed with an SQLException with the message \"Conversion\nnot supported for type java.lang.Object\". The problem does not occur\non Java 6 as the overload of getObject that takes a type does not\nexist; ResultSet.getObject(index) is called instead and MySQL happily\nreturns whatever type it deems to be appropriate for the column.\n\nThis commit updates DataSourceHealthIndicator so that\nResultSet.getObject(index) will always be used, irrespective of the\nversion of Java that Boot is running on.\n\nCloses #1306",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/333bc3e8425b0cd36bc93224e6fb2ab810ffe141",
+        "earliest_issue_date": "2014-07-29T13:09:51Z",
+        "predicted_class": "bug",
+        "bic": [
+            "057e1498466741fb4a5a60a62b68eb3853db8ef2"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1309,
+        "issue_title": "Yaml parsing exception handling",
+        "issue_body": "In `application.yaml` I have this:\n\n```\nspring.profiles.active: ${profiles}\n```\n\nIf I run this without specifying a profile, I get the following exception:\n\n```\njava.util.regex.PatternSyntaxException: Illegal repetition near index 0\n${profiles}\n^\n    at java.util.regex.Pattern.error(Pattern.java:1924)\n    at java.util.regex.Pattern.closure(Pattern.java:3104)\n    at java.util.regex.Pattern.sequence(Pattern.java:2101)\n    at java.util.regex.Pattern.expr(Pattern.java:1964)\n    at java.util.regex.Pattern.compile(Pattern.java:1665)\n    at java.util.regex.Pattern.<init>(Pattern.java:1337)\n    at java.util.regex.Pattern.compile(Pattern.java:1022)\n    at java.util.regex.Pattern.matches(Pattern.java:1128)\n    at java.lang.String.matches(String.java:2063)\n    at org.springframework.boot.yaml.ArrayDocumentMatcher.matches(ArrayDocumentMatcher.java:54)\n    at org.springframework.boot.yaml.SpringProfileDocumentMatcher.matches(SpringProfileDocumentMatcher.java:62)\n    at org.springframework.boot.yaml.YamlProcessor.process(YamlProcessor.java:213)\n    at org.springframework.boot.yaml.YamlProcessor.process(YamlProcessor.java:141)\n    at org.springframework.boot.yaml.YamlProcessor.process(YamlProcessor.java:127)\n    at org.springframework.boot.yaml.YamlPropertiesFactoryBean.getObject(YamlPropertiesFactoryBean.java:80)\n    at org.springframework.boot.env.YamlPropertySourceLoader.load(YamlPropertySourceLoader.java:56)\n    at org.springframework.boot.env.PropertySourcesLoader.load(PropertySourcesLoader.java:126)\n    at org.springframework.boot.context.config.ConfigFileApplicationListener$Loader.loadIntoGroup(ConfigFileApplicationListener.java:360)\n    at org.springframework.boot.context.config.ConfigFileApplicationListener$Loader.load(ConfigFileApplicationListener.java:349)\n    at org.springframework.boot.context.config.ConfigFileApplicationListener$Loader.load(ConfigFileApplicationListener.java:317)\n    at org.springframework.boot.context.config.ConfigFileApplicationListener.addPropertySources(ConfigFileApplicationListener.java:155)\n    at org.springframework.boot.context.config.ConfigFileApplicationListener.onApplicationEnvironmentPreparedEvent(ConfigFileApplicationListener.java:138)\n    at org.springframework.boot.context.config.ConfigFileApplicationListener.onApplicationEnvironmentPreparedEvent(ConfigFileApplicationListener.java:131)\n    at org.springframework.boot.context.config.ConfigFileApplicationListener.onApplicationEvent(ConfigFileApplicationListener.java:120)\n    at org.springframework.context.event.SimpleApplicationEventMulticaster.multicastEvent(SimpleApplicationEventMulticaster.java:98)\n    at org.springframework.boot.context.event.EventPublishingRunListener.publishEvent(EventPublishingRunListener.java:100)\n    at org.springframework.boot.context.event.EventPublishingRunListener.environmentPrepared(EventPublishingRunListener.java:59)\n    at org.springframework.boot.SpringApplication.run(SpringApplication.java:284)\n    at org.springframework.boot.SpringApplication.run(SpringApplication.java:952)\n    at org.springframework.boot.SpringApplication.run(SpringApplication.java:941)\n```\n\nProbably worth adding a custom exception here, if possible carrying more details, it's rather confusing this way.\n\nRelated to [this issue](https://github.com/spring-projects/spring-boot/issues/1301).\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1309",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2016-08-31T15:56:38.000Z",
+        "fix_commit_hash": "3a887151e6f9f67062ed8f2a7d3f593a1ee2cff9",
+        "commit_type": "commit",
+        "commit_message": "Remove use of regular expressions in Spring profile-based doc matching\n\nCloses gh-1309",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/3a887151e6f9f67062ed8f2a7d3f593a1ee2cff9",
+        "earliest_issue_date": "2014-07-29T20:37:57Z",
+        "predicted_class": "bug",
+        "bic": [
+            "7d0c0fc0dde8f868f6bdad92fb6cddec501b7e6d"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1316,
+        "issue_title": "Spring Boot removing content-type for CXF responses",
+        "issue_body": "I have a webapp that I've developed with Spring, CXF and Apache Camel. I've been developing it for several months, using Tomcat to run and test it. This week, I integrated Spring Boot to take advantage of its external configuration feature.\n\nNow something strange is happening. If I run \"mvn spring-boot:run\" and run my integration tests against it, everything works fine. The headers on my SOAP requests look as follows:\n\n```\nHTTP/1.1 200 OK\nServer: Apache-Coyote/1.1\nX-Application-Context: application\nX-Application-Context: application\nContent-Type: application/soap+xml;charset=UTF-8\nContent-Length: 333\nDate: Wed, 30 Jul 2014 17:03:18 GMT\n```\n\nHowever, if I run the same application in Tomcat, it seems that something is removing the Content-\\* headers.\n\n```\nHTTP/1.1 200 OK\nServer: Apache-Coyote/1.1\nX-Application-Context: application\nTransfer-Encoding: chunked\nDate: Wed, 30 Jul 2014 17:01:09 GMT\n```\n\nThis all worked fine before I integrated Spring Boot 1.1.4.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1316",
+        "assignees": [],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-07-31T12:23:56.000Z",
+        "fix_commit_hash": "bacbff1fbfd30401afd3f02c0dd5eab081e0c649",
+        "commit_type": "commit",
+        "commit_message": "Do not flush response buffer in ErrorPageFilter if request is async\n\nPreviously, the ErrorPageFilter would always flush the response\nbuffer, irrespective of the request being asynchronous. This could\nlead to a response being committed prematurely, preventing, for\nexample, headers being set by subsequent processing.\n\nThis commit updates ErrorPageFilter so that in the success case\n(status < 400) the response buffer is only flushed if the request is\nnot async (determined by calling request.isAsyncStarted()). If an\nexception's been thrown or the status is >= 400 the response buffer\nis always flushed.\n\nFixes #1316",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/bacbff1fbfd30401afd3f02c0dd5eab081e0c649",
+        "earliest_issue_date": "2014-07-30T17:09:23Z",
+        "predicted_class": "bug",
+        "bic": [
+            "0d44e6e0d222d77b057390c6b6411594f7779381"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1320,
+        "issue_title": "Unauthorised request returns HTTP 200 when deployed in an external Tomcat instead of 401 as when running embedded",
+        "issue_body": "As discussed in issue #602, when I run my application, which is using Spring Security, as an executable jar and try to access the index page I get a HTTP 401 response and the browser asks for credentials. \n\nIf I deploy my application as a war file to an external tomcat then the index page returns a HTTP 200 (but still displays the Spring error page because the request was unauthorised). \n\nWhy is the behaviour different in these two cases?\n\nI set logging to TRACE for all \"org\" classes and recorded the output in each case, starting from when I send the request from the browser:\n\nhttps://gist.github.com/gdubya/ff40a9a5b6f62d7c0840\n\nI haven't gone through it in detail yet, but at first glance the AccessDeniedException seems to have a few additional filters in the stacktrace. Does this have anything to do with it?\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1320",
+        "assignees": [
+            "dsyer"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-08-04T21:57:04.000Z",
+        "fix_commit_hash": "9372d15433b30e213e073022eeb5e642d5c9c8b8",
+        "commit_type": "commit",
+        "commit_message": "Explicitly set status on raw unwrapped response\n\nThe ErrorPageFilter wasn't setting the response status in the case that\nthere was an error page mapped to the current request (i.e. for all\nautoconfigured apps). N.B. this only affects non-embedded apps.\n\nFixes gh-1320",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/9372d15433b30e213e073022eeb5e642d5c9c8b8",
+        "earliest_issue_date": "2014-07-31T14:14:54Z",
+        "predicted_class": "bug",
+        "bic": [
+            "3496f3f9dc7d190dee6258a330aba468d15ef96a"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1321,
+        "issue_title": "CLI jar can fail to locate sources if there is another jar on the classpath",
+        "issue_body": "Sort of a corner case, but the CF buildpack hits it now because it adds another jar to the classpath when it runs a CLI-generated exploded jar. The problem is that `META-INF/MANIFEST.MF` is not unique any more so you have to use `findResources()` not `findResource()`.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1321",
+        "assignees": [
+            "dsyer"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-07-31T22:58:34.000Z",
+        "fix_commit_hash": "59b8fc63d99d3503ee7f70e7a270617e14d40eb9",
+        "commit_type": "commit",
+        "commit_message": "Scan for a valid MANIFEST.MF instead of taking the first one\n\nFixes gh-1321",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/59b8fc63d99d3503ee7f70e7a270617e14d40eb9",
+        "earliest_issue_date": "2014-07-31T16:51:09Z",
+        "predicted_class": "bug",
+        "bic": [
+            "208bf8fc96242ad5b4e18b163fe21631569beab6"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1328,
+        "issue_title": "NullPointerException: null at org.springframework.boot.autoconfigure.EnableAutoConfigurationImportSelector.selectImports(EnableAutoConfigurationImportSelector.java:63)",
+        "issue_body": "I've somehow managed to cause a NullPointerException: null at org.springframework.boot.autoconfigure.EnableAutoConfigurationImportSelector.selectImports(EnableAutoConfigurationImportSelector.java:63)\n\nWhatever the root cause of this may be, which could quite likely be a bug in my code/misunderstanding of how to use Spring (Boot), I'm hoping you'd agree that as an end-user I should never hit an NPE, but instead get a clearer exception?\n\nHere is the full stack trace in case this is useful:\n\n``````\n  .   ____          _            __ _ _\n /\\\\ / ___'_ __ _ _(_)_ __  __ _ \\ \\ \\ \\\n( ( )\\___ | '_ | '_| | '_ \\/ _` | \\ \\ \\ \\\n \\\\/  ___)| |_)| | | | | || (_| |  ) ) ) )\n  '  |____| .__|_| |_|_| |_\\__, | / / / /\n =========|_|==============|___/=/_/_/_/\n :: Spring Boot ::        (v1.1.4.RELEASE)\n\n16:56:56.556 [main] INFO  o.e.j.i.j.runner.RemoteTestRunner - Starting RemoteTestRunner on feather with PID 361 (/home/vorburger/dev/ngMUI/com.temenos.ds.op.sdk.ide/configuration/org.eclipse.osgi/251/0/.cp started by vorburger in /home/vorburger/dev/M/mifosx/mifosng-provider)\n16:56:56.813 [main] INFO  o.s.b.c.e.AnnotationConfigEmbeddedWebApplicationContext - Refreshing org.springframework.boot.context.embedded.AnnotationConfigEmbeddedWebApplicationContext@65987993: startup date [Fri Aug 01 16:56:56 CEST 2014]; root of context hierarchy\n16:56:56.886 [main] INFO  o.s.b.l.ClasspathLoggingApplicationListener - Application failed to start with classpath: [file:/home/vorburger/dev/M/mifosx/mifosng-provider/bin/, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework.boot/spring-boot-starter-web/1.1.4.RELEASE/jar/b74730f6ff7665339ce31fadb89226e0c057d3e6/spring-boot-starter-web-1.1.4.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework.boot/spring-boot-starter-data-jpa/1.1.4.RELEASE/jar/9e5d736f66dc2c77e1bae89002ea31e2d08741cb/spring-boot-starter-data-jpa-1.1.4.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework.boot/spring-boot-starter-security/1.1.4.RELEASE/jar/a96dda664051be912e317337ccc0756b6429616/spring-boot-starter-security-1.1.4.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework/spring-context-support/4.0.6.RELEASE/jar/cfdd2172538cfd5d540d4d6283abda83785ec624/spring-context-support-4.0.6.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/javax.ws.rs/jsr311-api/1.1.1/jar/59033da2a1afd56af1ac576750a8d0b1830d59e6/jsr311-api-1.1.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.sun.jersey/jersey-core/1.17/jar/ea723f958123e794f5c08fc0baa92578c72eef96/jersey-core-1.17.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.sun.jersey/jersey-servlet/1.17/jar/ab4ff82bbc5e86761bf92e9686d7ab09d2404c30/jersey-servlet-1.17.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.sun.jersey/jersey-server/1.17/jar/f3ec0882700751d45d86b6b638804eb6d34bad6f/jersey-server-1.17.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.sun.jersey/jersey-json/1.17/jar/e676aa8f1b09027aecba46e85351ce8e30bb4217/jersey-json-1.17.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.sun.jersey.contribs/jersey-spring/1.17/jar/d39228b47b2aa0a638c1f9bc6f09be3fe8e3abc/jersey-spring-1.17.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.sun.jersey.contribs/jersey-multipart/1.17/jar/ddc8564845fd1096dea66c82ff4154017fb9af8c/jersey-multipart-1.17.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.google.code.gson/gson/2.2.4/jar/a60a5e993c98c864010053cb901b7eab25306568/gson-2.2.4.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.google.guava/guava/15.0/bundle/ed727a8d9f247e2050281cb083f1c77b09dcb5cd/guava-15.0.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/joda-time/joda-time/2.4/jar/89e9725439adffbbd41c5f5c215c136082b34a7f/joda-time-2.4.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/net.sourceforge.javacsv/javacsv/2.0/jar/8092b1ba2d4929f2ec27e58cd240502afdd6a9a7/javacsv-2.0.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.commons/commons-email/1.3.3/jar/c1a7133db9008fa1eae082e6158c3f4c128ec27e/commons-email-1.3.3.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.commons/commons-lang3/3.3.2/jar/90a3822c38ec8c996e84c16a3477ef632cbc87a3/commons-lang3-3.3.2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/mysql/mysql-connector-java/5.1.27/jar/2e4fbf71af3fa214951aa32bb6b39076e4e01b6f/mysql-connector-java-5.1.27.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.tomcat/tomcat-jdbc/7.0.54/jar/c325fb6d376df8bb34de0252aef2f7472658d4d7/tomcat-jdbc-7.0.54.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/pentaho-reporting-engine/pentaho-reporting-engine-classic-core/3.9.1.1/jar/77036efc94f1bab8dfe07bfdcf28cb4cdc4dcc46/pentaho-reporting-engine-classic-core-3.9.1.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/pentaho-reporting-engine/pentaho-reporting-engine-classic-extensions/3.9.1-GA/jar/24114228757a9325f4b4e4899471413f6ae90d2c/pentaho-reporting-engine-classic-extensions-3.9.1-GA.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/pentaho-reporting-engine/pentaho-reporting-engine-classic-extensions-scripting/3.9.1-GA/jar/174cce581a247680f24404e9ed6ef1fbfb53ae29/pentaho-reporting-engine-classic-extensions-scripting-3.9.1-GA.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/pentaho-reporting-engine/pentaho-reporting-engine-wizard-core/3.9.1-GA/jar/671508e5f7b038b19ddbdf34914eab87bbb646ee/pentaho-reporting-engine-wizard-core-3.9.1-GA.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/pentaho-report-designer/pentaho-reporting-engine-wizard-xul/3.9.1-GA/jar/25759f94ef914d13cc7a1551674838f0a8ed14f5/pentaho-reporting-engine-wizard-xul-3.9.1-GA.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/pentaho-library/libbase/1.2.8/jar/32f9469c29fd16edcf6706d7531d74a75884d756/libbase-1.2.8.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/pentaho-library/libdocbundle/1.2.8/jar/9bde3c7aa2154a08e6c7bfdfd6d35dc3b18d05aa/libdocbundle-1.2.8.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/pentaho-library/libfonts/1.2.8/jar/8d20d16c7b4022480df8fb8aa7c51f6357ff1817/libfonts-1.2.8.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/pentaho-library/libformat/1.2.8/jar/3fd10ea2e18845e80c0fd506265d8ab904f90bbe/libformat-1.2.8.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/pentaho-library/libformula/1.2.8/jar/54f0bc121d9012734f022625ff53de000d774a3e/libformula-1.2.8.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/pentaho-library/libloader/1.2.8/jar/3ac28cb50f07311a131b0b9ffc6869ba03f2e618/libloader-1.2.8.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/pentaho-library/librepository/1.2.8/jar/6e30182126a8bf1c5807c18b020b277789ad25b4/librepository-1.2.8.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/pentaho-library/libserializer/1.2.8/jar/52d4ccad3fa757ec040a3da34314d08c4a071332/libserializer-1.2.8.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/pentaho-library/libsparkline/1.2.8/jar/8cc1e0c6b5ae6fa44f0a40c8518d2346ae3f1f3f/libsparkline-1.2.8.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/pentaho-library/libxml/1.2.8/jar/60a57221b2f5b3ac5e8822bf14001640738a6ab/libxml-1.2.8.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.poi/poi/3.9/jar/5d5e41354e88322e4bc590b31f3d2d1d52b3e6ac/poi-3.9.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.poi/poi-ooxml/3.9/jar/bbe83c739d22eecfacd06d7e0b99ba13277040ed/poi-ooxml-3.9.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.poi/poi-ooxml-schemas/3.9/jar/4c514498f0e82cccfdd3208b9caff2f45158db4a/poi-ooxml-schemas-3.9.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.lowagie/itext/2.1.7/jar/892bfb3e97074a61123b3b2d7caa2db112750864/itext-2.1.7.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.lowagie/itext-rtf/2.1.7/jar/ed1cbe69ff69c6e6fa7645f51c8d25894a177e7b/itext-rtf-2.1.7.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.mnode.ical4j/ical4j/1.0.4/jar/a7b5ef561262e2f4e72dc7706980777413ca6bfb/ical4j-1.0.4.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.googlecode.flyway/flyway-maven-plugin/2.1.1/maven-plugin/294b6519b157fecbfa7235929cf1c7103cdfbe7b/flyway-maven-plugin-2.1.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.quartz-scheduler/quartz/2.1.7/jar/d096220c97746b7c586cac6411afd5eca80eb4f1/quartz-2.1.7.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.amazonaws/aws-java-sdk/1.2.1/jar/8bfebcd4b39b87bbe788b4eeced068c8dbe75822/aws-java-sdk-1.2.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/net.sf.ehcache/ehcache/2.7.2/jar/db9632e1fc8a1946e286ad0da7eb501ae1f9a8c1/ehcache-2.7.2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.github.spullara.mustache.java/compiler/0.8.12/bundle/883f5f1251240be239060f627a20a83acd160ec6/compiler-0.8.12.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.jayway.jsonpath/json-path/0.9.1/bundle/1a198cf545b2656656fecda5add3ba436e715185/json-path-0.9.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/junit/junit/4.11/jar/4e031bb61df09069aeb2bffb4019e7a5034a4ee0/junit-4.11.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.mockito/mockito-all/1.9.5/jar/79a8984096fc6591c1e3690e07d41be506356fa5/mockito-all-1.9.5.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.jayway.restassured/rest-assured/1.7.2/jar/b6897c1f2fe56790df24296825276857ae35039f/rest-assured-1.7.2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework.boot/spring-boot-starter-test/1.1.4.RELEASE/jar/e6eadc7c9f3593d9dba74862c0c7fe052245b7c6/spring-boot-starter-test-1.1.4.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.httpcomponents/httpclient/4.4-alpha1/jar/2abd96cd4bed03615b889987feac955098f6bf03/httpclient-4.4-alpha1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework/spring-core/4.0.6.RELEASE/jar/d880beac77d42c5798aa2b632ddd0e4ae47c79ad/spring-core-4.0.6.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework/spring-beans/4.0.6.RELEASE/jar/587879b58acebeb5b0a63c01e822f9b44d9a4c77/spring-beans-4.0.6.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework/spring-expression/4.0.6.RELEASE/jar/5f0a135b8cf290aa244097dc6264ad0989d25c56/spring-expression-4.0.6.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/aopalliance/aopalliance/1.0/jar/235ba8b489512805ac13a8f9ea77a1ca5ebe3e8/aopalliance-1.0.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework/spring-aop/4.0.6.RELEASE/jar/e377760b7692569535573ba9f6e80b4b74869369/spring-aop-4.0.6.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework/spring-context/4.0.6.RELEASE/jar/3bb3a52edabf9ffe73aa534fb085c816bac28b4d/spring-context-4.0.6.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework.boot/spring-boot/1.1.4.RELEASE/jar/338574f840409cb91adbbb4adb7b7f458c213ce0/spring-boot-1.1.4.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework.boot/spring-boot-autoconfigure/1.1.4.RELEASE/jar/8f1c2de4847a1456788f26df61a4639febf1a77f/spring-boot-autoconfigure-1.1.4.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.slf4j/slf4j-api/1.7.7/jar/2b8019b6249bb05d81d3a3094e468753e2b21311/slf4j-api-1.7.7.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.slf4j/jcl-over-slf4j/1.7.7/jar/56003dcd0a31deea6391b9e2ef2f2dc90b205a92/jcl-over-slf4j-1.7.7.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.slf4j/jul-to-slf4j/1.7.7/jar/def21bc1a6e648ee40b41a84f1db443132913105/jul-to-slf4j-1.7.7.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.slf4j/log4j-over-slf4j/1.7.7/jar/d521cb26a9c4407caafcec302e7804b048b07cea/log4j-over-slf4j-1.7.7.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/ch.qos.logback/logback-core/1.1.2/jar/2d23694879c2c12f125dac5076bdfd5d771cc4cb/logback-core-1.1.2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/ch.qos.logback/logback-classic/1.1.2/jar/b316e9737eea25e9ddd6d88eaeee76878045c6b2/logback-classic-1.1.2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework.boot/spring-boot-starter-logging/1.1.4.RELEASE/jar/5525505b4e63800bc3e69313e66fd4a7a4eb9b6d/spring-boot-starter-logging-1.1.4.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework.boot/spring-boot-starter/1.1.4.RELEASE/jar/660c34b289fe68357cdb7bea1ee1c6c7b180ba3b/spring-boot-starter-1.1.4.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.yaml/snakeyaml/1.13/bundle/73cbb494a912866c4c831a178c3a2a9169f4eaad/snakeyaml-1.13.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.tomcat.embed/tomcat-embed-core/7.0.54/jar/874cb56db3ccd8101d9373f433d86f1badb5dada/tomcat-embed-core-7.0.54.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.tomcat.embed/tomcat-embed-el/7.0.54/jar/3c9425b650ba700ac47185500facabd9ab970adc/tomcat-embed-el-7.0.54.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.tomcat.embed/tomcat-embed-logging-juli/7.0.54/jar/68a1a1fc9fa2c7f97431a36e89f95c5d2eb2ebd5/tomcat-embed-logging-juli-7.0.54.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework.boot/spring-boot-starter-tomcat/1.1.4.RELEASE/jar/e38cf0b7e3aa6a13cbfd050bd218477ee88931e5/spring-boot-starter-tomcat-1.1.4.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.fasterxml.jackson.core/jackson-annotations/2.3.0/bundle/f5e853a20b60758922453d56f9ae1e64af5cb3da/jackson-annotations-2.3.0.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.fasterxml.jackson.core/jackson-core/2.3.3/bundle/7d8c5d79cc99995e21e6f955857312d8409f02a1/jackson-core-2.3.3.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.fasterxml.jackson.core/jackson-databind/2.3.3/bundle/63b77400b5f1cf83a81823562c48d3120ef5518e/jackson-databind-2.3.3.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/javax.validation/validation-api/1.1.0.Final/jar/8613ae82954779d518631e05daa73a6a954817d5/validation-api-1.1.0.Final.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.fasterxml/classmate/1.0.0/bundle/434efef28c81162b17c540e634cffa3bd9b09b4c/classmate-1.0.0.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.jboss.logging/jboss-logging/3.1.3.GA/jar/64499e907f19e5e1b3fdc02f81440c1832fe3545/jboss-logging-3.1.3.GA.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.hibernate/hibernate-validator/5.0.3.Final/jar/e0fa071d3ced426a05fc1a59d788cb72a1659c3c/hibernate-validator-5.0.3.Final.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework/spring-web/4.0.6.RELEASE/jar/85ef4b91fcdd86d81e4a9b3e5f006dcb4128e6d/spring-web-4.0.6.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework/spring-webmvc/4.0.6.RELEASE/jar/9020a09a96058133c822ff04f00e7fa0e0c3b82b/spring-webmvc-4.0.6.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.aspectj/aspectjrt/1.8.1/jar/5e7a0fa36cc24ead36d885b9d775bb31ffa8524c/aspectjrt-1.8.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.aspectj/aspectjweaver/1.8.1/jar/da75e95c91703667b2ae20acdd3d8ee40ea7aabd/aspectjweaver-1.8.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework.boot/spring-boot-starter-aop/1.1.4.RELEASE/jar/da647979b3a34f2f8e92f785c634a6732e0fccda/spring-boot-starter-aop-1.1.4.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework/spring-tx/4.0.6.RELEASE/jar/6b4ed868e07d58f2cf15bcd7958acd86fd4f3da4/spring-tx-4.0.6.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework/spring-jdbc/4.0.6.RELEASE/jar/28fa5e60c3d68132d83d9c1e7d9fccebb83c9104/spring-jdbc-4.0.6.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.tomcat/tomcat-juli/7.0.54/jar/b1ab768678cb729831ed6ae926a90ab6f0974a60/tomcat-juli-7.0.54.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework.boot/spring-boot-starter-jdbc/1.1.4.RELEASE/jar/56ea9bbdc0b7bbbf0b2a0932b078c58dab249168/spring-boot-starter-jdbc-1.1.4.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/xml-apis/xml-apis/1.0.b2/jar/3136ca936f64c9d68529f048c2618bd356bf85c9/xml-apis-1.0.b2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/dom4j/dom4j/1.6.1/jar/5d3ccc056b6f056dbf0dddfdf43894b9065a8f94/dom4j-1.6.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.jboss.logging/jboss-logging-annotations/1.2.0.Beta1/jar/2f437f37bb265d9f8f1392823dbca12d2bec06d6/jboss-logging-annotations-1.2.0.Beta1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.hibernate.common/hibernate-commons-annotations/4.0.4.Final/jar/f1af75eca4e13ac0578750a497159695feceebfc/hibernate-commons-annotations-4.0.4.Final.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.hibernate.javax.persistence/hibernate-jpa-2.1-api/1.0.0.Final/jar/5e731d961297e5a07290bfaf3db1fbc8bbbf405a/hibernate-jpa-2.1-api-1.0.0.Final.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.jboss.spec.javax.transaction/jboss-transaction-api_1.2_spec/1.0.0.Final/jar/1f9fef7a9fcbb41cc390fc370a291cf30729e094/jboss-transaction-api_1.2_spec-1.0.0.Final.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.javassist/javassist/3.18.1-GA/bundle/d9a09f7732226af26bf99f19e2cffe0ae219db5b/javassist-3.18.1-GA.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/antlr/antlr/2.7.7/jar/83cd2cd674a217ade95a4bb83a8a14f351f48bd0/antlr-2.7.7.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.jboss/jandex/1.1.0.Final/jar/e84a2122e76f0b6503be78094ddf2108057ac15f/jandex-1.1.0.Final.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.hibernate/hibernate-core/4.3.5.Final/jar/8ba469a4749447a8e9a04f229c8017f60f9a04c9/hibernate-core-4.3.5.Final.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.hibernate/hibernate-entitymanager/4.3.5.Final/jar/d5e18e531ffa6fde84b998d2fbf796663a8b112d/hibernate-entitymanager-4.3.5.Final.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework/spring-orm/4.0.6.RELEASE/jar/e13077d6527b7e0c1c04293c1d1696436d053a61/spring-orm-4.0.6.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework.data/spring-data-commons/1.8.1.RELEASE/jar/add55d3fa4046f096567e08aee504b1baac25a29/spring-data-commons-1.8.1.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework.data/spring-data-jpa/1.6.1.RELEASE/jar/fa07f0cd58698af4286dff1c6d02a87fb61d52bf/spring-data-jpa-1.6.1.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework/spring-aspects/4.0.6.RELEASE/jar/198b4f801c533e7441ff038aedc9c2c0099738d3/spring-aspects-4.0.6.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework.security/spring-security-core/3.2.4.RELEASE/jar/493bc57396a821e8ffa7d99fac77cc79c15e9b7f/spring-security-core-3.2.4.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework.security/spring-security-config/3.2.4.RELEASE/jar/952da051fc959b215c8e5882a7ab1ca5137af036/spring-security-config-3.2.4.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework.security/spring-security-web/3.2.4.RELEASE/jar/197d803ab63dd3523d9df186505fc1cc93044334/spring-security-web-3.2.4.RELEASE.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/asm/asm/3.2/jar/9bc1511dec6adf302991ced13303e4140fdf9ab7/asm-3.2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.codehaus.jettison/jettison/1.1/bundle/1a01a2a1218fcf9faa2cc2a6ced025bdea687262/jettison-1.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/javax.activation/activation/1.1.1/jar/485de3a253e23f645037828c07f1d7f1af40763a/activation-1.1.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/javax.xml.stream/stax-api/1.0-2/jar/d6337b0de8b25e53e81b922352fbea9f9f57ba0b/stax-api-1.0-2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/javax.xml.bind/jaxb-api/2.2.2/jar/aeb3021ca93dde265796d82015beecdcff95bf09/jaxb-api-2.2.2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.sun.xml.bind/jaxb-impl/2.2.3-1/jar/56baae106392040a45a06d4a41099173425da1e6/jaxb-impl-2.2.3-1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.codehaus.jackson/jackson-core-asl/1.9.13/jar/3c304d70f42f832e0a86d45bd437f692129299a4/jackson-core-asl-1.9.13.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.codehaus.jackson/jackson-mapper-asl/1.9.2/jar/95400a7922ce75383866eb72f6ef4a7897923945/jackson-mapper-asl-1.9.2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.codehaus.jackson/jackson-jaxrs/1.9.2/jar/aedf43f1d5005561e531b6bf0d067e4d20f58aba/jackson-jaxrs-1.9.2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.codehaus.jackson/jackson-xc/1.9.2/jar/437c991a8eb2c8b69ef1dba2eba27fccb9b98448/jackson-xc-1.9.2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.jvnet/mimepull/1.6/jar/9a108888661e4c47edec899b796c91557ebf3a35/mimepull-1.6.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/javax.mail/mail/1.5.0-b01/jar/c128515e42609622ce3f7dc0b431026d80bdb688/mail-1.5.0-b01.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/commons-codec/commons-codec/1.6/jar/b7f0fc8f61ecadeb3695f0b9464755eee44374d4/commons-codec-1.6.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/stax/stax-api/1.0.1/jar/49c100caf72d658aca8e58bd74a4ba90fa2b0d70/stax-api-1.0.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.xmlbeans/xmlbeans/2.3.0/jar/8704dcf5c9f10265a08f5020b0fab70eb64ac3c4/xmlbeans-2.3.0.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/bouncycastle/bcmail-jdk14/138/jar/14ff2dfec8578f5f6838c4d6a77a86789afe5382/bcmail-jdk14-138.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/bouncycastle/bcprov-jdk14/138/jar/de366c3243a586eb3c0e2bcde1ed9bb1bfb985ff/bcprov-jdk14-138.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.bouncycastle/bcprov-jdk14/1.38/jar/de366c3243a586eb3c0e2bcde1ed9bb1bfb985ff/bcprov-jdk14-1.38.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.bouncycastle/bcmail-jdk14/1.38/jar/14ff2dfec8578f5f6838c4d6a77a86789afe5382/bcmail-jdk14-1.38.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.bouncycastle/bctsp-jdk14/1.38/jar/4821122f8390d15f4b5ee652621e2a2bb1f1bf16/bctsp-jdk14-1.38.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/commons-lang/commons-lang/2.6/jar/ce1edb914c94ebc388f086c6827e8bdeec71ac2/commons-lang-2.6.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/backport-util-concurrent/backport-util-concurrent/3.1/jar/682f7ac17fed79e92f8e87d8455192b63376347b/backport-util-concurrent-3.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven/maven-plugin-api/2.2.1/jar/d60c36b60f760e0b5b87dd0c6311f93a72dc4585/maven-plugin-api-2.2.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.codehaus.plexus/plexus-utils/1.5.15/jar/c689598ce1eb94c304817877ed15911099972526/plexus-utils-1.5.15.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven/maven-artifact/2.2.1/jar/23600f790d4dab2cb965419eaa982e3e84c428f8/maven-artifact-2.2.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven/maven-model/2.2.1/jar/c0a1c17436ec3ff5a56207c031d82277b4250a29/maven-model-2.2.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.codehaus.plexus/plexus-interpolation/1.11/jar/ad9dddff6043194904ad1d2c00ff1d003c3915f7/plexus-interpolation-1.11.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.hamcrest/hamcrest-core/1.3/jar/42a25dc3219429f0e5d060061f71acb49bf010a0/hamcrest-core-1.3.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.codehaus.plexus/plexus-classworlds/1.2-alpha-9/jar/a927f9212093cb8fde7de0a5aa40ea4f5678215f/plexus-classworlds-1.2-alpha-9.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.codehaus.plexus/plexus-container-default/1.0-alpha-30/jar/669d4ba8e898e37987eb5e30b121ed1d62c5b7b8/plexus-container-default-1.0-alpha-30.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven/maven-settings/2.2.1/jar/2236ffe71fa5f78ce42b0f5fc22c54ed45f14294/maven-settings-2.2.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven/maven-profile/2.2.1/jar/3950071587027e5086e9c395574a60650c432738/maven-profile-2.2.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven.wagon/wagon-provider-api/1.0-beta-6/jar/3f952e0282ae77ae59851d96bb18015e520b6208/wagon-provider-api-1.0-beta-6.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven/maven-repository-metadata/2.2.1/jar/98f0c07fcf1eeb213bef8d9316a9935184084b06/maven-repository-metadata-2.2.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven/maven-artifact-manager/2.2.1/jar/ec355b913c34d37080810f98e3f51abecbe1572b/maven-artifact-manager-2.2.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven/maven-plugin-registry/2.2.1/jar/72a24b7775649af78f3986b5aa7eb354b9674cfd/maven-plugin-registry-2.2.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven/maven-project/2.2.1/jar/8239e98c16f641d55a4ad0e0bab0aee3aff8933f/maven-project-2.2.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.sonatype.plexus/plexus-cipher/1.4/jar/50ade46f23bb38cd984b4ec560c46223432aac38/plexus-cipher-1.4.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.sonatype.plexus/plexus-sec-dispatcher/1.4/jar/43fde524e9b94c883727a9fddb8669181b890ea7/plexus-sec-dispatcher-1.4.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven/maven-plugin-parameter-documenter/2.2.1/jar/1a117baac49437fc5a6fcd9f18f779e6bad4207e/maven-plugin-parameter-documenter-2.2.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/nekohtml/xercesMinimal/1.9.6.2/jar/d1c5e063683a0e6f77cd5f051a9d4af48346fa6/xercesMinimal-1.9.6.2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/nekohtml/nekohtml/1.9.6.2/jar/2d960be7b62ae6622dbbbe49ab4ffdc609f85c80/nekohtml-1.9.6.2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/commons-httpclient/commons-httpclient/3.1/jar/964cd74171f427720480efdec40a7c7f6e58426a/commons-httpclient-3.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven.wagon/wagon-http-shared/1.0-beta-6/jar/ccd70d7e0d8c085e648a83f072da06ca9a53be94/wagon-http-shared-1.0-beta-6.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven.wagon/wagon-http-lightweight/1.0-beta-6/jar/b3815078570c3b1f0667e123d59717c6b726c6c2/wagon-http-lightweight-1.0-beta-6.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven.wagon/wagon-http/1.0-beta-6/jar/8c665cbb0ab67c355fbd2c942ad26e39753b6f2e/wagon-http-1.0-beta-6.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven.doxia/doxia-logging-api/1.1/jar/c8fe274396e40452ca3e6121f6dd00220b210d48/doxia-logging-api-1.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven.doxia/doxia-sink-api/1.1/jar/9fc15c69e09a14fd07acba7300009eff6e692a44/doxia-sink-api-1.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven.reporting/maven-reporting-api/2.2.1/jar/61942e490c112f84b3a1a61572d570f369414939/maven-reporting-api-2.2.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven/maven-error-diagnostics/2.2.1/jar/e81bb342d7d172f23d108dc8fa979a1facdcde8e/maven-error-diagnostics-2.2.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/commons-cli/commons-cli/1.2/jar/2bf96b7aa8b611c177d329452af1dc933e14501c/commons-cli-1.2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven/maven-plugin-descriptor/2.2.1/jar/68d20ae3c40c4664dc52be90338af796db7ffb32/maven-plugin-descriptor-2.2.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven/maven-monitor/2.2.1/jar/afc57c3a1368cd34caccb638e00523701f398c20/maven-monitor-2.2.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.jcraft/jsch/0.1.38/jar/677f7038dd5c8d5d687c558d09c124f820a8fd5/jsch-0.1.38.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.codehaus.plexus/plexus-component-api/1.0-alpha-16/jar/5a2100a1c6a37804b1abfc70000b0ea33b83b7f9/plexus-component-api-1.0-alpha-16.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.codehaus.plexus/plexus-interactivity-api/1.0-alpha-6/jar/c06f0eb818633033f09a87d14c4cfb6f39af9a37/plexus-interactivity-api-1.0-alpha-6.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven.wagon/wagon-ssh-common/1.0-beta-6/jar/c654cc7e10e18bedca04a6e42f980d6c68435fc/wagon-ssh-common-1.0-beta-6.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven.wagon/wagon-ssh/1.0-beta-6/jar/37ac531f8159dddffa398a7612d5cbe313228437/wagon-ssh-1.0-beta-6.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/classworlds/classworlds/1.1/jar/60c708f55deeb7c5dfce8a7886ef09cbc1388eca/classworlds-1.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven/maven-core/2.2.1/jar/6f488e461188496c62e161f32160b3465ce5901e/maven-core-2.2.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven.wagon/wagon-file/1.0-beta-6/jar/6c53633505460caf49d2660de1e24744d915afb9/wagon-file-1.0-beta-6.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.jackrabbit/jackrabbit-jcr-commons/1.5.0/bundle/816ca280dc631b277e7b963723f2e99b038383f2/jackrabbit-jcr-commons-1.5.0.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.jackrabbit/jackrabbit-webdav/1.5.0/jar/b14c7fbbd34862d4d51c5e72ba3a69cde892c260/jackrabbit-webdav-1.5.0.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.slf4j/slf4j-nop/1.5.3/jar/36a3c886235cddd05e55a979cef549196740231a/slf4j-nop-1.5.3.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven.wagon/wagon-webdav-jackrabbit/1.0-beta-6/jar/b694b223d0f19abcb32e304ebd5054061ee0f7b5/wagon-webdav-jackrabbit-1.0-beta-6.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.slf4j/slf4j-jdk14/1.5.6/jar/cc383fbd07dd1826bbcba1b907bbdc0b5be627f1/slf4j-jdk14-1.5.6.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.maven.wagon/wagon-ssh-external/1.0-beta-6/jar/76918505c5fa6e309cd393aca8acd1b236559288/wagon-ssh-external-1.0-beta-6.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/com.googlecode.flyway/flyway-core/2.1.1/jar/49f345a4924d84a961ba136fae73d0d256c1e080/flyway-core-2.1.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/c3p0/c3p0/0.9.1.1/jar/302704f30c6e7abb7a0457f7771739e03c973e80/c3p0-0.9.1.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.httpcomponents/httpcore/4.4-alpha1/jar/feb2686d4cd107f591bb85c4b3ec65889a5bd374/httpcore-4.4-alpha1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/net.minidev/json-smart/1.2/bundle/199828b0a7be9626c6eaecb005baddd24bfddc1f/json-smart-1.2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/asm/asm-tree/3.2/jar/cd792e29c79d170c5d0bdd05adf5807cf6875c90/asm-tree-3.2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/asm/asm-commons/3.2/jar/e7a19b8c60589499e35f5d2068d09013030b8891/asm-commons-3.2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/asm/asm-util/3.2/jar/37ebfdad34d5f1f45109981465f311bbfbe82dcf/asm-util-3.2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/asm/asm-analysis/3.2/jar/c624956db93975b7197699dcd7de6145ca7cf2c8/asm-analysis-3.2.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.codehaus.groovy/groovy/1.8.4/jar/344c49f07cf37471935d5103b6cbe7c5aaa09445/groovy-1.8.4.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.apache.httpcomponents/httpmime/4.2.1/jar/7c772bace9aa31a728c39a88c6ff66a7cd177e89/httpmime-4.2.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/commons-collections/commons-collections/3.2.1/jar/761ea405b9b37ced573d2df0d1e3a4e0f9edc668/commons-collections-3.2.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.ccil.cowan.tagsoup/tagsoup/1.2.1/jar/5584627487e984c03456266d3f8802eb85a9ce97/tagsoup-1.2.1.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.hamcrest/hamcrest-library/1.3/jar/4785a3c21320980282f9f33d0d1264a69040538f/hamcrest-library-1.3.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.objenesis/objenesis/1.0/jar/9b473564e792c2bdf1449da1f0b1b5bff9805704/objenesis-1.0.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.mockito/mockito-core/1.9.5/jar/c3264abeea62c4d2f367e21484fbb40c7e256393/mockito-core-1.9.5.jar, file:/home/vorburger/.gradle/caches/artifacts-26/filestore/org.springframework/spring-test/4.0.6.RELEASE/jar/b2f65445f300f1317fe694e6530cce39d7090ff6/spring-test-4.0.6.RELEASE.jar, file:/home/vorburger/dev/M/MariaDB4j/target/classes/, file:/home/vorburger/dev/M/MariaDB4j/target/test-classes/, file:/home/vorburger/.m2/repository/mysql/mysql-connector-java/5.1.31/mysql-connector-java-5.1.31.jar, file:/home/vorburger/.m2/repository/junit/junit/4.11/junit-4.11.jar, file:/home/vorburger/.m2/repository/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar, file:/home/vorburger/.m2/repository/org/slf4j/slf4j-api/1.7.7/slf4j-api-1.7.7.jar, file:/home/vorburger/.m2/repository/org/slf4j/slf4j-simple/1.7.7/slf4j-simple-1.7.7.jar, file:/home/vorburger/.m2/repository/org/apache/commons/commons-exec/1.2/commons-exec-1.2.jar, file:/home/vorburger/.m2/repository/commons-collections/commons-collections/3.2.1/commons-collections-3.2.1.jar, file:/home/vorburger/.m2/repository/org/springframework/spring-core/4.0.6.RELEASE/spring-core-4.0.6.RELEASE.jar, file:/home/vorburger/.m2/repository/commons-logging/commons-logging/1.1.3/commons-logging-1.1.3.jar, file:/home/vorburger/.m2/repository/commons-io/commons-io/2.4/commons-io-2.4.jar, file:/home/vorburger/.m2/repository/org/apache/commons/commons-lang3/3.3.2/commons-lang3-3.3.2.jar, file:/home/vorburger/.m2/repository/commons-dbutils/commons-dbutils/1.6/commons-dbutils-1.6.jar, file:/home/vorburger/dev/ngMUI/com.temenos.ds.op.sdk.ide/configuration/org.eclipse.osgi/252/0/.cp/, file:/home/vorburger/dev/ngMUI/com.temenos.ds.op.sdk.ide/configuration/org.eclipse.osgi/251/0/.cp/]\n16:56:56.891 [main] ERROR o.s.boot.SpringApplication - Application startup failed\norg.springframework.beans.factory.BeanDefinitionStoreException: Failed to load bean class: ; nested exception is java.lang.NullPointerException\n    at org.springframework.context.annotation.ConfigurationClassParser.processDeferredImportSelectors(ConfigurationClassParser.java:395) ~[spring-context-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.context.annotation.ConfigurationClassParser.parse(ConfigurationClassParser.java:165) ~[spring-context-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.context.annotation.ConfigurationClassPostProcessor.processConfigBeanDefinitions(ConfigurationClassPostProcessor.java:305) ~[spring-context-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.context.annotation.ConfigurationClassPostProcessor.postProcessBeanDefinitionRegistry(ConfigurationClassPostProcessor.java:243) ~[spring-context-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.context.support.PostProcessorRegistrationDelegate.invokeBeanDefinitionRegistryPostProcessors(PostProcessorRegistrationDelegate.java:254) ~[spring-context-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.context.support.PostProcessorRegistrationDelegate.invokeBeanFactoryPostProcessors(PostProcessorRegistrationDelegate.java:94) ~[spring-context-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.context.support.AbstractApplicationContext.invokeBeanFactoryPostProcessors(AbstractApplicationContext.java:609) ~[spring-context-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:464) ~[spring-context-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.boot.context.embedded.EmbeddedWebApplicationContext.refresh(EmbeddedWebApplicationContext.java:120) ~[spring-boot-1.1.4.RELEASE.jar:1.1.4.RELEASE]\n    at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:691) ~[spring-boot-1.1.4.RELEASE.jar:1.1.4.RELEASE]\n    at org.springframework.boot.SpringApplication.run(SpringApplication.java:320) ~[spring-boot-1.1.4.RELEASE.jar:1.1.4.RELEASE]\n    at org.springframework.boot.test.SpringApplicationContextLoader.loadContext(SpringApplicationContextLoader.java:107) [spring-boot-1.1.4.RELEASE.jar:1.1.4.RELEASE]\n    at org.springframework.test.context.CacheAwareContextLoaderDelegate.loadContextInternal(CacheAwareContextLoaderDelegate.java:64) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.CacheAwareContextLoaderDelegate.loadContext(CacheAwareContextLoaderDelegate.java:91) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.DefaultTestContext.getApplicationContext(DefaultTestContext.java:101) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.support.DependencyInjectionTestExecutionListener.injectDependencies(DependencyInjectionTestExecutionListener.java:109) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.support.DependencyInjectionTestExecutionListener.prepareTestInstance(DependencyInjectionTestExecutionListener.java:75) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.TestContextManager.prepareTestInstance(TestContextManager.java:331) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.junit4.SpringJUnit4ClassRunner.createTest(SpringJUnit4ClassRunner.java:213) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.junit4.SpringJUnit4ClassRunner$1.runReflectiveCall(SpringJUnit4ClassRunner.java:290) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12) [junit-4.11.jar:na]\n    at org.springframework.test.context.junit4.SpringJUnit4ClassRunner.methodBlock(SpringJUnit4ClassRunner.java:292) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.junit4.SpringJUnit4ClassRunner.runChild(SpringJUnit4ClassRunner.java:233) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.junit4.SpringJUnit4ClassRunner.runChild(SpringJUnit4ClassRunner.java:87) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.junit.runners.ParentRunner$3.run(ParentRunner.java:238) [junit-4.11.jar:na]\n    at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:63) [junit-4.11.jar:na]\n    at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:236) [junit-4.11.jar:na]\n    at org.junit.runners.ParentRunner.access$000(ParentRunner.java:53) [junit-4.11.jar:na]\n    at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:229) [junit-4.11.jar:na]\n    at org.springframework.test.context.junit4.statements.RunBeforeTestClassCallbacks.evaluate(RunBeforeTestClassCallbacks.java:61) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.junit4.statements.RunAfterTestClassCallbacks.evaluate(RunAfterTestClassCallbacks.java:71) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.junit.runners.ParentRunner.run(ParentRunner.java:309) [junit-4.11.jar:na]\n    at org.springframework.test.context.junit4.SpringJUnit4ClassRunner.run(SpringJUnit4ClassRunner.java:176) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.eclipse.jdt.internal.junit4.runner.JUnit4TestReference.run(JUnit4TestReference.java:50) [.cp/:na]\n    at org.eclipse.jdt.internal.junit.runner.TestExecution.run(TestExecution.java:38) [.cp/:na]\n    at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests(RemoteTestRunner.java:459) [.cp/:na]\n    at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests(RemoteTestRunner.java:675) [.cp/:na]\n    at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run(RemoteTestRunner.java:382) [.cp/:na]\n    at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.main(RemoteTestRunner.java:192) [.cp/:na]\nCaused by: java.lang.NullPointerException: null\n    at org.springframework.boot.autoconfigure.EnableAutoConfigurationImportSelector.selectImports(EnableAutoConfigurationImportSelector.java:63) ~[spring-boot-autoconfigure-1.1.4.RELEASE.jar:1.1.4.RELEASE]\n    at org.springframework.context.annotation.ConfigurationClassParser.processDeferredImportSelectors(ConfigurationClassParser.java:391) ~[spring-context-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    ... 38 common frames omitted\n16:56:56.893 [main] ERROR o.s.test.context.TestContextManager - Caught exception while allowing TestExecutionListener [org.springframework.test.context.support.DependencyInjectionTestExecutionListener@31000e60] to prepare test instance [org.mifosplatform.boot.MifosSpringBootServerTest@1d470d0]\njava.lang.IllegalStateException: Failed to load ApplicationContext\n    at org.springframework.test.context.CacheAwareContextLoaderDelegate.loadContext(CacheAwareContextLoaderDelegate.java:99) ~[spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.DefaultTestContext.getApplicationContext(DefaultTestContext.java:101) ~[spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.support.DependencyInjectionTestExecutionListener.injectDependencies(DependencyInjectionTestExecutionListener.java:109) ~[spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.support.DependencyInjectionTestExecutionListener.prepareTestInstance(DependencyInjectionTestExecutionListener.java:75) ~[spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.TestContextManager.prepareTestInstance(TestContextManager.java:331) ~[spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.junit4.SpringJUnit4ClassRunner.createTest(SpringJUnit4ClassRunner.java:213) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.junit4.SpringJUnit4ClassRunner$1.runReflectiveCall(SpringJUnit4ClassRunner.java:290) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12) [junit-4.11.jar:na]\n    at org.springframework.test.context.junit4.SpringJUnit4ClassRunner.methodBlock(SpringJUnit4ClassRunner.java:292) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.junit4.SpringJUnit4ClassRunner.runChild(SpringJUnit4ClassRunner.java:233) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.junit4.SpringJUnit4ClassRunner.runChild(SpringJUnit4ClassRunner.java:87) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.junit.runners.ParentRunner$3.run(ParentRunner.java:238) [junit-4.11.jar:na]\n    at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:63) [junit-4.11.jar:na]\n    at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:236) [junit-4.11.jar:na]\n    at org.junit.runners.ParentRunner.access$000(ParentRunner.java:53) [junit-4.11.jar:na]\n    at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:229) [junit-4.11.jar:na]\n    at org.springframework.test.context.junit4.statements.RunBeforeTestClassCallbacks.evaluate(RunBeforeTestClassCallbacks.java:61) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.junit4.statements.RunAfterTestClassCallbacks.evaluate(RunAfterTestClassCallbacks.java:71) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.junit.runners.ParentRunner.run(ParentRunner.java:309) [junit-4.11.jar:na]\n    at org.springframework.test.context.junit4.SpringJUnit4ClassRunner.run(SpringJUnit4ClassRunner.java:176) [spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.eclipse.jdt.internal.junit4.runner.JUnit4TestReference.run(JUnit4TestReference.java:50) [.cp/:na]\n    at org.eclipse.jdt.internal.junit.runner.TestExecution.run(TestExecution.java:38) [.cp/:na]\n    at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests(RemoteTestRunner.java:459) [.cp/:na]\n    at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests(RemoteTestRunner.java:675) [.cp/:na]\n    at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run(RemoteTestRunner.java:382) [.cp/:na]\n    at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.main(RemoteTestRunner.java:192) [.cp/:na]\nCaused by: org.springframework.beans.factory.BeanDefinitionStoreException: Failed to load bean class: ; nested exception is java.lang.NullPointerException\n    at org.springframework.context.annotation.ConfigurationClassParser.processDeferredImportSelectors(ConfigurationClassParser.java:395) ~[spring-context-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.context.annotation.ConfigurationClassParser.parse(ConfigurationClassParser.java:165) ~[spring-context-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.context.annotation.ConfigurationClassPostProcessor.processConfigBeanDefinitions(ConfigurationClassPostProcessor.java:305) ~[spring-context-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.context.annotation.ConfigurationClassPostProcessor.postProcessBeanDefinitionRegistry(ConfigurationClassPostProcessor.java:243) ~[spring-context-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.context.support.PostProcessorRegistrationDelegate.invokeBeanDefinitionRegistryPostProcessors(PostProcessorRegistrationDelegate.java:254) ~[spring-context-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.context.support.PostProcessorRegistrationDelegate.invokeBeanFactoryPostProcessors(PostProcessorRegistrationDelegate.java:94) ~[spring-context-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.context.support.AbstractApplicationContext.invokeBeanFactoryPostProcessors(AbstractApplicationContext.java:609) ~[spring-context-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:464) ~[spring-context-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.boot.context.embedded.EmbeddedWebApplicationContext.refresh(EmbeddedWebApplicationContext.java:120) ~[spring-boot-1.1.4.RELEASE.jar:1.1.4.RELEASE]\n    at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:691) ~[spring-boot-1.1.4.RELEASE.jar:1.1.4.RELEASE]\n    at org.springframework.boot.SpringApplication.run(SpringApplication.java:320) ~[spring-boot-1.1.4.RELEASE.jar:1.1.4.RELEASE]\n    at org.springframework.boot.test.SpringApplicationContextLoader.loadContext(SpringApplicationContextLoader.java:107) ~[spring-boot-1.1.4.RELEASE.jar:1.1.4.RELEASE]\n    at org.springframework.test.context.CacheAwareContextLoaderDelegate.loadContextInternal(CacheAwareContextLoaderDelegate.java:64) ~[spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    at org.springframework.test.context.CacheAwareContextLoaderDelegate.loadContext(CacheAwareContextLoaderDelegate.java:91) ~[spring-test-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    ... 25 common frames omitted\nCaused by: java.lang.NullPointerException: null\n    at org.springframework.boot.autoconfigure.EnableAutoConfigurationImportSelector.selectImports(EnableAutoConfigurationImportSelector.java:63) ~[spring-boot-autoconfigure-1.1.4.RELEASE.jar:1.1.4.RELEASE]\n    at org.springframework.context.annotation.ConfigurationClassParser.processDeferredImportSelectors(ConfigurationClassParser.java:391) ~[spring-context-4.0.6.RELEASE.jar:4.0.6.RELEASE]\n    ... 38 common frames omitted```\n``````\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1328",
+        "assignees": [
+            "dsyer"
+        ],
+        "labels": [
+            "type: bug",
+            "type: enhancement"
+        ],
+        "issue_closed_at": "2014-08-04T15:34:53.000Z",
+        "fix_commit_hash": "6c5f8f9581e619bf5f16d5d568c68f592e728234",
+        "commit_type": "commit",
+        "commit_message": "Add @Inherited to @EnableAutoConfiguration\n\nFixes gh-1328",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/6c5f8f9581e619bf5f16d5d568c68f592e728234",
+        "earliest_issue_date": "2014-08-01T15:00:21Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1331,
+        "issue_title": "MetricsFilter unaware of uri template variables, causes memory issues",
+        "issue_body": "MetricsFilter is unaware of uri template variables. The end result of this is a large pile of un-grouped metrics which aren't terribly useful. Given a high enough volume this can also cause a memory issue pretty quickly.\n\nExample data:\n\n```\n\"counter.status.0.v1.customer.216352347804695987.subscription.Streaming.cancelPredictionResponse\": 4,\n\"counter.status.0.v1.customer.216352546813607503.subscription.Streaming\": 2,\n\"counter.status.0.v1.customer.216352546813607503.subscription.Streaming.cancelPredictionResponse\": 1,\n\"counter.status.0.v1.customer.216352546813614321.subscription.Streaming\": 7,\n\"counter.status.0.v1.customer.216352546813614321.subscription.Streaming.cancelPredictionResponse\": 7,\n\"counter.status.0.v1.customer.216352546813635000.subscription.Streaming\": 5,\n\"counter.status.0.v1.customer.216352546813635000.subscription.Streaming.cancelPredictionResponse\": 5,\n\"counter.status.0.v1.customer.216352546813647633.subscription.Streaming\": 3,\n\"counter.status.0.v1.customer.216352546813647633.subscription.Streaming.cancelPredictionResponse\": 3,\n\"counter.status.0.v1.customer.216352546813969969.subscription.Streaming\": 1,\n```\n\nWould expect the actual id's to be replaced by the path variable \"customerId\"\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1331",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2014-08-05T14:56:59.000Z",
+        "fix_commit_hash": "733b22f46aa741175192009a98c367e1ecdd8f75",
+        "commit_type": "commit",
+        "commit_message": "gh-1331 defaulting 404 response metrics to \"unkownPath\" when no matching handler can be found\n\nFixes gh-1331, Fixes gh-1333",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/733b22f46aa741175192009a98c367e1ecdd8f75",
+        "earliest_issue_date": "2014-08-04T20:05:38Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1335,
+        "issue_title": "Auto-configured webmvc application with security not publishing authentication events",
+        "issue_body": "The default spring-security ProviderManager uses a NullEventPublisher by default, which means authentication events don't get published to ApplicationListeners (such as the AuditListener provided by spring-boot-actuator). For example I wasn't seeing BadCredentials events published when they should have been, etc.\n\nBased on the boot web security samples, I worked around this by adding an Autowired AuthenticationEventPublisher in my GlobalAuthenticationConfigurerAdapter and then calling auth.authenticationEventPublisher with it in init() which sets up a DefaultAuthenticationEventPublisher thanks to its Bean definition in boot's SecurityAutoConfiguration.\n\nIt looks like there might be the beginning of some work to make this the default autoconfigured behavior in AuthenticationManagerConfiguration via lazyAuthenticationManager, but it seems to be unused.\n\nNot sure if I'm way off base and noone wants this as default behavior, or that its supposed to be the default behavior and there is another bug in a place I've overlooked causing DefaultAuthenticationEventPublisher to not be setup?\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1335",
+        "assignees": [],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-08-07T02:34:00.000Z",
+        "fix_commit_hash": "38f8d65756a0bb98e9014c31daef6c0dc660e44a",
+        "commit_type": "commit",
+        "commit_message": "Use ApplicationEvent to ensure that authentication event publisher is registered\n\nThere was a reference to an old (fixed) issue in Spring which led to some simplification\nof the AuthenticationManager layering as well.\n\nFixes gh-1335",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/38f8d65756a0bb98e9014c31daef6c0dc660e44a",
+        "earliest_issue_date": "2014-08-05T14:44:58Z",
+        "predicted_class": "bug",
+        "bic": [
+            "5e3cc95ccff09b7d10e176ad355e1c029ecd9d97"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1336,
+        "issue_title": "spring.datasource.initialize=false Does not disable loading of data-${platform}.sql",
+        "issue_body": "When setting the flag spring.datasource.initialize=false, the data-${platform}.sql and data.sql files are always loaded. \n\nThis comes after the refactoring \"Defer SQL initialization to fit with JPA better\" that fixes \"gh-1006\" (done on june 2nd, commit id 49a09c807c437ad9b668652a89ea70c122aff89a)\n\nThis behaviour is different than specified in the chpater \"63.3 Initialize a database using Spring JDBC\" of the documentation.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1336",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-08-06T14:08:00.000Z",
+        "fix_commit_hash": "7d213950ad393dab636a7844e960b78498690b0b",
+        "commit_type": "commit",
+        "commit_message": "Never run data.sql scripts if spring.datasource.initialize is false\n\nPreviously, the data scripts were always run in response to the\npublication of a DataSourceInitializedEvent, irrespective of\nspring.datasource.initialize. While the event won't be published by\nDataSourceInitializer if spring.datasource.initialize is false, it\nwill be published if spring.jpa.hibernate.hbm2ddl.auto has been set.\n\nThis commit updates DataSourceInitializer's handling of\nDataSourceInitializedEvent to only run the data scripts if\nspring.datasource.initialize is true.\n\nFixes #1336",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/7d213950ad393dab636a7844e960b78498690b0b",
+        "earliest_issue_date": "2014-08-05T17:43:28Z",
+        "predicted_class": "bug",
+        "bic": [
+            "37121e69e6c2fdc70a0bd45aa9b50e0d2d2d769e"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1352,
+        "issue_title": "PropertiesLauncher: loader.path failed to reference a windows folder",
+        "issue_body": "The problem occurred when using the parameter below:\n`-Dloader.pah=C:/MyFolder,D:/AnotherFolder,lib`\n\n`MyFolder` is ignored as the source code of `PropertiesLauncher.java` is performing a check of a starting '/' character which makes sense under Linux but not under Windows.\n\nBelow is the identified bug:\n\n```\nprivate List<Archive> getClassPathArchives(String path) throws Exception {\n    String root = cleanupPath(stripFileUrlPrefix(path));\n    List<Archive> lib = new ArrayList<Archive>();\n    File file = new File(root);\n    if (!root.startsWith(\"/\")) {\n      file = new File(this.home, root);\n    }\n....\n```\n\nThe effect is that launcher is looking for resource `C:/MyFolder` under the user home directory ... which does not exist. The effect is that folder is ignored without any notice...\n\nAs Workaround I may use the `-Dhome=C:/` to customize the \"user.home\" folder, unfortunately this solve only the problem for `MyFolder` but does not solve my whole problem as I need to refer directories from multiple partitions ...\n\nAnother idea was to prefix `C:/MyFolder` with a `'/C:/MyFolder'` ... it works better, but for resources in `MyFolder` `ClassLoader.getResource` returns URL while `getResourceAsStream` return null on the same resource .... (due to the presence of the leading / in the URL)\n\nTo Workaround totally the issue I need to write a custom `ClassLoader` and declared it with `-Dloader.classLoader ....` and perform URL correction on the fly ...\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1352",
+        "assignees": [],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-08-19T13:16:47.000Z",
+        "fix_commit_hash": "8e84151f8f951c2fc61d51152522f74c6fab743b",
+        "commit_type": "commit",
+        "commit_message": "Normalize search path in PropertiesLauncher\n\n* Windows: allow absolute file paths without file:/// prefix\n* All: only add nested archives (not directories), so loader.path=lib/*\nbehaves the same as -classpath=lib/* (except for adding zip files)\n\nFixes gh-1352",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/8e84151f8f951c2fc61d51152522f74c6fab743b",
+        "earliest_issue_date": "2014-08-08T09:51:49Z",
+        "predicted_class": "bug",
+        "bic": [
+            "ea11dafcbd951b3b23257585bce1f479ca9faa73"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1353,
+        "issue_title": "DataSourceHealthIndicator should not include the database product name",
+        "issue_body": "Per the documentation, the health check is unsecured by default.  The DataSourceHealthIndicator should not publish details about the type of data store being used.  When using Autoconfiguration and MySQL, for instance, the health checks returns:\n\n{\"status\":\"UP\",\"database\":\"MySQL\",\"hello\":1}\n\nObviously we can configure it to be secured or not to use the DataSourceHealthIndicator, but it forces you to abandon Autoconfiguration for health checks right off the bat.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1353",
+        "assignees": [
+            "dsyer"
+        ],
+        "labels": [
+            "type: enhancement"
+        ],
+        "issue_closed_at": "2014-10-27T16:58:24.000Z",
+        "fix_commit_hash": "24e71e868f0599eb041b80d32f7cd3e17977c897",
+        "commit_type": "commit",
+        "commit_message": "Allow /health and /info to authenticate anonymously\n\nThen we can optionally find a non-anonymous principal if there\nis one. If the user is anonymous then the health result is cached\nup to endpoints.health.ttl (default 1000ms) to prevent a DOS attack.\n\nFixes gh-1353",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/24e71e868f0599eb041b80d32f7cd3e17977c897",
+        "earliest_issue_date": "2014-08-08T15:38:49Z",
+        "predicted_class": "bug",
+        "bic": [
+            "0c2bc99af373ab9b03ab15b3bb58c57b0c3b56b7"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1354,
+        "issue_title": "@Grab processing from internal Maven repository (requiring authentication) not working properly",
+        "issue_body": "Hi.\nIn my company we have an internal Maven repository (Nexus) and in-house artifacts that get deployed there. What I want to achieve is using spring-boot-cli to \"run\" a Groovy script, which will @Grab multiple of these artifacts.\n\nHowever this fails for several reasons:\n1.) The artifacts seem to be always loaded from the public Maven repositories defined in RepositoryConfigurationFactory. Of course, they don't exist there.\n2.) Using @GrabResolver to point to our Nexus URL also won't work, because our Nexus requires authentication.\n3.) My local .m2/settings.xml is loaded (where a &lt;mirror&gt; and a &lt;server&gt; block is defined), but it seems not to be \"used\" when the @Grabs are processed.\n\nAffected version: 1.1.4.RELEASE and master\n\nAfter digging and poking around a bit in the code, I managed to create a \"patch\" which will replace the repository list with the mirror from the settings.xml and add the authentication information.\nWarning: this patch is to be considered as \"quick hack\" to get the stuff running, also known as \"works for me\". :-) A proper fix has to be done by you guys, because I'm not really familar with the spring-boot-cli code base, and just don't know how things are really supposed to work there...\n\nHere's the Gist repo containing my (anonymized) settings.xml and the patch:\nhttps://gist.github.com/827c0ed85fc944798fef.git\n\nThanks.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1354",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-08-19T16:57:04.000Z",
+        "fix_commit_hash": "5f9fddd44aa9e5620334c1de0d911138cb9c4bb3",
+        "commit_type": "commit",
+        "commit_message": "Explicitly apply mirror and auth settings to remote repos in the CLI\n\nPreviously, the CLI relied on Aether using the session's mirror\nselector and authentication selector to customize the configured\nrepositories. These selectors are only used to configure what Aether\ncalls recessive repositories (repositories discovered when resolving\nan artifact), rather than the explicitly configured repositories that\nare typically used.\n\nThis commit updates AetherGrapeEngine to apply mirror and\nauthentication configuration to every added repository, bringing its\nbehaviour for these two settings into line with what it already does\nfor proxy configuration.\n\nFixes #1354",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/5f9fddd44aa9e5620334c1de0d911138cb9c4bb3",
+        "earliest_issue_date": "2014-08-08T15:42:47Z",
+        "predicted_class": "bug",
+        "bic": [
+            "1e6a4f3f6540e96d7c5bba31c3eba30ee9d288af"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1358,
+        "issue_title": "The double asterisks in /metrics",
+        "issue_body": "Sample output below (Spring Boot 1.2 snapshot).\n\nThe documentation does not explain what the ddouble asterisks (**) below means.\n\nI guess all requests for static resources. I also guess that they do not include endpoints mapped by Spring MVC (but I'm guessing, using an asterisk usually means \"everything\").\n\nYou should document this - and maybe rethink that syntax.\n\n```\n{\n  \"mem\": 230400,\n  \"mem.free\": 124101,\n  \"processors\": 4,\n  \"uptime\": 219691,\n  \"instance.uptime\": 202982,\n  \"heap.committed\": 230400,\n  \"heap.init\": 57344,\n  \"heap.used\": 106298,\n  \"heap\": 815616,\n  \"threads.peak\": 17,\n  \"threads.daemon\": 7,\n  \"threads\": 17,\n  \"classes\": 8606,\n  \"classes.loaded\": 8607,\n  \"classes.unloaded\": 1,\n  \"gc.ps_scavenge.count\": 27,\n  \"gc.ps_scavenge.time\": 260,\n  \"gc.ps_marksweep.count\": 4,\n  \"gc.ps_marksweep.time\": 585,\n  \"counter.status.200.**\": 29,\n  \"counter.status.200.metrics\": 3,\n  \"counter.status.200.root\": 1,\n  \"counter.status.200.template\": 1,\n  \"gauge.response.**\": 2,\n  \"gauge.response.metrics\": 4,\n  \"gauge.response.root\": 514,\n  \"gauge.response.template\": 1596\n}\n```\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1358",
+        "assignees": [],
+        "labels": [
+            "type: documentation"
+        ],
+        "issue_closed_at": "2014-08-13T15:24:24.000Z",
+        "fix_commit_hash": "481cf775d8877be669aca2adcec3001bd38bc73b",
+        "commit_type": "commit",
+        "commit_message": "Refer explicitly to double asterix in metrics docs\n\nFixes gh-1358",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/481cf775d8877be669aca2adcec3001bd38bc73b",
+        "earliest_issue_date": "2014-08-10T00:00:03Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1364,
+        "issue_title": "Spring Boot 1.1.5.RELEASE breaks gs-securing-web guide",
+        "issue_body": "Spring Boot 1.1.4.RELEASE works fine with [gs-securing-web/complete](https://github.com/spring-guides/gs-securing-web/tree/master/complete), but upgrading to Spring Boot 1.1.5.RELEASE causes it to fail with the following stack trace:\n\n```\n$ ./gradlew bootRun\nJava HotSpot(TM) 64-Bit Server VM warning: ignoring option MaxPermSize=512m; support was removed in 8.0\n:compileJava\n:processResources\n:classes\n:findMainClass\n:bootRun\n\n  .   ____          _            __ _ _\n /\\\\ / ___'_ __ _ _(_)_ __  __ _ \\ \\ \\ \\\n( ( )\\___ | '_ | '_| | '_ \\/ _` | \\ \\ \\ \\\n \\\\/  ___)| |_)| | | | | || (_| |  ) ) ) )\n  '  |____| .__|_| |_|_| |_\\__, | / / / /\n =========|_|==============|___/=/_/_/_/\n :: Spring Boot ::        (v1.1.5.RELEASE)\n\n2014-08-11 09:12:59.903  INFO 56967 --- [           main] hello.Application                        : Starting Application on retina with PID 56967 (/private/tmp/gs-securing-web/complete/build/classes/main started by gturnquist in /private/tmp/gs-securing-web/complete)\n2014-08-11 09:12:59.953  INFO 56967 --- [           main] ationConfigEmbeddedWebApplicationContext : Refreshing org.springframework.boot.context.embedded.AnnotationConfigEmbeddedWebApplicationContext@290dbf45: startup date [Mon Aug 11 09:12:59 CDT 2014]; root of context hierarchy\n2014-08-11 09:13:00.315  INFO 56967 --- [           main] o.s.b.f.s.DefaultListableBeanFactory     : Overriding bean definition for bean 'beanNameViewResolver': replacing [Root bean: class [null]; scope=; abstract=false; lazyInit=false; autowireMode=3; dependencyCheck=0; autowireCandidate=true; primary=false; factoryBeanName=org.springframework.boot.autoconfigure.web.ErrorMvcAutoConfiguration$WhitelabelErrorViewConfiguration; factoryMethodName=beanNameViewResolver; initMethodName=null; destroyMethodName=(inferred); defined in class path resource [org/springframework/boot/autoconfigure/web/ErrorMvcAutoConfiguration$WhitelabelErrorViewConfiguration.class]] with [Root bean: class [null]; scope=; abstract=false; lazyInit=false; autowireMode=3; dependencyCheck=0; autowireCandidate=true; primary=false; factoryBeanName=org.springframework.boot.autoconfigure.web.WebMvcAutoConfiguration$WebMvcAutoConfigurationAdapter; factoryMethodName=beanNameViewResolver; initMethodName=null; destroyMethodName=(inferred); defined in class path resource [org/springframework/boot/autoconfigure/web/WebMvcAutoConfiguration$WebMvcAutoConfigurationAdapter.class]]\n2014-08-11 09:13:00.965  INFO 56967 --- [           main] .t.TomcatEmbeddedServletContainerFactory : Server initialized with port: 8080\n2014-08-11 09:13:01.109  INFO 56967 --- [           main] o.apache.catalina.core.StandardService   : Starting service Tomcat\n2014-08-11 09:13:01.110  INFO 56967 --- [           main] org.apache.catalina.core.StandardEngine  : Starting Servlet Engine: Apache Tomcat/7.0.54\n2014-08-11 09:13:01.201  INFO 56967 --- [ost-startStop-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext\n2014-08-11 09:13:01.201  INFO 56967 --- [ost-startStop-1] o.s.web.context.ContextLoader            : Root WebApplicationContext: initialization completed in 1251 ms\n2014-08-11 09:13:01.876  INFO 56967 --- [ost-startStop-1] o.s.s.web.DefaultSecurityFilterChain     : Creating filter chain: org.springframework.security.web.util.matcher.AnyRequestMatcher@1, [org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter@75966349, org.springframework.security.web.context.SecurityContextPersistenceFilter@77d57c1b, org.springframework.security.web.header.HeaderWriterFilter@7fb6b132, org.springframework.security.web.csrf.CsrfFilter@2f0ffb7d, org.springframework.security.web.authentication.logout.LogoutFilter@66b9d54f, org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter@62f2e07b, org.springframework.security.web.savedrequest.RequestCacheAwareFilter@29f40f87, org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter@782c3e3b, org.springframework.security.web.authentication.AnonymousAuthenticationFilter@5af2b2f2, org.springframework.security.web.session.SessionManagementFilter@7f5c68e7, org.springframework.security.web.access.ExceptionTranslationFilter@4f4a6449, org.springframework.security.web.access.intercept.FilterSecurityInterceptor@5cf84811]\n2014-08-11 09:13:01.918  INFO 56967 --- [ost-startStop-1] o.s.b.c.e.ServletRegistrationBean        : Mapping servlet: 'dispatcherServlet' to [/]\n2014-08-11 09:13:01.921  INFO 56967 --- [ost-startStop-1] o.s.b.c.embedded.FilterRegistrationBean  : Mapping filter: 'springSecurityFilterChain' to: [/*]\n2014-08-11 09:13:01.922  INFO 56967 --- [ost-startStop-1] o.s.b.c.embedded.FilterRegistrationBean  : Mapping filter: 'hiddenHttpMethodFilter' to: [/*]\n2014-08-11 09:13:02.225  INFO 56967 --- [           main] o.s.w.s.handler.SimpleUrlHandlerMapping  : Mapped URL path [/**/favicon.ico] onto handler of type [class org.springframework.web.servlet.resource.ResourceHttpRequestHandler]\n2014-08-11 09:13:02.333  INFO 56967 --- [           main] s.w.s.m.m.a.RequestMappingHandlerMapping : Mapped \"{[/error],methods=[],params=[],headers=[],consumes=[],produces=[],custom=[]}\" onto public org.springframework.http.ResponseEntity<java.util.Map<java.lang.String, java.lang.Object>> org.springframework.boot.autoconfigure.web.BasicErrorController.error(javax.servlet.http.HttpServletRequest)\n2014-08-11 09:13:02.334  INFO 56967 --- [           main] s.w.s.m.m.a.RequestMappingHandlerMapping : Mapped \"{[/error],methods=[],params=[],headers=[],consumes=[],produces=[text/html],custom=[]}\" onto public org.springframework.web.servlet.ModelAndView org.springframework.boot.autoconfigure.web.BasicErrorController.errorHtml(javax.servlet.http.HttpServletRequest)\n2014-08-11 09:13:02.340  INFO 56967 --- [           main] o.s.w.s.handler.SimpleUrlHandlerMapping  : Mapped URL path [/home] onto handler of type [class org.springframework.web.servlet.mvc.ParameterizableViewController]\n2014-08-11 09:13:02.340  INFO 56967 --- [           main] o.s.w.s.handler.SimpleUrlHandlerMapping  : Mapped URL path [/login] onto handler of type [class org.springframework.web.servlet.mvc.ParameterizableViewController]\n2014-08-11 09:13:02.340  INFO 56967 --- [           main] o.s.w.s.handler.SimpleUrlHandlerMapping  : Root mapping to handler of type [class org.springframework.web.servlet.mvc.ParameterizableViewController]\n2014-08-11 09:13:02.340  INFO 56967 --- [           main] o.s.w.s.handler.SimpleUrlHandlerMapping  : Mapped URL path [/hello] onto handler of type [class org.springframework.web.servlet.mvc.ParameterizableViewController]\n2014-08-11 09:13:02.349  INFO 56967 --- [           main] o.s.w.s.handler.SimpleUrlHandlerMapping  : Mapped URL path [/webjars/**] onto handler of type [class org.springframework.web.servlet.resource.ResourceHttpRequestHandler]\n2014-08-11 09:13:02.349  INFO 56967 --- [           main] o.s.w.s.handler.SimpleUrlHandlerMapping  : Mapped URL path [/**] onto handler of type [class org.springframework.web.servlet.resource.ResourceHttpRequestHandler]\n2014-08-11 09:13:02.588  INFO 56967 --- [           main] o.s.j.e.a.AnnotationMBeanExporter        : Registering beans for JMX exposure on startup\n2014-08-11 09:13:02.630  INFO 56967 --- [           main] o.apache.catalina.core.StandardService   : Stopping service Tomcat\n2014-08-11 09:13:02.639  INFO 56967 --- [           main] .b.l.ClasspathLoggingApplicationListener : Application failed to start with classpath: [file:/private/tmp/gs-securing-web/complete/src/main/resources/, file:/private/tmp/gs-securing-web/complete/build/classes/main/, file:/private/tmp/gs-securing-web/complete/build/resources/main/, file:/Users/gturnquist/.m2/repository/org/springframework/boot/spring-boot-starter-thymeleaf/1.1.5.RELEASE/spring-boot-starter-thymeleaf-1.1.5.RELEASE.jar, file:/Users/gturnquist/.m2/repository/org/springframework/boot/spring-boot-starter-security/1.1.5.RELEASE/spring-boot-starter-security-1.1.5.RELEASE.jar, file:/Users/gturnquist/.m2/repository/org/springframework/boot/spring-boot-starter/1.1.5.RELEASE/spring-boot-starter-1.1.5.RELEASE.jar, file:/Users/gturnquist/.m2/repository/org/springframework/boot/spring-boot-starter-web/1.1.5.RELEASE/spring-boot-starter-web-1.1.5.RELEASE.jar, file:/Users/gturnquist/.m2/repository/org/springframework/spring-core/4.0.6.RELEASE/spring-core-4.0.6.RELEASE.jar, file:/Users/gturnquist/.m2/repository/org/thymeleaf/thymeleaf-spring4/2.1.3.RELEASE/thymeleaf-spring4-2.1.3.RELEASE.jar, file:/Users/gturnquist/.m2/repository/nz/net/ultraq/thymeleaf/thymeleaf-layout-dialect/1.2.5/thymeleaf-layout-dialect-1.2.5.jar, file:/Users/gturnquist/.m2/repository/org/springframework/spring-beans/4.0.6.RELEASE/spring-beans-4.0.6.RELEASE.jar, file:/Users/gturnquist/.m2/repository/org/springframework/spring-context/4.0.6.RELEASE/spring-context-4.0.6.RELEASE.jar, file:/Users/gturnquist/.m2/repository/org/springframework/spring-expression/4.0.6.RELEASE/spring-expression-4.0.6.RELEASE.jar, file:/Users/gturnquist/.m2/repository/org/springframework/spring-web/4.0.6.RELEASE/spring-web-4.0.6.RELEASE.jar, file:/Users/gturnquist/.m2/repository/org/springframework/security/spring-security-config/3.2.4.RELEASE/spring-security-config-3.2.4.RELEASE.jar, file:/Users/gturnquist/.m2/repository/org/springframework/security/spring-security-web/3.2.4.RELEASE/spring-security-web-3.2.4.RE                                                                                                                                                                                                   LEASE.jar, file:/Users/gturnquist/.m2/repository/org/springframework/spring-aop/4.0.6.RELEASE/spring-aop-4.0.6.RELEASE.jar, file:/Users/gturnquist/.m2/repository/org/springframework/boot/spring-boot/1.1.5.RELEASE/spring-boot-1.1.5.RELEASE.jar, file:/Users/gturnquist/.m2/repository/org/springframework/boot/spring-boot-autoconfigure/1.1.5.RELEASE/spring-boot-autoconfigure-1.1.5.RELEASE.jar, file:/Users/gturnquist/.m2/repository/org/springframework/boot/spring-boot-starter-logging/1.1.5.RELEASE/spring-boot-starter-logging-1.1.5.RELEASE.jar, file:/Users/gturnquist/.m2/repository/org/yaml/snakeyaml/1.13/snakeyaml-1.13.jar, file:/Users/gturnquist/.m2/repository/org/springframework/boot/spring-boot-starter-tomcat/1.1.5.RELEASE/spring-boot-starter-tomcat-1.1.5.RELEASE.jar, file:/Users/gturnquist/.m2/repository/com/fasterxml/jackson/core/jackson-databind/2.3.3/jackson-databind-2.3.3.jar, file:/Users/gturnquist/.m2/repository/org/hibernate/hibernate-validator/5.0.3.Final/hibernate-validator-5.0.3.Final.jar, file:/Users/gturnquist/.m2/repository/org/springframework/spring-webmvc/4.0.6.RELEASE/spring-webmvc-4.0.6.RELEASE.jar, file:/Users/gturnquist/.m2/repository/org/thymeleaf/thymeleaf/2.1.3.RELEASE/thymeleaf-2.1.3.RELEASE.jar, file:/Users/gturnquist/.m2/repository/aopalliance/aopalliance/1.0/aopalliance-1.0.jar, file:/Users/gturnquist/.m2/repository/org/springframework/security/spring-security-core/3.2.4.RELEASE/spring-security-core-3.2.4.RELEASE.jar, file:/Users/gturnquist/.m2/repository/org/slf4j/jcl-over-slf4j/1.7.7/jcl-over-slf4j-1.7.7.jar, file:/Users/gturnquist/.m2/repository/org/slf4j/jul-to-slf4j/1.7.7/jul-to-slf4j-1.7.7.jar, file:/Users/gturnquist/.m2/repository/org/slf4j/log4j-over-slf4j/1.7.7/log4j-over-slf4j-1.7.7.jar, file:/Users/gturnquist/.m2/repository/ch/qos/logback/logback-classic/1.1.2/logback-classic-1.1.2.jar, file:/Users/gturnquist/.m2/repository/org/apache/tomcat/embed/tomcat-embed-core/7.0.54/tomcat-embed-core-7.0.54.jar, file:/Users/gturnquist/.m2/repository/org/apache/tomcat/embed/tomcat-embed-el/                                                                                                                                                                                                    7.0.54/tomcat-embed-el-7.0.54.jar, file:/Users/gturnquist/.m2/repository/org/apache/tomcat/embed/tomcat-embed-logging-juli/7.0.54/tomcat-embed-logging-juli-7.0.54.jar, file:/Users/gturnquist/.m2/repository/com/fasterxml/jackson/core/jackson-annotations/2.3.0/jackson-annotations-2.3.0.jar, file:/Users/gturnquist/.m2/repository/com/fasterxml/jackson/core/jackson-core/2.3.3/jackson-core-2.3.3.jar, file:/Users/gturnquist/.m2/repository/javax/validation/validation-api/1.1.0.Final/validation-api-1.1.0.Final.jar, file:/Users/gturnquist/.m2/repository/org/jboss/logging/jboss-logging/3.1.1.GA/jboss-logging-3.1.1.GA.jar, file:/Users/gturnquist/.m2/repository/com/fasterxml/classmate/1.0.0/classmate-1.0.0.jar, file:/Users/gturnquist/.m2/repository/ognl/ognl/3.0.6/ognl-3.0.6.jar, file:/Users/gturnquist/.gradle/caches/modules-2/files-2.1/org.javassist/javassist/3.16.1-GA/315891b371395271977af518d4db5cee1a0bc9bf/javassist-3.16.1-GA.jar, file:/Users/gturnquist/.m2/repository/org/unbescape/unbescape/1.0/unbescape-1.0.jar, file:/Users/gturnquist/.m2/repository/ch/qos/logback/logback-core/1.1.2/logback-core-1.1.2.jar, file:/Users/gturnquist/.m2/repository/org/slf4j/slf4j-api/1.7.7/slf4j-api-1.7.7.jar]\n2014-08-11 09:13:02.640  INFO 56967 --- [           main] utoConfigurationReportLoggingInitializer : \n\nError starting ApplicationContext. To display the auto-configuration report enabled debug logging (start with --debug)\n\n\n2014-08-11 09:13:02.646 ERROR 56967 --- [           main] o.s.boot.SpringApplication               : Application startup failed\n\njava.lang.NullPointerException: null\n    at org.springframework.boot.autoconfigure.security.AuthenticationManagerConfiguration.onApplicationEvent(AuthenticationManagerConfiguration.java:96)\n    at org.springframework.boot.autoconfigure.security.AuthenticationManagerConfiguration.onApplicationEvent(AuthenticationManagerConfiguration.java:54)\n    at org.springframework.boot.autoconfigure.security.AuthenticationManagerConfiguration$$EnhancerBySpringCGLIB$$6afa3b9a.onApplicationEvent(<generated>)\n    at org.springframework.context.event.SimpleApplicationEventMulticaster.multicastEvent(SimpleApplicationEventMulticaster.java:98)\n    at org.springframework.context.support.AbstractApplicationContext.publishEvent(AbstractApplicationContext.java:333)\n    at org.springframework.context.support.AbstractApplicationContext.finishRefresh(AbstractApplicationContext.java:776)\n    at org.springframework.boot.context.embedded.EmbeddedWebApplicationContext.finishRefresh(EmbeddedWebApplicationContext.java:142)\n    at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:485)\n    at org.springframework.boot.context.embedded.EmbeddedWebApplicationContext.refresh(EmbeddedWebApplicationContext.java:120)\n    at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:691)\n    at org.springframework.boot.SpringApplication.run(SpringApplication.java:320)\n    at org.springframework.boot.SpringApplication.run(SpringApplication.java:952)\n    at org.springframework.boot.SpringApplication.run(SpringApplication.java:941)\n    at hello.Application.main(Application.java:14)\n\n2014-08-11 09:13:02.647  INFO 56967 --- [           main] ationConfigEmbeddedWebApplicationContext : Closing org.springframework.boot.context.embedded.AnnotationConfigEmbeddedWebApplicationContext@290dbf45: startup date [Mon Aug 11 09:12:59 CDT 2014]; root of context hierarchy\n2014-08-11 09:13:02.650  INFO 56967 --- [           main] o.s.j.e.a.AnnotationMBeanExporter        : Unregistering JMX-exposed beans on shutdown\nException in thread \"main\" java.lang.NullPointerException\n    at org.springframework.boot.autoconfigure.security.AuthenticationManagerConfiguration.onApplicationEvent(AuthenticationManagerConfiguration.java:96)\n    at org.springframework.boot.autoconfigure.security.AuthenticationManagerConfiguration.onApplicationEvent(AuthenticationManagerConfiguration.java:54)\n    at org.springframework.boot.autoconfigure.security.AuthenticationManagerConfiguration$$EnhancerBySpringCGLIB$$6afa3b9a.onApplicationEvent(<generated>)\n    at org.springframework.context.event.SimpleApplicationEventMulticaster.multicastEvent(SimpleApplicationEventMulticaster.java:98)\n    at org.springframework.context.support.AbstractApplicationContext.publishEvent(AbstractApplicationContext.java:333)\n    at org.springframework.context.support.AbstractApplicationContext.finishRefresh(AbstractApplicationContext.java:776)\n    at org.springframework.boot.context.embedded.EmbeddedWebApplicationContext.finishRefresh(EmbeddedWebApplicationContext.java:142)\n    at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:485)\n    at org.springframework.boot.context.embedded.EmbeddedWebApplicationContext.refresh(EmbeddedWebApplicationContext.java:120)\n    at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:691)\n    at org.springframework.boot.SpringApplication.run(SpringApplication.java:320)\n    at org.springframework.boot.SpringApplication.run(SpringApplication.java:952)\n    at org.springframework.boot.SpringApplication.run(SpringApplication.java:941)\n    at hello.Application.main(Application.java:14)\n:bootRun FAILED\n\nFAILURE: Build failed with an exception.\n\n* What went wrong:\nExecution failed for task ':bootRun'.\n> Process 'command '/Library/Java/JavaVirtualMachines/jdk1.8.0.jdk/Contents/Home/bin/java'' finished with non-zero exit value 1\n\n* Try:\nRun with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output.\n\nBUILD FAILED\n\nTotal time: 10.021 secs\n```\n\n(It also fails with the same exception when doing `mvn spring-boot:run`.)\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1364",
+        "assignees": [],
+        "labels": [
+            "type: bug",
+            "type: regression"
+        ],
+        "issue_closed_at": "2014-08-12T00:43:18.000Z",
+        "fix_commit_hash": "0cf1c6f0e55793ba8a828ed7d56f394aa21cb120",
+        "commit_type": "commit",
+        "commit_message": "Refactor AuthenticationManagerConfiguration to make sure it works\n\nif user also adds @EnableWebMvcSecurity. The problem is that the ordering\nof the init() and configure() methods in the Spring Security configurers\ncan force things to happen too early unless we are careful. It's still a bit\ntwitchy I would say, but this relatively small change seems to fix the GS guide\nand not break any existing tests.\n\nI added a sample which mimic ths GS guide so we get an integration test that\nexecutes the new code paths.\n\nFixes gh-1364",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/0cf1c6f0e55793ba8a828ed7d56f394aa21cb120",
+        "earliest_issue_date": "2014-08-11T14:14:22Z",
+        "predicted_class": "bug",
+        "bic": [
+            "3d437711363ade1717a7e11b7b781d240bad4983"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1365,
+        "issue_title": "ConfigurationPropertiesBindingPostProcessor can instanciate FactoryBeans too early",
+        "issue_body": "The `deducePropertySources` method calls `beanFactory.getBean(PropertySourcesPlaceholderConfigurer.class)` which can cause early instantiation of `FactoryBeans` which return `null` from `getObjectType`.\n\nRaised initially in [SPR-11582](https://jira.spring.io/browse/SPR-11582) from a [problem identified with MyBatis](https://github.com/mybatis/spring/issues/30)\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1365",
+        "assignees": [
+            "philwebb"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-08-11T23:13:57.000Z",
+        "fix_commit_hash": "9a7a4a46c95c73bf6afb75774db770515388bc7f",
+        "commit_type": "commit",
+        "commit_message": "Don't cause early FactoryBean instantiation\n\nUpdate ConfigurationPropertiesBindingPostProcessor to use\n`getBeansOfType` with `allowEagerInit=false` rather than `getBean`.\n\nThis prevents FactoryBeans from being instantiated early when their\ntype is not known.\n\nFixed gh-1365",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/9a7a4a46c95c73bf6afb75774db770515388bc7f",
+        "earliest_issue_date": "2014-08-11T21:26:58Z",
+        "predicted_class": "bug",
+        "bic": [
+            "7c72e3342ef79b00ce557c9b5d7e89297b5f4aeb"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1368,
+        "issue_title": "Filesystem dependencies of \"compile project\" not included in repackaged jar",
+        "issue_body": "I've just upgraded my spring boot version from 1.0.4.RELEASE to 1.1.5.RELEASE and think I may have found an issue that extends https://github.com/spring-projects/spring-boot/issues/672 and https://github.com/spring-projects/spring-boot/issues/1215. \n\nI have a multi-project gradle build, my main application includes some of the other projects as dependencies using:\n\n``` groovy\ncompile project(':myapplication-common')\n```\n\nThe \"myapplication-common\" project includes filesystem dependencies:\n\n``` groovy\ncompile files {\"lib/myExternalJar-1.1.jar\"}\n```\n\nFollowing the upgrade this filesystem based transitive dependency is no longer bundled in the boot jar, prior to the upgrade it was.\n\nFor now I'm using the following workaround in the main app gradle file:\n\n``` groovy\ncompile files {\"../myapplication-common/lib/myExternalJar-1.1.jar\"}\n```\n\nWith this workaround in place the dependency is bundled.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1368",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-08-21T14:38:48.000Z",
+        "fix_commit_hash": "69c61d0e8e1755822c1d7c18d8fcd62b899eca68",
+        "commit_type": "commit",
+        "commit_message": "Include transitive file dependencies during Gradle repackaging\n\nPreviously, ProjectLibraries only considered a configuration's\ndirect file dependencies. This meant that a transitive file\ndependency that should have been pulled in via a project dependency\nwas not included in the repackaged jar's lib directory.\n\nProjectLibraries has been updated to walk down the tree of project\ndependencies and create libraries for any file dependencies that\nare found.\n\nFixes gh-1368",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/69c61d0e8e1755822c1d7c18d8fcd62b899eca68",
+        "earliest_issue_date": "2014-08-12T16:21:14Z",
+        "predicted_class": "bug",
+        "bic": [
+            "7455e4e86fa6ae8c4201ca62516b0e4e4e13d791"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1369,
+        "issue_title": "OPTIONS request failing in 1.1.5 (MetricsFilter fails with status=0)",
+        "issue_body": "I have a Boot application that has a servlet filter to apply CORS headers to responses in certain scenarios.\n\nIn 1.1.4, when I make an OPTIONS call to my application, I get the response I'm expecting.\n\nIn 1.1.5, the CORS headers I'm expecting are missing, and no exception is generated in the logs. However, if I look at the `/manage/trace` endpoint, I see two things: 1) the OPTIONS request for some reason is returning an HTTP status of \"0\"; 2) the server is sending an error and the trace has a stack in it.\n\nCan someone help me understand why an HTTP status code of 0 is being returned?\n\nAlso, the code in 1.1.5 for `MetricFilterAutoConfiguration` has a change that does not gracefully handle the 0 status, while the code in 1.1.4 does handle it.\n\nHere is the stack that I found in the trace endpoint:\n\n```\njava.lang.IllegalArgumentException: No matching constant for [0]\nat org.springframework.http.HttpStatus.valueOf(HttpStatus.java:467)\nat org.springframework.boot.actuate.autoconfigure.MetricFilterAutoConfiguration$MetricsFilter.doFilterInternal(MetricFilterAutoConfiguration.java:99)\nat org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:107)\nat org.eclipse.jetty.servlet.ServletHandler$CachedChain.doFilter(ServletHandler.java:1480)\nat org.springframework.boot.context.web.ErrorPageFilter.doFilter(ErrorPageFilter.java:108)\\n\\tat \n```\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1369",
+        "assignees": [],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-08-13T15:16:07.000Z",
+        "fix_commit_hash": "2fae4afe9576a5e246e4485b0d7527ff3bb347ba",
+        "commit_type": "commit",
+        "commit_message": "Ensure status in ErrorPageFilter defaults to 200\n\nFixes gh-1369. Note that this is caused by the ErrorPageFilter, so\nonly a problem when deployed as a WAR.",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/2fae4afe9576a5e246e4485b0d7527ff3bb347ba",
+        "earliest_issue_date": "2014-08-12T22:03:36Z",
+        "predicted_class": "bug",
+        "bic": [
+            "1259057acbf14f2fd9e81a072b7c9302cb92b848"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1371,
+        "issue_title": "Reference guide inconsistency for shell configuration",
+        "issue_body": "When looking at the section in the reference guide describing  the remote shell credentials it mentions the `shell.auth.simple.username` and `shell.auth.simple.password` as properties.\n\nHowever the section on application properties mentions `shell.auth.simple.user.name` and `shell.auth.simple.user.password`. \n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1371",
+        "assignees": [],
+        "labels": [
+            "type: documentation"
+        ],
+        "issue_closed_at": "2014-08-13T15:19:36.000Z",
+        "fix_commit_hash": "0a3a00e9e56cde33b76b238f7f4f19449f1a9b2a",
+        "commit_type": "commit",
+        "commit_message": "Fix property keys in shell docs (consistent with appendix)\n\nFixes gh-1371",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/0a3a00e9e56cde33b76b238f7f4f19449f1a9b2a",
+        "earliest_issue_date": "2014-08-13T08:41:53Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1382,
+        "issue_title": "Liquibase v3.2 cannot find Logger",
+        "issue_body": "Due to the changes to the Liquibase `DefaultPackageScanClassResolver` interface, Liquibase version 3.2 and later cannot be used in Spring Boot applications. Deployment breaks with _\"Could not find implementation of liquibase.logging.Logger\"_ exception.\n\nRelevant Liquibase issues:\n- [CORE-1960](https://liquibase.jira.com/browse/CORE-1960)\n- [CORE-2003](https://liquibase.jira.com/browse/CORE-2003)\n\nThe comment on [CORE-1960](https://liquibase.jira.com/browse/CORE-1960) suggests that some changes will be required on the Spring Boot side to make Liquibase 3.2 functional.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1382",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: enhancement"
+        ],
+        "issue_closed_at": "2014-11-06T18:30:12.000Z",
+        "fix_commit_hash": "ce4400291b81c257b717b78468c227c9ddc7976e",
+        "commit_type": "commit",
+        "commit_message": "Upgrade to Liquibase 3.3.0\n\nThis commit updates Spring Boot to Liquibase 3.3.0 and makes the\nnecessary changes to Boot's PackageScanClassResolver.\n\nPreviously, when a class found by the scan could not be loaded a\nwarning message was logged. This commit lowers these to debug level,\nbringing them into line with logging that the standard Liquibase\nimplementation does. It also avoids a warning always being logged at\nstartup due to Liquibase's WatchCommand$DynamicContentHandler which\ndepends on Jetty (an optional dependency of Liquibase).\n\nCloses gh-1382",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/ce4400291b81c257b717b78468c227c9ddc7976e",
+        "earliest_issue_date": "2014-08-15T07:07:08Z",
+        "predicted_class": "bug",
+        "bic": [
+            "32f3e353b4a1cae43cbff65af29152f113c16788"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1386,
+        "issue_title": "DatasourceInitializer swallows DataSourceInitializedEvent and doesn't import data.sql",
+        "issue_body": "This happens under weird circumstances on having multiple @Configuration beans where the JDBCTemplate gets @Autowired into security configuration. \n\nPlease see the attached mini-project which doesn't import data.sql (this is the bug),\n\nIf you refer to WebSecurityConfig class commentig out the two @Autowires and launch the project again you'll se the data.sql was imported\n\n.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1386",
+        "assignees": [],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-08-25T16:18:41.000Z",
+        "fix_commit_hash": "607f78a7797119cd469f761d4d48e326c7712332",
+        "commit_type": "commit",
+        "commit_message": "Add secure sample with JDBC and data.sql\n\nWe can't easily solve the problem by not allowing Spring Security to\neagerly instantiate everything, but we can be defensive about data.sql\nand make sure it is executed even if the listener isn't yet registered.\n\nFixes gh-1386",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/607f78a7797119cd469f761d4d48e326c7712332",
+        "earliest_issue_date": "2014-08-16T20:58:37Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1391,
+        "issue_title": "DefaultCounterService.reset does not work properly",
+        "issue_body": "The `reset` method on `DefaultCounterService` tries to increment the metric value by 0, instead of actually resetting the value.\n\nThe `metricWriter` offers me two solutions - I could set the metric value to 0 or I could reset the metric value so that it will be deleted. \nWhich one would be more appropriate? Or is there another way? \n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1391",
+        "assignees": [],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-08-19T00:55:40.000Z",
+        "fix_commit_hash": "5c34b0774256a6e1f418acd37af08c2eb6652e2e",
+        "commit_type": "commit",
+        "commit_message": "Fix DefaultCounterService.reset\n\nFix DefaultCounterService.reset to call the reset method of the\nunderlying MetricWriter.\n\nFixes gh-1391",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/5c34b0774256a6e1f418acd37af08c2eb6652e2e",
+        "earliest_issue_date": "2014-08-18T13:01:16Z",
+        "predicted_class": "bug",
+        "bic": [
+            "e74da3fa733051c262b286d78a75c29d506e9c70"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1395,
+        "issue_title": "Integration tests pickup empty starter folders",
+        "issue_body": "When switching branches git leaves empty folders. If one happens to be a new starter the integration tests fail.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1395",
+        "assignees": [],
+        "labels": [
+            "type: enhancement"
+        ],
+        "issue_closed_at": "2014-08-18T21:39:48.000Z",
+        "fix_commit_hash": "2188e3553cbb2464034dc66069acf56f1102912f",
+        "commit_type": "commit",
+        "commit_message": "Prevent tests from picking up empty starter dirs\n\nUpdate StarterDependenciesIntegrationTests to only consider starter\nfolders that contain POM files.\n\nFixes gh-1395",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/2188e3553cbb2464034dc66069acf56f1102912f",
+        "earliest_issue_date": "2014-08-18T19:36:45Z",
+        "predicted_class": "bug",
+        "bic": [
+            "e0a5c29601b57b87e746f296535781b454cdc721"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1410,
+        "issue_title": "Improve CLI uninstall command to preserve dependencies of remaining plugins",
+        "issue_body": "If two installed plugins have a common dependency, uninstalling one of them will break the other one:\n1. Install a that depends on c\n2. Install b that depends on c\n3. Uninstall b\n4. a is now broken as c has been deleted\n\nSee #1393 \n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1410",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: enhancement"
+        ],
+        "issue_closed_at": "2014-10-14T13:46:59.000Z",
+        "fix_commit_hash": "a2c5b6a7bb3cd00b23e5b4c31d09a55c78108b4e",
+        "commit_type": "commit",
+        "commit_message": "Preserve dependencies when uninstalling from the CLI\n\nPreviously, the CLI did not keep track of a dependency's users. This\nmeant that installing two extensions with a common dependency and\nthen unistalling one extension would break the other extension as the\ncommon dependency would be deleted:\n\n 1. Install a that depends on c\n 2. Install b that depends on c\n 3. Uninstall b\n 4. a is now broken as c has been deleted\n\nThis commit updates the CLI to maintain a count for each artifact\nthat's installed into /lib. An artifact is now only deleted when the\ncount reaches zero.\n\nAs part of this change the code has been\nextensively refactored to bring the structure into line with other CLI\ncommands and to improve testability.\n\nCloses gh-1410",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/a2c5b6a7bb3cd00b23e5b4c31d09a55c78108b4e",
+        "earliest_issue_date": "2014-08-19T12:19:47Z",
+        "predicted_class": "bug",
+        "bic": [
+            "1fe139995981717bda2af5c4e28a687a033d399a"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1411,
+        "issue_title": "applicationDefaultJvmArgs does not work with Spring Loaded",
+        "issue_body": "In `build.gradle`, when setting:\n\n```\napplicationDefaultJvmArgs = [\n        \"-DSOME_ARG=someValue\"\n]\n```\n\nAND adding Spring Loaded to the class path, this property does not resolve in the application.\n\nI have a small repro-application, will add once I get the issue id. Just start it with `gradle bootRun` (fails). Remove Spring Loaded -> starts fine.\n\nSee #406\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1411",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-08-21T15:27:18.000Z",
+        "fix_commit_hash": "9717b7d84073adaff77e4b26fed36177cfb2119f",
+        "commit_type": "commit",
+        "commit_message": "Preserve JVM args when auto-configuring a Java agent in Gradle bootRun\n\nFixes #1411",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/9717b7d84073adaff77e4b26fed36177cfb2119f",
+        "earliest_issue_date": "2014-08-20T02:05:02Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1415,
+        "issue_title": "YAML lists cannot be mapped to Sets",
+        "issue_body": "I have a YAML application properties file and I'm trying to map a series of items to a `Set`. This appears to be impossible given the Spring Beans code that processes the properties, but the documentation tells a different story.\n\nYAML:\n\n```\ntest:\n  - \"value\"\n```\n\nCode:\n\n```\n@ConfigurationProperties\npublic class MyTest {\n\n    private Set<String> test;\n\n    public void setTest(Set<String> test) {\n        this.test = test;\n    }\n\n    public Set<String> getTest() {\n        return this.test;\n    }\n}\n```\n\nThe `spring-boot` [documentation](http://docs.spring.io/spring-boot/docs/current/reference/html/boot-features-external-config.html) states:\n\n> To bind to properties like that using the Spring DataBinder utilities (which is what @ConfigurationProperties does) you need to have a property in the target bean of type java.util.List **(or Set)** and you either need to provide a setter, or initialize it with a mutable value, e.g. this will bind to the properties above\n\nHowever, `Set` is not supported. If you attempt to map a YAML property to a `Set`, you'll get an exception similar to the following:\n\n```\nProperty referenced in indexed property path 'test[0]' is neither an array nor a List nor a Map; returned value was [value]\n```\n\nThe documentation should be corrected on this point.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1415",
+        "assignees": [],
+        "labels": [
+            "type: bug",
+            "theme: config-data"
+        ],
+        "issue_closed_at": "2017-04-27T22:34:31.000Z",
+        "fix_commit_hash": "ac9f380c55b8ed14015a6abdb724e4cde057cad3",
+        "commit_type": "commit",
+        "commit_message": "Test binding of Set\n\nAdd a test to ensure that the new binder can bind correctly to a\nSet.\n\nCloses gh-1415",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/ac9f380c55b8ed14015a6abdb724e4cde057cad3",
+        "earliest_issue_date": "2014-08-21T00:50:01Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1416,
+        "issue_title": "Logger doesn't respect logging.path property",
+        "issue_body": "I've set both logging.path and logging.file properties. The log file name is same as the logging.file property, but it is created in the directory I run the app, not the logging.path.\nI'm using 1.1.5.RELEASE version.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1416",
+        "assignees": [],
+        "labels": [
+            "type: documentation"
+        ],
+        "issue_closed_at": "2014-08-25T15:59:51.000Z",
+        "fix_commit_hash": "00ef26599e549aa539f63eed81b5f4c18a63cc13",
+        "commit_type": "commit",
+        "commit_message": "Add clarification of logging.file (fixes gh-1416)",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/00ef26599e549aa539f63eed81b5f4c18a63cc13",
+        "earliest_issue_date": "2014-08-21T10:44:39Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1419,
+        "issue_title": "Upgrade to Dijkstra SR4",
+        "issue_body": "The SD JPA version in it has a bug that seems to affect quite a few users.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1419",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: blocker"
+        ],
+        "issue_closed_at": "2014-08-27T12:34:34.000Z",
+        "fix_commit_hash": "37aa5326177ff79a231094f19e133171dc49e21f",
+        "commit_type": "commit",
+        "commit_message": "Upgrade to Spring Data Dijkstra SR4\n\nCloses #1419",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/37aa5326177ff79a231094f19e133171dc49e21f",
+        "earliest_issue_date": "2014-08-21T19:22:04Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1421,
+        "issue_title": "DataSourceProperties \"sa\" username/password not detected when deducing the driver class",
+        "issue_body": "",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1421",
+        "assignees": [],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-08-22T05:11:53.000Z",
+        "fix_commit_hash": "d515595ca14b44d125608d478aae4a4c54b07afd",
+        "commit_type": "commit",
+        "commit_message": "Detect embedded DBs when deducing driver class\n\nFix DataSourceProperties getUsername() and getPassword() methods to\ncall getDriverClassName() rather than using `this.driverClassName` to\nensure than deduced driver classes can be used.\n\nFixes gh-1421",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/d515595ca14b44d125608d478aae4a4c54b07afd",
+        "earliest_issue_date": "2014-08-22T05:05:52Z",
+        "predicted_class": "bug",
+        "bic": [
+            "97e6d777118f545d79f5dc22ab3deeef4f8e301c"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1427,
+        "issue_title": "ErrorPageFilter doesn't log exceptions",
+        "issue_body": "When the `ErrorPageFilter` is used exception stack-traces are not logged and it is not possible to tell the root cause of a problem.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1427",
+        "assignees": [],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-08-25T16:28:16.000Z",
+        "fix_commit_hash": "2d67452128c8d43e52ada4ab73f93eded21b04f7",
+        "commit_type": "commit",
+        "commit_message": "Log exceptions in ErrorPageFilter\n\nFor some reason I thought that the DispatcherServlet default handler\nwould log all exceptions, so if we did it in the ErrorPageFilter it\nwould lead to duplicates. That appears not to be the case.\n\nFixes gh-1427",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/2d67452128c8d43e52ada4ab73f93eded21b04f7",
+        "earliest_issue_date": "2014-08-23T21:32:46Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1429,
+        "issue_title": "Failure in SpringLoadedTests on Windows",
+        "issue_body": "Spaces are not being handled correctly:\n\n```\nC:\\Documents%20and%20Settings\\bamboo-agent\\.m2\\repository\\org\\springframework\\springloaded\\1.2.0.RELEASE\\springloaded-1.2.0.RELEASE.jar\n```\n\nhttp://build.spring.io/browse/BOOT-WIN-JOB1-59/test/case/155728954\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1429",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-08-26T16:06:58.000Z",
+        "fix_commit_hash": "28f7cf44874c83bed7c3158aef974cf00d89dcf6",
+        "commit_type": "commit",
+        "commit_message": "Convert URL to File using a URI so that URL-encoding is removed\n\nFixes #1429",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/28f7cf44874c83bed7c3158aef974cf00d89dcf6",
+        "earliest_issue_date": "2014-08-24T07:11:17Z",
+        "predicted_class": "bug",
+        "bic": [
+            "794808b6b8d36222db8e63ecf37144ffc3faae95"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1437,
+        "issue_title": "Velocity cannot be used in non-webapp without including spring-webmvc",
+        "issue_body": "It might be disruptive to fix this because the autoconfiguration properties have webmvc dependencies (for all the template engines it looks like).\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1437",
+        "assignees": [],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-08-26T08:19:48.000Z",
+        "fix_commit_hash": "95d65c2ff5ff9cbed7cdcb479618dc8f7ee9c39c",
+        "commit_type": "commit",
+        "commit_message": "Add indirection to avoid runtime dependency on MVC in templates\n\nVelocity and Freemarker share some common properties so the base class for\nconfiguring their properties makes some sense. Unfortunately the implementation\npulls in Spring MVC at runtime because of the signature of one method (that\nwould never be called). We can fix that in a number of ways, but the least\ndisruptive is probably to change the signature of that method and only refer\nto the concrete template view resolver type if the method is called.\n\nFixes gh-1437",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/95d65c2ff5ff9cbed7cdcb479618dc8f7ee9c39c",
+        "earliest_issue_date": "2014-08-26T07:27:28Z",
+        "predicted_class": "bug",
+        "bic": [
+            "d2112e27a339ccc539f4dba01971884a002a1d76"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1451,
+        "issue_title": "`@EnableIntegrationMBeanExport` can't override the auto-config, because of wrong order of classes processing",
+        "issue_body": "The sample is based on Spring Integration:\n\n``` java\n@Configuration\n@EnableAutoConfiguration\n@EnableIntegrationMBeanExport(defaultDomain = \"foo.my\")\npublic class Application {\n\n    public static void main(String[] args) {\n        SpringApplication.run(Application.class, args).close();\n    }\n}\n```\n\nThe Boot logs show:\n\n```\no.s.i.monitor.IntegrationMBeanExporter   : Located managed bean 'org.springframework.integration:type=MessageChannel,name=nullChannel': registering with JMX server as MBean [org.springframework.integration:type=MessageChannel,name=nullChannel]\n```\n\nHowever the test-case passes:\n\n``` java\n@RunWith(SpringJUnit4ClassRunner.class)\n@SpringApplicationConfiguration(classes = Application.class)\npublic class ApplicationTests {\n\n    @Autowired\n    private IntegrationMBeanExporter integrationMBeanExporter;\n\n    @Test\n    public void contextLoads() {\n        DirectFieldAccessor dfa = new DirectFieldAccessor(integrationMBeanExporter);\n        assertEquals(\"foo.my\", dfa.getPropertyValue(\"domain\"));\n    }\n\n}\n```\n\nReproducible on Boot 1.1.5.\n\nNot sure what's going on, but it looks like `@Conditional...`s and any auto-config have to be appliend only after after any other custom configs and explicit `@Enable...` usage.\n\nSuppose the same issue we have with any `...AutoConfiguration` which is based on `@Enable...`\n\nBTW, the same result I see, if I explicitly define:\n\n``` java\n@Bean\npublic IntegrationMBeanExporter mbeanExporter(MBeanServer mbeanServer) {\n        IntegrationMBeanExporter exporter = new IntegrationMBeanExporter();\n        exporter.setDefaultDomain(\"foo.my\");\n        exporter.setServer(mbeanServer);\n        return exporter;\n}\n```\n\nisntead of `@EnableIntegrationMBeanExport`\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1451",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-09-04T15:51:58.000Z",
+        "fix_commit_hash": "8399fc990c35043beea0ecdf8b08d367459d85eb",
+        "commit_type": "commit",
+        "commit_message": "Verify that @EnableIntegrationMBeanExport can set custom JMX domain\n\nAdd a test to JmxAutoConfigurationTests which verifies that\n@EnableIntegrationMBeanExport can be used on a @Configuration class\nto customize the default domain used for MBeans created by Spring\nIntegration. See https://jira.spring.io/browse/SPR-12128.\n\nCloses gh-1451",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/8399fc990c35043beea0ecdf8b08d367459d85eb",
+        "earliest_issue_date": "2014-08-27T09:43:24Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 1455,
+        "issue_title": "Bare Filter @Beans are always registered after FilterRegistrationBeans",
+        "issue_body": "Bare `Filter` `@Beans` are always registered after `FilterRegistrationBeans`, even if the user clearly intended them to be `Ordered`.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/1455",
+        "assignees": [],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2014-08-27T15:31:54.000Z",
+        "fix_commit_hash": "47b59046bd400d12e37d6eb2395a820b86e47e09",
+        "commit_type": "commit",
+        "commit_message": "Order Filters, Servlets etc. separately in EmbeddedWebApplicationContext\n\nUsers could be surpised if they register a Filter with an @Order and it\nisn't apparently respected. This change accumulates all Filters and\nFilterRegistrations (for instance) before sorting them.\n\nFixes gh-1455",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/47b59046bd400d12e37d6eb2395a820b86e47e09",
+        "earliest_issue_date": "2014-08-27T13:58:39Z",
+        "predicted_class": "bug",
+        "bic": [
+            "42bb793155d608533d5ddd94f5f3ff45d1f70e2e"
+        ],
+        "method_type": "rszz"
+    }
+]

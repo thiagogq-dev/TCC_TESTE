@@ -1,0 +1,1167 @@
+[
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48653,
+        "issue_title": "@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT) is no longer applied to the management server",
+        "issue_body": "When using `@SpringBootTest` with `RANDOM_PORT` web environment, the tests cannot start when my application is running locally, due to do management port being in use:\n\n```\n[...]\nCaused by:\n\torg.springframework.boot.web.server.PortInUseException: Port 8081 is already in use\n\t\tat app//org.springframework.boot.web.server.PortInUseException.lambda$throwIfPortBindingException$0(PortInUseException.java:73)\n\t\tat app//org.springframework.boot.web.server.PortInUseException.lambda$ifPortBindingException$0(PortInUseException.java:89)\n\t\tat app//org.springframework.boot.web.server.PortInUseException.ifCausedBy(PortInUseException.java:107)\n\t\tat app//org.springframework.boot.web.server.PortInUseException.ifPortBindingException(PortInUseException.java:85)\n\t\tat app//org.springframework.boot.web.server.PortInUseException.throwIfPortBindingException(PortInUseException.java:72)\n\t\tat app//org.springframework.boot.tomcat.TomcatWebServer.start(TomcatWebServer.java:247)\n\t\tat app//org.springframework.boot.web.server.servlet.context.WebServerStartStopLifecycle.start(WebServerStartStopLifecycle.java:44)\n\t\tat app//org.springframework.context.support.DefaultLifecycleProcessor.doStart(DefaultLifecycleProcessor.java:420)\n\t\t... 51 more\n[...]\n```\n\nAccording to [Spring Boot documentation](https://docs.spring.io/spring-boot/reference/testing/spring-boot-applications.html), `RANDOM_PORT` should take effect also for the management server.\n\nProblem happens in Spring Boot v4.\nHere's link to repo with minimal setup for reproduction: https://github.com/pnescior/spring-boot-management-issue",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48653",
+        "assignees": [
+            "snicoll"
+        ],
+        "labels": [
+            "type: regression"
+        ],
+        "issue_closed_at": "2025-12-31T16:13:31.000Z",
+        "fix_commit_hash": "1f4a8dff9870ff698388c6335ac8532f1a3a029c",
+        "commit_type": "commit",
+        "commit_message": "Restore RANDOM_PORT handing in tests with a separate management port\n\nThis commit fixes a regression where RANDOM_PORT was no longer honored\nif a defined management port is set. Due to the modularization efforts,\nthe code has moved from an EnvironmentPostProcessor to an\nApplicationListener. Unfortunately, the listener is registered too\nlate to handle the event it is listening to. While the event type could\nhave been changed, the listener was added on the ApplicationContext\nwhich are not honored before the ApplicationContext is in a state to be\nused.\n\nThe contract of ContextCustomizerFactory is already giving us everything\nwe need. While the environment is post-processed later than we would\nlike, it is still post-processed before the refresh state so that the\nadditional property is honored.\n\nThis commit also adds an integration test to cover this scenario.\n\nCloses gh-48653",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/1f4a8dff9870ff698388c6335ac8532f1a3a029c",
+        "earliest_issue_date": "2025-12-31T13:35:14Z",
+        "predicted_class": "bug",
+        "bic": [
+            "2f3e5d65bee36358f860e56b99eeaff417ad1bdb"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48661,
+        "issue_title": "AOT processing of tests should not be disabled when 'skipTests' is set",
+        "issue_body": "Backport of #46929",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48661",
+        "assignees": [
+            "snicoll"
+        ],
+        "labels": [
+            "type: bug",
+            "status: back-port"
+        ],
+        "issue_closed_at": "2026-01-02T13:36:24.000Z",
+        "fix_commit_hash": "54603fee87b61bbed8a6c5ebf15ceca884c1cae8",
+        "commit_type": "commit",
+        "commit_message": "Revisit condition to skip AOT processing of tests\n\nThis commit stop skipping AOT processing of tests when tests execution\nis skipped. With this commit, only the presence of maven.test.skip makes\nthe processing to skip.\n\nThis harmonize the behavior with other standard plugins that do react\nto the property. For instance, the compiler plugin will not compile the\ntests if that property is set, but would do so if skipTests was\nprovided.\n\nCloses gh-48661",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/54603fee87b61bbed8a6c5ebf15ceca884c1cae8",
+        "earliest_issue_date": "2026-01-02T13:07:48Z",
+        "predicted_class": "bug",
+        "bic": [
+            "09bd531fe5a2126c6c63521e4e16bc8b36b2d014"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48664,
+        "issue_title": "Application JAR created by extract command is not reproductible",
+        "issue_body": "I am trying to build reproducible Docker images using [`spring-boot-jarmode-tools`](https://docs.spring.io/spring-boot/reference/packaging/container-images/dockerfiles.html). However, the extracted application JAR file is not created reproducibly because the `META-INF/MANIFEST.MF` file has the current time as its last modification time. This affects the reproducibility of the Docker image as well. I have set a timestamp in [Maven](https://maven.apache.org/guides/mini/guide-reproducible-builds.html), so all the other files in the application JAR file have the correct last modification time. Ideally, I would like `spring-boot-jarmode-tools` to respect the environment variable [SOURCE_DATE_EPOCH](https://reproducible-builds.org/docs/source-date-epoch/) when extracting the application JAR file.\n\n### Steps to Reproduce\n\n1. Set the `SOURCE_DATE_EPOCH` environment variable.\n2. Extract the same uber JAR file twice, at different times, to different locations, using `spring-boot-jarmode-tools`.\n3. Compare the timestamps of the extracted files using a tool like `zipinfo`.\n4. Observe that the timestamps in the `META-INF/MANIFEST.MF` file vary.\n\nThis is the example output from a simple application:\n```\nZip file size: 3705 bytes, number of entries: 12\n-rw----     2.0 fat      930 bX defN 26-Jan-02 23:50 META-INF/MANIFEST.MF\n-rw----     2.0 fat        0 bX defN 23-Jan-01 00:00 META-INF/services/\n-rw----     2.0 fat        0 bX defN 23-Jan-01 00:00 example/\n-rw----     2.0 fat        0 bX defN 23-Jan-01 00:00 example/org/\n-rw----     2.0 fat        0 bX defN 23-Jan-01 00:00 example/org/springframework/\n-rw----     2.0 fat        0 bX defN 23-Jan-01 00:00 example/org/springframework/boot/\n-rw----     2.0 fat        0 bX defN 23-Jan-01 00:00 META-INF/maven/\n-rw----     2.0 fat        0 bX defN 23-Jan-01 00:00 META-INF/maven/example.org.springframework.boot/\n-rw----     2.0 fat        0 bX defN 23-Jan-01 00:00 META-INF/maven/example.org.springframework.boot/spring-boot-example/\n-rw----     2.0 fat      804 bX defN 23-Jan-01 00:00 example/org/springframework/boot/SpringBootExampleApplication.class\n-rw----     2.0 fat     1071 bX defN 23-Jan-01 00:00 META-INF/maven/example.org.springframework.boot/spring-boot-example/pom.xml\n-rw----     2.0 fat       86 bX defN 23-Jan-01 00:00 META-INF/maven/example.org.springframework.boot/spring-boot-example/pom.properties\n```\n\nAll files except `META-INF/MANIFEST.MF` have a fixed timestamp that I defined in Maven (2023-01-01T00:00:00Z).\n\nThis was tested with Spring Boot 4.0.1.\n\n### Expected Behavior\n\nThe JAR file should be created reproducibly, meaning all file modification times should be fixed and not based on the current time.\n\n### Actual Behavior\n\nThe `META-INF/MANIFEST.MF` file in the resulting JAR has the current time as its last modification time, making the JAR file non-reproducible.\n\n### Relevant Code\n\nThe issue is in the class [org.springframework.boot.jarmode.tools.ExtractCommand](https://github.com/spring-projects/spring-boot/blob/v4.0.1/loader/spring-boot-jarmode-tools/src/main/java/org/springframework/boot/jarmode/tools/ExtractCommand.java#L245C1-L245C93). The class uses a standard `JarOutputStream` for the application JAR file, which writes the `MANIFEST.MF` file in its constructor and does not set an explicit timestamp.\n\n### Proposed Solution\n\nI have a working solution that contains a new subclass of `JarOutputStream` which overrides [JarOutputStream#putNextEntry](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/jar/JarOutputStream.html#putNextEntry(java.util.zip.ZipEntry)) to set a fixed timestamp (the value of `SOURCE_DATE_EPOCH`). I'd be happy to submit that, or any other solution, as a PR.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48664",
+        "assignees": [
+            "philwebb"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2026-01-05T22:34:35.000Z",
+        "fix_commit_hash": "54d7f79501edee63a1bb349fd77923a2d1d0f364",
+        "commit_type": "commit",
+        "commit_message": "Fix timestamps set on jars created by the extract command\n\nUpdate `ExtractCommand` so that both the generated jar and the\ncontained manifest entry have timestamps copied from the original.\n\nFixes gh-48664",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/54d7f79501edee63a1bb349fd77923a2d1d0f364",
+        "earliest_issue_date": "2026-01-02T23:08:50Z",
+        "predicted_class": "bug",
+        "bic": [
+            "9def6f86c9f88c405f302d9e044d5ea463cfe1f5"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48686,
+        "issue_title": "checkstyleMain fails dues to locale-specific message checking",
+        "issue_body": "[[\t\tpublic Builder packages(String @Nullable ... packagesToScan) {](https://github.com/spring-projects/spring-boot/blob/2e2981bfe4fed40c57889b71ba1e90a50ed0333d/module/spring-boot-jpa/src/main/java/org/springframework/boot/jpa/EntityManagerFactoryBuilder.java#L172C45-L172C46)](https://github.com/spring-projects/spring-boot/blob/2e2981bfe4fed40c57889b71ba1e90a50ed0333d/module/spring-boot-jpa/src/main/java/org/springframework/boot/jpa/EntityManagerFactoryBuilder.java#L172)\nThere should be no space before '...' .\n\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48686",
+        "assignees": [
+            "philwebb"
+        ],
+        "labels": [
+            "type: task"
+        ],
+        "issue_closed_at": "2026-01-06T21:47:42.000Z",
+        "fix_commit_hash": "c826830b4bf635a8084d0456728538aadabcc3b6",
+        "commit_type": "commit",
+        "commit_message": "Update checkstyle suppressions to work with non-English locales\n\nCloses gh-48686",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/c826830b4bf635a8084d0456728538aadabcc3b6",
+        "earliest_issue_date": "2026-01-06T21:14:52Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48702,
+        "issue_title": "DataSourceBuilder cannot create oracle.ucp.jdbc.PoolDataSourceImpl in a native image",
+        "issue_body": "Discovered while looking into https://github.com/spring-projects/spring-boot/issues/48695, the hint appears to be wrong. It's for `oracle.ucp.jdbc.PoolDataSource` but I think it should be for `oracle.ucp.jdbc.PoolDataSourceImpl`.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48702",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2026-01-08T13:47:38.000Z",
+        "fix_commit_hash": "64159b057774507245c73ad19c74518c86631c15",
+        "commit_type": "commit",
+        "commit_message": "Correct hints for using Oracle UCP in a native image\n\nCloses gh-48702",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/64159b057774507245c73ad19c74518c86631c15",
+        "earliest_issue_date": "2026-01-08T12:56:57Z",
+        "predicted_class": "bug",
+        "bic": [
+            "0a50b83c7568934338c31066108688085e92be32"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48763,
+        "issue_title": "Label dependency upgrade issues as being team-only",
+        "issue_body": "",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48763",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: task"
+        ],
+        "issue_closed_at": "2026-01-09T11:18:32.000Z",
+        "fix_commit_hash": "67f137bc897c72cf0cc6144753e9bb0584872eea",
+        "commit_type": "commit",
+        "commit_message": "Label dependency upgrade issues as team-only\n\nCloses gh-48763",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/67f137bc897c72cf0cc6144753e9bb0584872eea",
+        "earliest_issue_date": "2026-01-08T19:28:27Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48803,
+        "issue_title": "The documentation related to EnvironmentPostProcessor links to deprecated interface",
+        "issue_body": "The \"[Customize the Environment or ApplicationContext Before It Starts](https://docs.spring.io/spring-boot/how-to/application.html#howto.application.customize-the-environment-or-application-context)\" section in the documentation links to deprecated Javadoc and also describes the deprecated `META-INF/spring.factories` file, such as:\n\n```\norg.springframework.boot.env.EnvironmentPostProcessor=com.example.YourEnvironmentPostProcessor\n```\n\n<!--\nThanks for raising a Spring Boot issue. Please take the time to review the following\ncategories as some of them do not apply here.\n\n\ud83d\ude45 \"Please DO NOT Raise an Issue\" Cases\n- Question\nSTOP!! Please ask questions about how to use something, or to understand why something isn't\nworking as you expect it to, on Stack Overflow using the spring-boot tag.\n- Security Vulnerability\nSTOP!! Please don't raise security vulnerabilities here. Head over to https://spring.io/security-policy to learn how to disclose them responsibly.\n- Managed Dependency Upgrade\nYou DO NOT need to raise an issue for a managed dependency version upgrade as there's a semi-automatic process for checking managed dependencies for new versions before a release. BUT pull requests for upgrades that are more involved than just a version property change are still most welcome.\n- With an Immediate Pull Request\nAn issue will be closed as a duplicate of the immediate pull request, so you don't have to raise an issue if you plan to create a pull request immediately.\n\n\ud83d\udc1e Bug report (please don't include this emoji/text, just add your details)\nPlease provide details of the problem, including the version of Spring Boot that you\nare using. If possible, please provide a test case or sample application that reproduces\nthe problem. This makes it much easier for us to diagnose the problem and to verify that\nwe have fixed it.\n\n\ud83c\udf81 Enhancement (please don't include this emoji/text, just add your details)\nPlease start by describing the problem that you are trying to solve. There may already\nbe a solution, or there may be a way to solve it that you hadn't considered.\n\n\nTIP: You can always edit your issue if it isn't formatted correctly.\n     See https://guides.github.com/features/mastering-markdown \n-->\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48803",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: documentation"
+        ],
+        "issue_closed_at": "2026-01-13T07:29:05.000Z",
+        "fix_commit_hash": "50e7c029864e278b67b063743845ec72d9ad45db",
+        "commit_type": "commit",
+        "commit_message": "Correct links to EnvironmentPostProcessor javadoc\n\nCloses gh-48803",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/50e7c029864e278b67b063743845ec72d9ad45db",
+        "earliest_issue_date": "2026-01-12T13:11:19Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48810,
+        "issue_title": "Actuator /info endpoint fails in Java 25 Native Image (VirtualThreadSchedulerMXBean support)",
+        "issue_body": "I am encountering an issue when running a Spring Boot 4.0.1 application built as a GraalVM Native Image using Java 25.\n\nWhen accessing the `/actuator/info` endpoint, the application throws a `HttpMessageNotWritableException`. The root cause is an `IllegalArgumentException` stating that `jdk.management.VirtualThreadSchedulerMXBean` is not a platform management interface.\n\nThis occurs despite the recent changes in **PR #43594**, which added `ProcessInfoContributorRuntimeHints` to register this class for reflection. It appears that while the class is reflectively available, the `ManagementFactory` in the native image environment does not recognize it as a valid Platform MXBean.\n\n**Spring Boot Version:** 4.0.1\n**Java Version:** Java 25 (Oracle GraalVM 25+37.1)\n**Build System:** Gradle (Kotlin DSL)\n\n**Steps to reproduce:**\nI have created a minimal reproducer repository.\n\n1. Clone the repository: [https://github.com/cmdjulian/process-info-bug](https://github.com/cmdjulian/process-info-bug)\n2. Build the native image:\n```bash\n./gradlew nativeCompile\n\n```\n\n\n3. Run the application:\n```bash\n./build/native/nativeCompile/demo\n\n```\n\n\n4. Query the endpoint:\n```bash\ncurl -i http://localhost:8090/actuator/info\n\n```\n\n\n\n**Observed Error:**\nThe request fails with a 500 Internal Server Error. The logs show:\n\n```text\n2026-01-13T14:25:44.338+01:00 ERROR ... 500 Server Error for HTTP GET \"/actuator/info\"\n...\nCaused by: java.lang.IllegalArgumentException: jdk.management.VirtualThreadSchedulerMXBean is not a platform management interface\n    at org.graalvm.nativeimage.builder/com.oracle.svm.core.jdk.management.ManagementSupport.getPlatformMXBean(ManagementSupport.java:142) ~[na:na]\n    at java.management@25/java.lang.management.ManagementFactory.getPlatformMXBean(ManagementFactory.java:56) ~[demo:na]\n    at org.springframework.boot.info.ProcessInfo.getVirtualThreads(ProcessInfo.java:106) ~[demo:4.0.1]\n\n```\n\n**Analysis:**\nThe feature was introduced in **PR #43594**, which added the `getVirtualThreads()` method to `ProcessInfo` and included `ProcessInfoContributorRuntimeHints` to register `jdk.management.VirtualThreadSchedulerMXBean` for reflection.\n\nHowever, the exception comes from `ManagementFactory.getPlatformMXBean(Class)`, which validates if the requested class is a known platform MXBean. In a standard JVM, this works for `VirtualThreadSchedulerMXBean` in Java 24/25. In the Native Image (SubstrateVM), it seems this new MXBean is not automatically registered in the internal management support lookup, or `ManagementFactory` requires specific GraalVM configuration/substitution to recognize it, beyond just standard reflection hints.\n\n**Workaround Attempts:**\n\n* `--enable-monitoring=all`: Applied, but did not resolve the issue.\n* `RuntimeHints`: The existing hints from PR #43594 are present, but do not satisfy the `ManagementFactory` check.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48810",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2026-01-13T16:53:32.000Z",
+        "fix_commit_hash": "d9fa9353aa321c8b77bcdd6dcd350d1f13bc83d5",
+        "commit_type": "commit",
+        "commit_message": "Prevent VirtualThreadSchedulerMXBean problems from breaking /info\n\nAt the time of writing, VirtualThreadSchedulerMXBean does not work in\na GraalVM native image (oracle/graal#12802). An attempt to retrieve\nthe MXBean results in an IllegalArgumentException being thrown. This\ncauses a failure when serializing ProcessInfo to JSON, breaking the\nActuator's info endpoint when management.info.process.enabled=true.\n\nThis commit updates ProcessInfo to be more defensive when working\nwith the MXBean. Now, if any exception is thrown, null will be\nreturned for the virtual threads info. This approach should allow the\nfunctionality to work whenever a fix is made in Graal without\nrequiring further changes in Boot.\n\nFixes gh-48810",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/d9fa9353aa321c8b77bcdd6dcd350d1f13bc83d5",
+        "earliest_issue_date": "2026-01-13T13:45:45Z",
+        "predicted_class": "bug",
+        "bic": [
+            "821af70559a5f97d7e5d60f6d8a646392086d30e"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48821,
+        "issue_title": "Check that @AutoConfiguration classes are listed in AutoConfiguration.imports file",
+        "issue_body": "https://github.com/spring-projects/spring-boot/issues/48819 has shown that our auto-configuration checks are failing to detect the case where an `@AutoConfiguration` class is not listed in the module's `AutoConfiguration.imports` file.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48821",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: task"
+        ],
+        "issue_closed_at": "2026-01-14T11:27:36.000Z",
+        "fix_commit_hash": "d60158ceb7cad822985c900d915c861b7570d2b9",
+        "commit_type": "commit",
+        "commit_message": "Check that auto-configuration classes are listed in imports file\n\nCloses gh-48821",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/d60158ceb7cad822985c900d915c861b7570d2b9",
+        "earliest_issue_date": "2026-01-14T11:19:25Z",
+        "predicted_class": "bug",
+        "bic": [
+            "5464812f80081cf85a6734608f13406cbddcafcc"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48826,
+        "issue_title": "CloudFoundry integration fails in Servlet-based web app without a dependency on spring-boot-starter-restclient",
+        "issue_body": "It depends on `RestTemplateBuilder` that may not be on the classpath.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48826",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: regression"
+        ],
+        "issue_closed_at": "2026-01-14T15:49:16.000Z",
+        "fix_commit_hash": "7af147d09196554a3386a463abb18f0eb90c3398",
+        "commit_type": "commit",
+        "commit_message": "Fix CloudFoundry actuator auto-config in absence of RestTemplateBuilder\n\nPreviously, CloudFoundryActuatorAutoConfiguration required\nRestTemplateBuilder, using it to create the RestTemplate that's used\nthe security interceptor. Following the modularization,\nRestTemplateBuilder is only present when spring-boot-restclient is on\nthe classpath. In its absence, CloudFoundryActuatorAutoConfiguration\nwould fail.\n\nThis commit address this problem by using RestClient.Builder (and\nRestClient) instead of RestTemplateBuilder (and RestTemplate). This\nallows CloudFoundryActuatorAutoConfiguration to work without\nspring-boot-restclient as RestClient.Builder and RestClient are\nprovided by spring-web that will always be there in an MVC webapp.\n\nFixes gh-48826",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/7af147d09196554a3386a463abb18f0eb90c3398",
+        "earliest_issue_date": "2026-01-14T14:33:43Z",
+        "predicted_class": "bug",
+        "bic": [
+            "419d78b359495f2e0b601c737447dabebed5ee06"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48828,
+        "issue_title": "Message interpolation by MVC and WebFlux's Validators does not work correctly in a native image",
+        "issue_body": "Spring Boot version: 4.0.1\n\n## Current Behavior with GraalVM Native Image\nWhen doing Controller Bean Validation and injecting the BindingResult into the MVC template,\nthe field error default messages have not been interpolated. This used to work with Spring Boot 3.x native images.\n\n<img width=\"499\" height=\"191\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/9977223a-4775-49c8-b925-177592364798\" />\n\n## Current Behavior with JVM\nWhen running the application locally or with a non-native image the BindingResult error messages are interpolated correctly.\n\n<img width=\"494\" height=\"193\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/30c5fef4-0414-405a-a1da-29944f30fa0c\" />\n\n## Expected Behavior\n\nBindingResult error message interpolation should work correctly as it does with JVM.\n\n## Context\n\nHere is a sample of the code I used to inject the BindingResult into the MVC template.\nWhen logging the `fieldError.getDefaultMessage()` in the controller I can already see the error before the MCV template engine gets involved.\n\n```java\n@PostMapping\npublic String addPerson(\n        @ModelAttribute @Valid Person person, BindingResult bindingResult, Model model) {\n    if (bindingResult.hasErrors()) {\n        for (FieldError fieldError : bindingResult.getFieldErrors()) {\n            log.error(\"error: {}\", fieldError.getDefaultMessage());\n        }\n        model.addAttribute(\"result\", bindingResult);\n        return \"AddPerson\";\n    }\n    PersonController.PERSON = person;\n    return \"redirect:/person\";\n}\n```",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48828",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: regression"
+        ],
+        "issue_closed_at": "2026-01-15T14:32:01.000Z",
+        "fix_commit_hash": "625571c3d10ca335cef9d884ec697e69efe8f034",
+        "commit_type": "commit",
+        "commit_message": "Fix MVC and WebFlux validator creation in a native image\n\nFollowing modularization, a presence check for ValidatorAdapter was\nneeded in the MVC and WebFlux auto-configuratiomn when creating\ntheir Validators. Runtime hints to allow this check to work in a\nnative image were not added at the same time, resulting in the\nclass appearing to be absent. This caused message interpolation\nfor constraint violations to fail as newly created Validator was\nbeing used which lacked the necessary MessageInterpolator\nconfiguration.\n\nThis commit adds reflection hints for ValidatorAdapter, allowing\nre-use of the context's main validator as the MVC and WebFlux\nvalidators.\n\nFixes gh-48828",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/625571c3d10ca335cef9d884ec697e69efe8f034",
+        "earliest_issue_date": "2026-01-14T15:51:41Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48830,
+        "issue_title": "SessionAutoConfiguration creates a DefaultCookieSerializer with a default SameSite of null instead of Lax",
+        "issue_body": "\n\nWhile upgrading to SB 4.1 I've spotted a strange behaviour (currently I have tests that tests the sameSite attribute on cookie serializer)\n\nIn springboot 4 the `DefaultCookieSerializer` is built with its `sameSite` attribute set to `Lax`.\n\nHwever, in [SessionAutoConfiguration](https://github.com/spring-projects/spring-boot/blob/6eaeeccd383662dad162d207208af31fd177eea4/module/spring-boot-session/src/main/java/org/springframework/boot/session/autoconfigure/SessionAutoConfiguration.java#L119), we can see that `PropertyMapper` does not filter null values as it used to do and sets the `sameSite` attribute to the value read from properties, regardless to the fact that it might be null in properties.\n\nIn [previous version](https://github.com/spring-projects/spring-boot/blob/d60158ceb7cad822985c900d915c861b7570d2b9/spring-boot-project/spring-boot-autoconfigure/src/main/java/org/springframework/boot/autoconfigure/session/SessionAutoConfiguration.java#L93C46-L93C71), the property mapper used to be built with a setting of value non null.\n\nI fear that it might change default behaviour for application not setting the `server.servlet.session.cookie.same-site ` property.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48830",
+        "assignees": [],
+        "labels": [
+            "type: regression"
+        ],
+        "issue_closed_at": "2026-01-16T02:20:45.000Z",
+        "fix_commit_hash": "ea564d21e0dde3d3df8c933b5b08fed3a555467e",
+        "commit_type": "commit",
+        "commit_message": "Ensure that the session same site defaults to \"lax\"\n\nRemove the `always()` call from the same site mapping and replace `as`\nwith a direct call. This update means that mapping only occurs when\n`getSameSite` is not `null`, but mapping can still be applied if\n`sameSite.getAttributeValue()` returns `null`.\n\nCloses gh-48830",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/ea564d21e0dde3d3df8c933b5b08fed3a555467e",
+        "earliest_issue_date": "2026-01-14T21:20:48Z",
+        "predicted_class": "bug",
+        "bic": [
+            "70ec5a07af9a3c8d7651a6104533043b4143f6c2"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48835,
+        "issue_title": "When a bean condition references a type that is not present, it appears as ? in the condition evaluation report",
+        "issue_body": "",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48835",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2026-01-15T10:53:39.000Z",
+        "fix_commit_hash": "2dabe093633d7d95b419a638c9fb25c1e881774b",
+        "commit_type": "commit",
+        "commit_message": "Avoid losing type information in on bean condition messages\n\nPreviously, a type in a bean condition was handled as a\nResolvableType. When the type was not present on the classpath\nit would be represented as ResolvableType.NONE which renders as ?.\nThis resulted in some type information being omitted from the\ncondition evaluation report.\n\nThis commit introduces a pair, ByteType, the holds both the name of\nthe type as a String as well as the ResolvableType that represents\nit. When that ResolvableType is NONE, the String name of the type\nis used thereby avoiding the information loss.\n\nFixes gh-48835",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/2dabe093633d7d95b419a638c9fb25c1e881774b",
+        "earliest_issue_date": "2026-01-15T09:47:28Z",
+        "predicted_class": "bug",
+        "bic": [
+            "aa7864ea38ec759ab60c049150f22d7dc3648ac3"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48836,
+        "issue_title": "Evaluation of bean conditions unnecessarily queries the bean factory for types that are not present",
+        "issue_body": "",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48836",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2026-01-15T11:19:51.000Z",
+        "fix_commit_hash": "73bf5f3d207b2063bd9f63196875187c2534f2b7",
+        "commit_type": "commit",
+        "commit_message": "Avoid querying BeanFactory for beans of type ResolvableType.NONE\n\nResolvableType.NONE represents a type that does not exist and,\ntherefore could not be loaded. A bean of such a type cannot be\npresent in the BeanFactory so querying it for beans of that type\nis pointless.\n\nThis commit updates OnBeanCondition to return immediately rather\nthan querying the BeanFactory by type for beans that we know cannot\nbe present.\n\nFixes gh-48836",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/73bf5f3d207b2063bd9f63196875187c2534f2b7",
+        "earliest_issue_date": "2026-01-15T09:48:22Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48880,
+        "issue_title": "No TransactionAutoConfiguration with spring-boot-starter-kafka for Spring Boot 4",
+        "issue_body": "I am upgrading a sample application using Kafka from Spring Boot 3.5 to 4 and I run into the issue that there is no autoconfiguration of the transaction manager.\n\nWhen I create a new application on start.spring.io, adding only \"Spring for Apache Kafka\" using both 3.5.9 and 4.0.1, then I notice that 3.5.9 has the `TransactionAutoConfiguration` class on the classpath, while the 4.0.1 version does not have this.\n\nThis is the `mvn dependency:tree` for 3.5.9:\n\n```\n[INFO] +- org.springframework.boot:spring-boot-starter:jar:3.5.9:compile\n[INFO] |  +- org.springframework.boot:spring-boot:jar:3.5.9:compile\n[INFO] |  +- org.springframework.boot:spring-boot-autoconfigure:jar:3.5.9:compile\n[INFO] |  +- org.springframework.boot:spring-boot-starter-logging:jar:3.5.9:compile\n[INFO] |  |  +- ch.qos.logback:logback-classic:jar:1.5.22:compile\n[INFO] |  |  +- org.apache.logging.log4j:log4j-to-slf4j:jar:2.24.3:compile\n[INFO] |  |  |  \\- org.apache.logging.log4j:log4j-api:jar:2.24.3:compile\n[INFO] |  |  \\- org.slf4j:jul-to-slf4j:jar:2.0.17:compile\n[INFO] |  +- jakarta.annotation:jakarta.annotation-api:jar:2.1.1:compile\n[INFO] |  +- org.springframework:spring-core:jar:6.2.15:compile\n[INFO] |  |  \\- org.springframework:spring-jcl:jar:6.2.15:compile\n[INFO] |  \\- org.yaml:snakeyaml:jar:2.4:compile\n[INFO] +- org.springframework.kafka:spring-kafka:jar:3.3.11:compile\n[INFO] |  +- org.springframework:spring-context:jar:6.2.15:compile\n[INFO] |  |  +- org.springframework:spring-aop:jar:6.2.15:compile\n[INFO] |  |  +- org.springframework:spring-beans:jar:6.2.15:compile\n[INFO] |  |  \\- org.springframework:spring-expression:jar:6.2.15:compile\n[INFO] |  +- org.springframework:spring-messaging:jar:6.2.15:compile\n[INFO] |  +- org.springframework:spring-tx:jar:6.2.15:compile\n[INFO] |  +- org.springframework.retry:spring-retry:jar:2.0.12:compile\n[INFO] |  +- org.apache.kafka:kafka-clients:jar:3.9.1:compile\n[INFO] |  |  +- com.github.luben:zstd-jni:jar:1.5.6-4:runtime\n[INFO] |  |  +- org.lz4:lz4-java:jar:1.8.0:runtime\n[INFO] |  |  +- org.xerial.snappy:snappy-java:jar:1.1.10.5:runtime\n[INFO] |  |  \\- org.slf4j:slf4j-api:jar:2.0.17:compile\n[INFO] |  \\- io.micrometer:micrometer-observation:jar:1.15.7:compile\n[INFO] |     \\- io.micrometer:micrometer-commons:jar:1.15.7:compile\n```\n\nThe class is coming from the `spring-boot-autoconfigure` jar.\n\nThis is the tree for the 4.0.1 version:\n```\n[INFO] +- org.springframework.boot:spring-boot-starter-kafka:jar:4.0.1:compile\n[INFO] |  +- org.springframework.boot:spring-boot-starter:jar:4.0.1:compile\n[INFO] |  |  +- org.springframework.boot:spring-boot-starter-logging:jar:4.0.1:compile\n[INFO] |  |  |  +- ch.qos.logback:logback-classic:jar:1.5.22:compile\n[INFO] |  |  |  |  \\- ch.qos.logback:logback-core:jar:1.5.22:compile\n[INFO] |  |  |  +- org.apache.logging.log4j:log4j-to-slf4j:jar:2.25.3:compile\n[INFO] |  |  |  \\- org.slf4j:jul-to-slf4j:jar:2.0.17:compile\n[INFO] |  |  +- org.springframework.boot:spring-boot-autoconfigure:jar:4.0.1:compile\n[INFO] |  |  +- jakarta.annotation:jakarta.annotation-api:jar:3.0.0:compile\n[INFO] |  |  \\- org.yaml:snakeyaml:jar:2.5:compile\n[INFO] |  \\- org.springframework.boot:spring-boot-kafka:jar:4.0.1:compile\n[INFO] |     +- org.springframework.boot:spring-boot:jar:4.0.1:compile\n[INFO] |     \\- org.springframework.kafka:spring-kafka:jar:4.0.1:compile\n[INFO] |        +- org.springframework:spring-messaging:jar:7.0.2:compile\n[INFO] |        +- org.springframework:spring-tx:jar:7.0.2:compile\n[INFO] |        +- org.apache.kafka:kafka-clients:jar:4.1.1:compile\n[INFO] |        \\- io.micrometer:micrometer-observation:jar:1.16.1:compile\n[INFO] |           \\- io.micrometer:micrometer-commons:jar:1.16.1:compile\n```\n\n`spring-boot-autoconfigure` is also there, but probably does not have the Kafka autoconfigurations anymore with the new modular design?\n\nIf I manually add this dependency in the 4.0.1 version:\n\n```\n    <dependency>\n      <groupId>org.springframework.boot</groupId>\n      <artifactId>spring-boot-transaction</artifactId>\n    </dependency>\n```\n\nThen the transactions are created.\n\nI also saw [this stackoverflow question](https://stackoverflow.com/questions/79832924/spring-boot-4-kafka-in-transaction-mode) which seems to indicate the same behaviour.\n\nDo we need to manually add `spring-boot-transaction` with Spring Boot 4.0.1, or should this be transitively included when depending on `spring-boot-starter-kafka`? If the former, maybe add this to the migration guide. If the latter, then this is a bug I guess?",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48880",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: regression"
+        ],
+        "issue_closed_at": "2026-01-19T10:24:38.000Z",
+        "fix_commit_hash": "6df1caf8f9023200743092113ed6f8fe49494d1b",
+        "commit_type": "commit",
+        "commit_message": "Auto-configure transactions when using spring-boot-kafka\n\nspring-kafka has an api dependency on spring-tx, placing\nthe latter on the compile classpath of the former's consumers.\nAdditionally, when spring.kafka.producer.transaction-id-prefix is\nset, the Kafka auto-configuration will define a Kafka-based\ntransaction manager. However, the transaction manager won't be used\nwithout some configuration from the user as there's no dependency on\nspring-boot-transaction and, therefore, no auto-configuration of\n@EnableTransactionManagement.\n\nThis commit adds a spring-boot-transaction dependency to\nspring-boot-kafka, aligning it with the spring-tx dependency that\nspring-kafka already has.\n\nFixes gh-48880",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/6df1caf8f9023200743092113ed6f8fe49494d1b",
+        "earliest_issue_date": "2026-01-19T08:21:10Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48937,
+        "issue_title": "Remove the UndertowServletWebServerFactoryTests.sslRestrictedProtocolsRSATLS12Success test",
+        "issue_body": "This test starts breaking on JDK 17.0.18 (it works with 17.0.17) because of [this change](https://www.oracle.com/java/technologies/javase/17-0-18-relnotes.html#JDK-8245545). We should remove the test.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48937",
+        "assignees": [
+            "mhalbritter"
+        ],
+        "labels": [
+            "type: task"
+        ],
+        "issue_closed_at": "2026-01-22T09:50:39.000Z",
+        "fix_commit_hash": "650236d11987cb75dc3ad9f0eef71b1a99f6e1b0",
+        "commit_type": "commit",
+        "commit_message": "Remove breaking and unnecessary Undertow TLS with RSA test\n\nThe test starts breaking with JDK 17.0.18, because of this change:\nhttps://www.oracle.com/java/technologies/javase/17-0-18-relnotes.html#JDK-8245545\n\nCloses gh-48937",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/650236d11987cb75dc3ad9f0eef71b1a99f6e1b0",
+        "earliest_issue_date": "2026-01-22T09:43:51Z",
+        "predicted_class": "bug",
+        "bic": [
+            "30d7af4e38da39a2c40612b7aa9ba9219204bf2f"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48948,
+        "issue_title": "TestPropertyValues.Pair.fromMapEntry(Entry<String, String>) does not comply with its nullability contract",
+        "issue_body": "The contract states that a non-null `Map` `Entry` will produce a non-null `Pair`, however this test fails:\n\n```java\n@Test\nvoid pairFromMapEntryWithEmptyKey() {\n\tPair pair = Pair.fromMapEntry(entry(\"\", \"empty-key\"));\n\tassertThat(pair).isNotNull();\n}\n```\n\nWe'll have to decide if we want to change the contract or the implementation. Technically speaking, both are breaking changes. I suspect that a change to the contract would affect fewer people but changing the implementation feels like it might be the better fix.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48948",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug",
+            "status: team-only"
+        ],
+        "issue_closed_at": "2026-01-27T11:27:46.000Z",
+        "fix_commit_hash": "738080946ef35f774f140775baa9577e415e3e76",
+        "commit_type": "commit",
+        "commit_message": "Improve nullability of TestPropertyValues.Pair\n\nFixes gh-48948",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/738080946ef35f774f140775baa9577e415e3e76",
+        "earliest_issue_date": "2026-01-23T10:10:08Z",
+        "predicted_class": "bug",
+        "bic": [
+            "e790828e194d0663d5a55a63d6b85be087998442"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48963,
+        "issue_title": "Java version requirement check for native image is confusing if AOT didn't run",
+        "issue_body": "> This is isn't the same problem at all, your project skips the Spring Boot Maven Plugin altogether while using our parent. Two things could have alerted you:\n> \n> 1. Spring AOT didn't ran. It is mandatory for building native images with Spring.\n> 2. You had to specify a main class otherwise the native image build would fail immediately. I don't know if this is your first time building a native image but you shouldn't have to do that.\n> \n> Here is the updated configuration that makes the build succeed:\n> \n> ```xml\n> <plugin>\n>     <groupId>org.springframework.boot</groupId>\n>     <artifactId>spring-boot-maven-plugin</artifactId>\n>     <executions>\n>         <execution>\n>             <id>repackage</id>\n>             <configuration>\n>                 <skip>true</skip>   <!-- Spring Boot fat jar breaks modularity -->\n>             </configuration>\n>         </execution>\n>     </executions>\n> </plugin>\n> ```\n> \n> That being said, the error message here isn't helpful. It looks like we're tripping between telling you the Java requirement wasn't allegedly met and AOT didn't run. I'll create a separate issue for that. \n\n _Originally posted by @snicoll in [#48294](https://github.com/spring-projects/spring-boot/issues/48294#issuecomment-3796270336)_",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48963",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2026-01-30T15:20:06.000Z",
+        "fix_commit_hash": "bc3dce69423275fa64bb1cb7c3e16956f69f9c33",
+        "commit_type": "commit",
+        "commit_message": "Check for AOT initializer before checking native image requirements\n\nFixes gh-48963",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/bc3dce69423275fa64bb1cb7c3e16956f69f9c33",
+        "earliest_issue_date": "2026-01-25T09:31:03Z",
+        "predicted_class": "bug",
+        "bic": [
+            "46f22b2374ff3ac787069a9b3a1e124305db48f1"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48981,
+        "issue_title": "Slice test includes fail to load when using spring-boot-starter-test-classic",
+        "issue_body": "I think class presence should be checked on autoconfigure includes.\n\nWith Spring Boot 4.0.2, using WebMvcTest with just spring-boot-starter-webmvc and spring-boot-starter-test-classic as dependencies result in :\n```\njava.lang.IllegalArgumentException: Failed to load include 'org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer' declared in jar:file:[...]/spring-boot-security-test-4.0.2.jar!/META-INF/spring/org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest.includes[...]\n```\n\nHere [a sample application](https://github.com/user-attachments/files/24877933/demo.zip) that reproduces the problem.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48981",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2026-02-03T18:16:26.000Z",
+        "fix_commit_hash": "94fc407e07ca8d47a612dd96370343655029ad99",
+        "commit_type": "commit",
+        "commit_message": "Ignore unloadable includes rather than failing\n\nFixes gh-48981",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/94fc407e07ca8d47a612dd96370343655029ad99",
+        "earliest_issue_date": "2026-01-27T08:32:22Z",
+        "predicted_class": "bug",
+        "bic": [
+            "5348880b69cc5e6186b738f63cfe92e27284bf33"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48982,
+        "issue_title": "server.jetty.threads.max is ignored when using virtual threads",
+        "issue_body": "As a result of the fix https://github.com/spring-projects/spring-boot/issues/47717, the ability to set the maximum number of threads using the server.jetty.thread.max property was removed.\n\nCould you bring back the ability to pass the maximum number of threads as an argument to VirtualThreadPool?",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48982",
+        "assignees": [
+            "mhalbritter"
+        ],
+        "labels": [
+            "type: regression"
+        ],
+        "issue_closed_at": "2026-01-27T12:44:00.000Z",
+        "fix_commit_hash": "068c3165b2e1d5c569b57a4dacf3fc5bb4d889d0",
+        "commit_type": "commit",
+        "commit_message": "Restore server.jetty.threads.max property for Jetty's virtual thread pool\n\nCloses gh-48982",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/068c3165b2e1d5c569b57a4dacf3fc5bb4d889d0",
+        "earliest_issue_date": "2026-01-27T08:53:50Z",
+        "predicted_class": "bug",
+        "bic": [
+            "f1957a9740dd7a3bdb22a93428fb36b30d390916"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 48996,
+        "issue_title": "LICENSE.txt and NOTICE.txt files have the wrong content in the latest releases",
+        "issue_body": "<!--\nThanks for raising a Spring Boot issue. Please take the time to review the following\ncategories as some of them do not apply here.\n\n\ud83d\ude45 \"Please DO NOT Raise an Issue\" Cases\n- Question\nSTOP!! Please ask questions about how to use something, or to understand why something isn't\nworking as you expect it to, on Stack Overflow using the spring-boot tag.\n- Security Vulnerability\nSTOP!! Please don't raise security vulnerabilities here. Head over to https://spring.io/security-policy to learn how to disclose them responsibly.\n- Managed Dependency Upgrade\nYou DO NOT need to raise an issue for a managed dependency version upgrade as there's a semi-automatic process for checking managed dependencies for new versions before a release. BUT pull requests for upgrades that are more involved than just a version property change are still most welcome.\n- With an Immediate Pull Request\nAn issue will be closed as a duplicate of the immediate pull request, so you don't have to raise an issue if you plan to create a pull request immediately.\n\n\ud83d\udc1e Bug report (please don't include this emoji/text, just add your details)\nSince around version 3.4, spring-boot jars have been shipping with META-INF/LICENSE.txt and META-INF/NOTICE.txt from gradle\n\n```\n\u276f cat META-INF/LICENSE.txt\nDevelocity Gradle Plugin\n========================\nCopyright (c) 2025 Gradle Inc.\nAll rights reserved.\n\nUse of this software is subject to the Develocity Software Agreement\nlocated at https://gradle.com/help/legal-terms-of-use\n```\n\n\ud83c\udf81 Enhancement (please don't include this emoji/text, just add your details)\nPlease start by describing the problem that you are trying to solve. There may already\nbe a solution, or there may be a way to solve it that you hadn't considered.\n\n\nTIP: You can always edit your issue if it isn't formatted correctly.\n     See https://guides.github.com/features/mastering-markdown \n-->\nSince around version 3.4, spring-boot jars have been shipping with META-INF/LICENSE.txt and META-INF/NOTICE.txt from gradle\n\n```\n\u276f cat META-INF/LICENSE.txt\nDevelocity Gradle Plugin\n========================\nCopyright (c) 2025 Gradle Inc.\nAll rights reserved.\n\nUse of this software is subject to the Develocity Software Agreement\nlocated at https://gradle.com/help/legal-terms-of-use\n```",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/48996",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: documentation"
+        ],
+        "issue_closed_at": "2026-01-28T10:45:59.000Z",
+        "fix_commit_hash": "98511ed321b92482a3c40f10a816cf3af55f1af3",
+        "commit_type": "commit",
+        "commit_message": "Correct embedded LICENSE.txt and NOTICE.txt files\n\nFixes gh-48996",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/98511ed321b92482a3c40f10a816cf3af55f1af3",
+        "earliest_issue_date": "2026-01-28T00:20:12Z",
+        "predicted_class": "bug",
+        "bic": [
+            "e8204007483fab80dccc1c5032cb58ac826efd64"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49015,
+        "issue_title": "Jackson2HttpMessageConvertersConfiguration uses ConditionOn Jackson3 XMLMapper class",
+        "issue_body": "**Short description:**\nWith SpringBoot 4, `Jackson2HttpMessageConvertersConfiguration` contains a nested Configuration class (`MappingJackson2XmlHttpMessageConverterConfiguration`) to provide `Jackson2XmlMessageConvertersCustomizer` as soon as xml-dataformat is present. The condition \n\n```\n@ConditionalOnClass(tools.jackson.dataformat.xml.XmlMapper.class)\t\n```\nuses (accidentely) the Jackson3 XmlMapper class, which can lead to `NoClassDefFoundErrors`\n\n**Details**\nMany of our applications still require Jackson2ObjectMapperBuilder for the programmatic deserialization/serialization of objects. While we switched to Jackson3 by default when we upgraded to Spring Boot 4, we still provide a `Jackson2ObjectMapperBuilder` bean in the spring context for compatibility reasons. (We do not set `spring.http.converters.preferred-json-mapper: jackson2`).\n\nThis triggers the `Jackson2HttpMessageConvertersConfiguration` and leads to `NoClassDefFoundErrors` as soon as Jackson3 xml-dataformat is present.\n\n**Sample Code to reproduce the exception**\n\npom.xml\n```\n\t\t<!-- Jackson 3 Deps -->\n\t\t<dependency>\n\t\t\t<groupId>org.springframework.boot</groupId>\n\t\t\t<artifactId>spring-boot-starter-jackson</artifactId>\n\t\t</dependency>\n\t\t<dependency>\n\t\t\t<groupId>tools.jackson.dataformat</groupId>\n\t\t\t<artifactId>jackson-dataformat-xml</artifactId>\n\t\t</dependency>\n\n\t\t<!-- for Jackson2ObjectMapperBuilder -->\n\t\t<dependency>\n\t\t\t<groupId>com.fasterxml.jackson.core</groupId>\n\t\t\t<artifactId>jackson-databind</artifactId>\n\t\t</dependency>\n```\n\nDemoApplication.class\n```\n@SpringBootApplication\npublic class DemoApplication {\n\n\tpublic static void main(String[] args) {\n\t\tSpringApplication.run(DemoApplication.class, args);\n\t}\n\n\n       //  SB35 compatibility bean\n\t@Bean\n\t@Scope(\"prototype\")\n\tpublic Jackson2ObjectMapperBuilder jackson2ObjectMapperBuilder(){\n\t\treturn new Jackson2ObjectMapperBuilder();\n\t}\n}\n\n```\n\nException:\n```\nCaused by: org.springframework.beans.BeanInstantiationException: Failed to instantiate [org.springframework.boot.http.converter.autoconfigure.Jackson2HttpMessageConvertersConfiguration$Jackson2XmlMessageConvertersCustomizer]: Factory method 'mappingJackson2XmlHttpMessageConverter' threw exception with message: com/fasterxml/jackson/dataformat/xml/XmlMapper\n\tat org.springframework.beans.factory.support.SimpleInstantiationStrategy.lambda$instantiate$0(SimpleInstantiationStrategy.java:183) ~[spring-beans-7.0.3.jar:7.0.3]\n\tat org.springframework.beans.factory.support.SimpleInstantiationStrategy.instantiateWithFactoryMethod(SimpleInstantiationStrategy.java:72) ~[spring-beans-7.0.3.jar:7.0.3]\n\tat org.springframework.beans.factory.support.SimpleInstantiationStrategy.instantiate(SimpleInstantiationStrategy.java:152) ~[spring-beans-7.0.3.jar:7.0.3]\n\tat org.springframework.beans.factory.support.ConstructorResolver.instantiate(ConstructorResolver.java:653) ~[spring-beans-7.0.3.jar:7.0.3]\n\t... 65 common frames omitted\nCaused by: java.lang.NoClassDefFoundError: com/fasterxml/jackson/dataformat/xml/XmlMapper\n\tat org.springframework.http.converter.json.Jackson2ObjectMapperBuilder.build(Jackson2ObjectMapperBuilder.java:684) ~[spring-web-7.0.3.jar:7.0.3]\n\tat org.springframework.boot.http.converter.autoconfigure.Jackson2HttpMessageConvertersConfiguration$MappingJackson2XmlHttpMessageConverterConfiguration.mappingJackson2XmlHttpMessageConverter(Jackson2HttpMessageConvertersConfiguration.java:73) ~[spring-boot-http-converter-4.0.2.jar:4.0.2]\n\tat java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104) ~[na:na]\n\tat java.base/java.lang.reflect.Method.invoke(Method.java:565) ~[na:na]\n\tat org.springframework.beans.factory.support.SimpleInstantiationStrategy.lambda$instantiate$0(SimpleInstantiationStrategy.java:155) ~[spring-beans-7.0.3.jar:7.0.3]\n\t... 68 common frames omitted\nCaused by: java.lang.ClassNotFoundException: com.fasterxml.jackson.dataformat.xml.XmlMapper\n\tat java.base/jdk.internal.loader.BuiltinClassLoader.loadClass(BuiltinClassLoader.java:580) ~[na:na]\n\tat java.base/java.lang.ClassLoader.loadClass(ClassLoader.java:490) ~[na:na]\n\t... 73 common frames omitted\n```\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49015",
+        "assignees": [
+            "bclozel"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2026-01-29T08:48:22.000Z",
+        "fix_commit_hash": "53c1f424ce2a8fd84127f79c54f32fa19408690b",
+        "commit_type": "commit",
+        "commit_message": "Fix Jackson3 class reference in condition\n\nPrior to this commit, the `XmlMapper` auto-configuration for Jackson2\nwould refer to Jackson3's `XmlMapper` instead of Jackson2. This would\nnot only make the condition invalid, but it could also lead to\n`NoClassDefFoundError` at runtime if the application mixed Jackson 2 and\n3 on the classpath.\n\nFixes gh-49015",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/53c1f424ce2a8fd84127f79c54f32fa19408690b",
+        "earliest_issue_date": "2026-01-29T07:51:30Z",
+        "predicted_class": "bug",
+        "bic": [
+            "50f64f947a3d76116c3a0d702f40d7670b83e858"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49033,
+        "issue_title": "Remove duplicate additional metadata for spring.datasource.xa.data-source-class-name",
+        "issue_body": "\n configuration-metadata `spring.datasource.xa.data-source-class-name`\n\nhttps://github.com/spring-projects/spring-boot/blob/01364b70990b1b5d6816d8f39d2f3d01e9ac053b/module/spring-boot-jdbc/src/main/resources/META-INF/additional-spring-configuration-metadata.json#L154-L175",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49033",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: task"
+        ],
+        "issue_closed_at": "2026-02-02T10:45:54.000Z",
+        "fix_commit_hash": "416d401fc3b44f3b459ba9546d4f05b21851987b",
+        "commit_type": "commit",
+        "commit_message": "Remove duplicate metadata and add check to prevent future duplicates\n\nCloses gh-49033",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/416d401fc3b44f3b459ba9546d4f05b21851987b",
+        "earliest_issue_date": "2026-02-02T09:27:57Z",
+        "predicted_class": "bug",
+        "bic": [
+            "52951ed8f433002068dedd03df8eef22ad6eade7"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49055,
+        "issue_title": "Docker fails when a 'tcp://' address ends with a slash (for example 'tcp://docker:2375/')",
+        "issue_body": "Version 4.0.2\nContext: gitlab CI build with DinD configured and DOCKER_HOST defined as tcp://docker:2375 with tls disabled (  environment variables: DOCKER_HOST: tcp://docker:2375/, DOCKER_TLS_VERIFY: '', DOCKER_CERT_PATH: '', DOCKER_TLS_CERTDIR: '', DOCKER_BUILD_OPTIONS: '' )\n\nSetting docker host config in pom as\n\n```xml\n<docker>\n  <host>tcp://docker:2375/<host>\n  <tlsVerify>false</tlsVerify>\n</docker>\n```\n\nsucceeds, as long as DOCKER_HOST variable is unset.\nBut DOCKER_HOST variable is needed for other pipeline components to pick up correct docker socket. E.g., testcontainers.\nAs env variable DOCKER_HOSTS has highest precedence, all other configuration possibilities fail, because of DOCKER_HOST path failing. ",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49055",
+        "assignees": [],
+        "labels": [
+            "type: bug",
+            "status: team-only"
+        ],
+        "issue_closed_at": "2026-03-13T16:05:34.000Z",
+        "fix_commit_hash": "57e768a654b41d490137fd81f8db6c1ff0e53c1a",
+        "commit_type": "commit",
+        "commit_message": "Trim trailing slashes from tcp:// Docker hosts\n\nFixes gh-49055",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/57e768a654b41d490137fd81f8db6c1ff0e53c1a",
+        "earliest_issue_date": "2026-02-03T21:33:53Z",
+        "predicted_class": "bug",
+        "bic": [
+            "90b920a410ebdb181728f678ff4a4a3a209238e2"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49154,
+        "issue_title": "SpringApplicationShutdownHookTests.runWhenContextIsBeingClosedInAnotherThreadWaitsUntilContextIsInactive fails on latest Spring Framework SNAPSHOT",
+        "issue_body": "https://github.com/spring-projects/spring-framework/commit/20970a4a37e962cdec6cfbe58ead8a3ad1c56d54 has broken `SpringApplicationShutdownHookTests.runWhenContextIsBeingClosedInAnotherThreadWaitsUntilContextIsInactive` but it's not yet clear if the test or the framework change need to be modified.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49154",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: task"
+        ],
+        "issue_closed_at": "2026-02-09T10:11:48.000Z",
+        "fix_commit_hash": "b9cb575de68e645c66289ff6316c336ef385d954",
+        "commit_type": "commit",
+        "commit_message": "Adapt to latest changes in the locking model for context close\n\nCloses gh-49154\nSee spring-projects/spring-framework#36260",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/b9cb575de68e645c66289ff6316c336ef385d954",
+        "earliest_issue_date": "2026-02-07T04:47:14Z",
+        "predicted_class": "bug",
+        "bic": [
+            "8c5b7a87ae1a08d3b5157449c9f1dc0b0a5cc48a"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49183,
+        "issue_title": "Using the OTel and Zipkin starters together creates invalid configuration",
+        "issue_body": "When using both `spring-boot-starter-opentelemetry` and `spring-boot-starter-zipkin` the resulting configuration breaks:\n\n```\n***************************\nAPPLICATION FAILED TO START\n***************************\n\nDescription:\n\nParameter 1 of method propagatingSenderTracingObservationHandler in org.springframework.boot.micrometer.tracing.autoconfigure.MicrometerTracingAutoConfiguration required a single bean, but 2 were found:\n    - bravePropagator: defined by method 'bravePropagator' in class path resource [org/springframework/boot/micrometer/tracing/brave/autoconfigure/BraveAutoConfiguration.class]\n    - otelPropagator: defined by method 'otelPropagator' in class path resource [org/springframework/boot/micrometer/tracing/opentelemetry/autoconfigure/OpenTelemetryTracingAutoConfiguration.class]\n````\n\nI wonder if we could make one of the two aware of the other and back off or provide a better error message if we consider this an invalid combination.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49183",
+        "assignees": [
+            "mhalbritter"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2026-02-13T12:55:06.000Z",
+        "fix_commit_hash": "cdf8d2e9c82381a74880a050db145942ca04ec1e",
+        "commit_type": "commit",
+        "commit_message": "Back off on Propagator in Brave and Otel auto-configurations\n\nThis also fixes the bug that both auto-configurations couldn't be used\ntogether.\n\nCloses gh-49183",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/cdf8d2e9c82381a74880a050db145942ca04ec1e",
+        "earliest_issue_date": "2026-02-11T10:15:22Z",
+        "predicted_class": "bug",
+        "bic": [
+            "e5fde685d4857d8d23a0a55a746c8c408a0e7fd6"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49190,
+        "issue_title": "Distribution's SLO, minimum expected value, and maximum expected value are not applied to long task timer meters",
+        "issue_body": "Spring Boot introduced active metrics in Spring Boot 3.\n\nBy default active metrics contains _count, _sum and _max (http_client_requests_active_seconds_count as example)\n\nSpring has the following properties to control distribution metrics. Only one of them is applied in the priority order (in Spring 2 percentile and slo/sla worked simultaneously but OK that only one works simultaneously)\n\n```properties\n#1 autogenerated buckets with min and max\nmanagement.metrics.distribution.percentile-histogram.http=true\nmanagement.metrics.distribution.minimum-expected-value.http=20\nmanagement.metrics.distribution.maximum-expected-value.http=40s\n\n#2 explicit buckets\nmanagement.metrics.distribution.slo.http=10, 50, 100, 500, 1s, 5s, 10s, 20s, 30s, 40s\n\n#3 explicit percentiles\n#management.metrics.distribution.percentiles.http = 0.5, 0.9, 0.999\n```\n\nUnfortunately active metrics configuration does not work as expected and is inconsistent.\n\nBased on [48410](https://github.com/spring-projects/spring-boot/issues/48410) the normal metrics distribution configuration should be applied to active metrics but currently **only percentiles can be applied**. [jonatan-ivanov](https://github.com/jonatan-ivanov) proposed to create new issue.\n\nThe following are discarded:\n\n- slo are discarded from active metrics\n- minimum-expected-value are discarded from active metrics\n- maximum-expected-value are discarded from active metrics\n\nThey are discarded because [MeterValue/getValue](https://github.com/spring-projects/spring-boot/blob/main/module/spring-boot-micrometer-metrics/src/main/java/org/springframework/boot/micrometer/metrics/autoconfigure/MeterValue.java#L57) will return null if `meterType` is `LONG_TASK_TIME`. This same \"filtering cause all 3 issues. slo is filtered in `convertServiceLevelObjectives`, and min/max calling `convertMeterValue`, both calling `dolookup` directly, instead of calling `lookupWithFallbackToAll`.\n\nPercentiles works \"accidentally\" as it does not use \"converted\" and call `lookupWithFallbackToAll` (also percentile-histogram, expiry and buffer length are set because they also use `lookupWithFallbackToAll` without converter.)\n\nFiltering min/max is very problematic as active metrics use default min value of 120s and max value 2h resulting buckets, which are suitable for real long running task which execute tens of minutes, but are completely false for normal http client and server calls are example. Due filtering min/max the correct values cannot be set.\n\nFixing fixing slo cause another issue. Once fixed there is no way to remove buckets from active metrics. Only option is to set only one bucket explicit for each metrics like below\n\n```properties\nmanagement.metrics.distribution.slo.http.client.requests.active=5s\nmanagement.metrics.distribution.slo.http.server.requests.active=5s\n```\n\nThe following does not work as filtered away by spring\n\n```properties\nmanagement.metrics.distribution.slo.http.client.requests.active=\nmanagement.metrics.distribution.slo.http.server.requests.active=\n```\n\nAnd the following would cause error due validation error in [validate/slo](https://github.com/micrometer-metrics/micrometer/blob/main/micrometer-core/src/main/java/io/micrometer/core/instrument/distribution/DistributionStatisticConfig.java#L475)\n\n```properties\nmanagement.metrics.distribution.slo.http.client.requests.active=0\nmanagement.metrics.distribution.slo.http.server.requests.active=0\n```\n\nTo disable active metrics spring should detect \"-1\", \"0\", \"remove\" string and set internally active slo to \"new double[0]\" which pass validate and remove the buckets. \n\nSpring has nice feature to enable percentile-histogram or percentile for all metrics buckets\n\n```\nmanagement.prometheus.metrics.distribution.percentile-histogram.all=10, 50, 100, 500, 1s, 5s, 10s, 20s, 30s, 40s\nmanagement.prometheus.metrics.distribution.percentiles.all=0.5, 0.9\n\n```\n\nUnfortunately \"all\" work only when \"lookupWithFallbackToAll\" is used, thus does not work for \n \n- slo \n- min\n- max\n\nwhich use convert which also discard for `LONG_TASK_TIMER`. Thus value limited as min/max must use at least explicit metrics name prefix.\n\nAlso disabling active metrics must be done for each active metrics. Would be great to have \"all.active\" which would disable all active distribution config. \n\nCould be done by adding the following code into, would always remove active distribution. \nProper all.active would be more complex to allow mixing  all.active and \"xxx\".active as dolookup by default should match also properties wo active all.active not defined.\n\n[lookupWithFallbackToAll](https://github.com/spring-projects/spring-boot/blob/main/module/spring-boot-micrometer-metrics/src/main/java/org/springframework/boot/micrometer/metrics/autoconfigure/PropertiesMeterFilter.java#L129)\n\n```java\n        private <T> T lookupWithFallbackToAll(Map<String, T> values, String name, T defaultValue) {\n            if (values.isEmpty()) {\n                return defaultValue;\n            }\n\t\t\t// start add all.active handling, filter always. \n            if (name.endsWith(\"active\") && values.containsKey(\"all.active\")) {\n                return (T) values.get(\"all.active\");\n            }\n\t\t\t// end add all.active handling/\t\t\t\n            return doLookup(values, name, () -> values.getOrDefault(\"all\", defaultValue));\n        }\n```\n\nSummary of the proposed fix:\n\n- remove meter type `LONG_TASK_TIMER` value filtering \n- Use always `lookupWithFallbackToAll` --> all distribution fields support \"all\" (`DistributionStatisticConfig` configure)[https://github.com/spring-projects/spring-boot/blob/main/module/spring-boot-micrometer-metrics/src/main/java/org/springframework/boot/micrometer/metrics/autoconfigure/PropertiesMeterFilter.java#L87]\n- support disabling slo for active metrics \n- add support for \"all-active\" to disable distribution for most/all metrics in \n\nTested using Springboot 3.5.8 and Java 21",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49190",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2026-04-15T14:01:54.000Z",
+        "fix_commit_hash": "2f73d15e353912368787d2e57cc14d1fea4a5c01",
+        "commit_type": "commit",
+        "commit_message": "Update distribution properties to support long task timers\n\nPreviously, LongTaskTimers were ignored when configuring a\ndistribution's min and max expected values and SLO boundaries. This\ncommit adds support, aligning them with the existing support for\nTimers.\n\nFixes gh-49190",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/2f73d15e353912368787d2e57cc14d1fea4a5c01",
+        "earliest_issue_date": "2026-02-11T12:49:20Z",
+        "predicted_class": "bug",
+        "bic": [
+            "0ff1b25f52c2641e48e8008c362931e7deb6f823"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49196,
+        "issue_title": "ClassNotFoundException when using Actuator without spring-boot-health",
+        "issue_body": "If you are using spring-boot-actuator-autoconfigure with spring-boot-starter-webflux, the application will not startup.  Instead if will fail with a ClassNotFoundException:\n\nSample `<dependencies>`\n\n```xml\n    <dependencies>\n        <dependency>\n            <groupId>org.springframework.boot</groupId>\n            <artifactId>spring-boot-actuator-autoconfigure</artifactId>\n        </dependency>\n        <dependency>\n            <groupId>org.springframework.boot</groupId>\n            <artifactId>spring-boot-starter-webflux</artifactId>\n        </dependency>\n    </dependencies>\n```\n\nSample project:  \n\n[spring-boot-actuate-no-class-found.tar.gz](https://github.com/user-attachments/files/25251947/spring-boot-actuate-no-class-found.tar.gz)\n\nOn startup, this is the exception:\n\n```\nError starting ApplicationContext. To display the condition evaluation report re-run your application with 'debug' enabled.\n2026-02-11T22:28:39.015-07:00 ERROR 29093 --- [demo] [           main] o.s.boot.SpringApplication               : Application run failed\n\njava.lang.IllegalStateException: Error processing condition on org.springframework.boot.webflux.autoconfigure.actuate.web.WebFluxEndpointManagementContextConfiguration.webEndpointReactiveHandlerMapping\n\tat org.springframework.boot.autoconfigure.condition.SpringBootCondition.matches(SpringBootCondition.java:60) ~[spring-boot-autoconfigure-4.0.2.jar:4.0.2]\n\tat org.springframework.context.annotation.ConditionEvaluator.shouldSkip(ConditionEvaluator.java:100) ~[spring-context-7.0.3.jar:7.0.3]\n\tat org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader.loadBeanDefinitionsForBeanMethod(ConfigurationClassBeanDefinitionReader.java:196) ~[spring-context-7.0.3.jar:7.0.3]\n\tat org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader.loadBeanDefinitionsForConfigurationClass(ConfigurationClassBeanDefinitionReader.java:148) ~[spring-context-7.0.3.jar:7.0.3]\n\tat org.springframework.context.annotation.ConfigurationClassBeanDefinitionReader.loadBeanDefinitions(ConfigurationClassBeanDefinitionReader.java:124) ~[spring-context-7.0.3.jar:7.0.3]\n\tat org.springframework.context.annotation.ConfigurationClassPostProcessor.processConfigBeanDefinitions(ConfigurationClassPostProcessor.java:458) ~[spring-context-7.0.3.jar:7.0.3]\n\tat org.springframework.context.annotation.ConfigurationClassPostProcessor.postProcessBeanDefinitionRegistry(ConfigurationClassPostProcessor.java:310) ~[spring-context-7.0.3.jar:7.0.3]\n\tat org.springframework.context.support.PostProcessorRegistrationDelegate.invokeBeanDefinitionRegistryPostProcessors(PostProcessorRegistrationDelegate.java:349) ~[spring-context-7.0.3.jar:7.0.3]\n\tat org.springframework.context.support.PostProcessorRegistrationDelegate.invokeBeanFactoryPostProcessors(PostProcessorRegistrationDelegate.java:118) ~[spring-context-7.0.3.jar:7.0.3]\n\tat org.springframework.context.support.AbstractApplicationContext.invokeBeanFactoryPostProcessors(AbstractApplicationContext.java:794) ~[spring-context-7.0.3.jar:7.0.3]\n\tat org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:602) ~[spring-context-7.0.3.jar:7.0.3]\n\tat org.springframework.boot.web.server.reactive.context.ReactiveWebServerApplicationContext.refresh(ReactiveWebServerApplicationContext.java:69) ~[spring-boot-web-server-4.0.2.jar:4.0.2]\n\tat org.springframework.boot.SpringApplication.refresh(SpringApplication.java:756) ~[spring-boot-4.0.2.jar:4.0.2]\n\tat org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:445) ~[spring-boot-4.0.2.jar:4.0.2]\n\tat org.springframework.boot.SpringApplication.run(SpringApplication.java:321) ~[spring-boot-4.0.2.jar:4.0.2]\n\tat org.springframework.boot.SpringApplication.run(SpringApplication.java:1365) ~[spring-boot-4.0.2.jar:4.0.2]\n\tat org.springframework.boot.SpringApplication.run(SpringApplication.java:1354) ~[spring-boot-4.0.2.jar:4.0.2]\n\tat com.example.demo.DemoApplication.main(DemoApplication.java:10) ~[classes/:na]\nCaused by: java.lang.IllegalStateException: @ConditionalOnMissingBean did not specify a bean using type, name or annotation and the attempt to deduce the bean's type failed\n\tat org.springframework.boot.autoconfigure.condition.OnBeanCondition$Spec.validate(OnBeanCondition.java:657) ~[spring-boot-autoconfigure-4.0.2.jar:4.0.2]\n\tat org.springframework.boot.autoconfigure.condition.OnBeanCondition$Spec.<init>(OnBeanCondition.java:603) ~[spring-boot-autoconfigure-4.0.2.jar:4.0.2]\n\tat org.springframework.boot.autoconfigure.condition.OnBeanCondition.getMatchOutcome(OnBeanCondition.java:147) ~[spring-boot-autoconfigure-4.0.2.jar:4.0.2]\n\tat org.springframework.boot.autoconfigure.condition.SpringBootCondition.matches(SpringBootCondition.java:47) ~[spring-boot-autoconfigure-4.0.2.jar:4.0.2]\n\t... 17 common frames omitted\nCaused by: org.springframework.boot.autoconfigure.condition.OnBeanCondition$BeanTypeDeductionException: Failed to deduce bean type for org.springframework.boot.webflux.autoconfigure.actuate.web.WebFluxEndpointManagementContextConfiguration.webEndpointReactiveHandlerMapping\n\tat org.springframework.boot.autoconfigure.condition.OnBeanCondition$Spec.deducedBeanTypeForBeanMethod(OnBeanCondition.java:686) ~[spring-boot-autoconfigure-4.0.2.jar:4.0.2]\n\tat org.springframework.boot.autoconfigure.condition.OnBeanCondition$Spec.deducedBeanType(OnBeanCondition.java:676) ~[spring-boot-autoconfigure-4.0.2.jar:4.0.2]\n\tat org.springframework.boot.autoconfigure.condition.OnBeanCondition$Spec.<init>(OnBeanCondition.java:596) ~[spring-boot-autoconfigure-4.0.2.jar:4.0.2]\n\t... 19 common frames omitted\nCaused by: java.lang.IllegalStateException: Failed to introspect Class [org.springframework.boot.webflux.autoconfigure.actuate.web.WebFluxEndpointManagementContextConfiguration] from ClassLoader [jdk.internal.loader.ClassLoaders$AppClassLoader@14dad5dc]\n\tat org.springframework.util.ReflectionUtils.getDeclaredMethods(ReflectionUtils.java:483) ~[spring-core-7.0.3.jar:7.0.3]\n\tat org.springframework.util.ReflectionUtils.findMethod(ReflectionUtils.java:240) ~[spring-core-7.0.3.jar:7.0.3]\n\tat org.springframework.util.ReflectionUtils.findMethod(ReflectionUtils.java:221) ~[spring-core-7.0.3.jar:7.0.3]\n\tat org.springframework.boot.autoconfigure.condition.OnBeanCondition$Spec.findBeanMethod(OnBeanCondition.java:715) ~[spring-boot-autoconfigure-4.0.2.jar:4.0.2]\n\tat org.springframework.boot.autoconfigure.condition.OnBeanCondition$Spec.getMethodReturnType(OnBeanCondition.java:710) ~[spring-boot-autoconfigure-4.0.2.jar:4.0.2]\n\tat org.springframework.boot.autoconfigure.condition.OnBeanCondition$Spec.getReturnType(OnBeanCondition.java:694) ~[spring-boot-autoconfigure-4.0.2.jar:4.0.2]\n\tat org.springframework.boot.autoconfigure.condition.OnBeanCondition$Spec.deducedBeanTypeForBeanMethod(OnBeanCondition.java:683) ~[spring-boot-autoconfigure-4.0.2.jar:4.0.2]\n\t... 21 common frames omitted\nCaused by: java.lang.NoClassDefFoundError: org/springframework/boot/health/actuate/endpoint/HealthEndpointGroups\n\tat java.base/java.lang.Class.getDeclaredMethods0(Native Method) ~[na:na]\n\tat java.base/java.lang.Class.privateGetDeclaredMethods(Class.java:3010) ~[na:na]\n\tat java.base/java.lang.Class.getDeclaredMethods(Class.java:2329) ~[na:na]\n\tat org.springframework.util.ReflectionUtils.getDeclaredMethods(ReflectionUtils.java:465) ~[spring-core-7.0.3.jar:7.0.3]\n\t... 27 common frames omitted\nCaused by: java.lang.ClassNotFoundException: org.springframework.boot.health.actuate.endpoint.HealthEndpointGroups\n\tat java.base/jdk.internal.loader.BuiltinClassLoader.loadClass(BuiltinClassLoader.java:580) ~[na:na]\n\tat java.base/java.lang.ClassLoader.loadClass(ClassLoader.java:490) ~[na:na]\n\t... 31 common frames omitted\n```\n\nThere doesn't seem to be any `@ConditionalOnClass` for `HealthEndpointGroups` on `WebFluxEndpointManagementContextConfiguration` and `HealthEndpointGroups` is [only an optional dependency in spring-boot-webflux](https://github.com/spring-projects/spring-boot/blob/main/module/spring-boot-webflux/build.gradle#L37)",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49196",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2026-02-12T10:31:42.000Z",
+        "fix_commit_hash": "9c6d1d2944f34fb229970f99eaac64d9c59797b4",
+        "commit_type": "commit",
+        "commit_message": "Make additional health paths back off without health module\n\nFixes gh-49196",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/9c6d1d2944f34fb229970f99eaac64d9c59797b4",
+        "earliest_issue_date": "2026-02-12T05:42:07Z",
+        "predicted_class": "bug",
+        "bic": [
+            "2a9de80686f9c8700fc526addb68cc3c9afcf932"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49211,
+        "issue_title": "Couchbase and Kafka are incorrectly listed as supporting SSL with Docker Compose",
+        "issue_body": "We don't have Docker Compose integration for Couchbase or Kafka so they should not be listed among the services where SSL is supported.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49211",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: documentation"
+        ],
+        "issue_closed_at": "2026-02-13T09:15:49.000Z",
+        "fix_commit_hash": "9dca9d983ebabb9c2537cab0d0dc2ea1e8e8dd7a",
+        "commit_type": "commit",
+        "commit_message": "Correct list of services where SSL is supported\n\nCloses gh-49211",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/9dca9d983ebabb9c2537cab0d0dc2ea1e8e8dd7a",
+        "earliest_issue_date": "2026-02-13T09:12:23Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49223,
+        "issue_title": "Jackson properties may not be applied correctly to RestClients",
+        "issue_body": "When a `@AutoConfiguration` uses `after...` with the `RestClientAutoConfiguration`, any `spring.jackson.` properties get lost in the JsonMapper used by the `HttpMessageConverter`.\n\nI have created a project that distills this issue down to a single class (and supporting autoconfig import file) using Boot 4.0.3-SNAPSHOT in this project at https://github.com/mheath/boot-autoconfig-ordering-json-mapper-restclient-bug. When you debug the `BugApplication` class (in IntelliJ at least) you can inspect the RestClient object and see that the `JsonMapper` in the HttpMessageConverter does not contain the Jackson deserialization configuration set as a property within the test class.\n\nI believe that `HttpClientAutoConfiguration` should explicitly happen after the HttpMessageConvertsAutoConfiguration but that is just a theory.\n\n<!--\nThanks for raising a Spring Boot issue. Please take the time to review the following\ncategories as some of them do not apply here.\n\n\ud83d\ude45 \"Please DO NOT Raise an Issue\" Cases\n- Question\nSTOP!! Please ask questions about how to use something, or to understand why something isn't\nworking as you expect it to, on Stack Overflow using the spring-boot tag.\n- Security Vulnerability\nSTOP!! Please don't raise security vulnerabilities here. Head over to https://spring.io/security-policy to learn how to disclose them responsibly.\n- Managed Dependency Upgrade\nYou DO NOT need to raise an issue for a managed dependency version upgrade as there's a semi-automatic process for checking managed dependencies for new versions before a release. BUT pull requests for upgrades that are more involved than just a version property change are still most welcome.\n- With an Immediate Pull Request\nAn issue will be closed as a duplicate of the immediate pull request, so you don't have to raise an issue if you plan to create a pull request immediately.\n\n\ud83d\udc1e Bug report (please don't include this emoji/text, just add your details)\nPlease provide details of the problem, including the version of Spring Boot that you\nare using. If possible, please provide a test case or sample application that reproduces\nthe problem. This makes it much easier for us to diagnose the problem and to verify that\nwe have fixed it.\n\n\ud83c\udf81 Enhancement (please don't include this emoji/text, just add your details)\nPlease start by describing the problem that you are trying to solve. There may already\nbe a solution, or there may be a way to solve it that you hadn't considered.\n\n\nTIP: You can always edit your issue if it isn't formatted correctly.\n     See https://guides.github.com/features/mastering-markdown \n-->\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49223",
+        "assignees": [
+            "philwebb"
+        ],
+        "labels": [
+            "type: regression"
+        ],
+        "issue_closed_at": "2026-02-18T06:27:11.000Z",
+        "fix_commit_hash": "1d054e8a12db08118efd34642ec9a5913d726d47",
+        "commit_type": "commit",
+        "commit_message": "Ensure `HttpMessageConverters` are configured before `RestClients`\n\nUpdate `RestClientAutoConfiguration` to ensure that it applies after\n`HttpMessageConvertersAutoConfiguration`.\n\nPrior to this commit, the `HttpMessageConvertersRestClientCustomizer`\nbean might not get created due to the `@ConditionalOnBean` guard not\nfinding any `ClientHttpMessageConvertersCustomizer` beans.\n\nSince the issue is surprising hard to replicate in a unit test, a new\nsmoke test has been added to ensure the problem doesn't return.\n\nFixes gh-49223",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/1d054e8a12db08118efd34642ec9a5913d726d47",
+        "earliest_issue_date": "2026-02-13T19:53:34Z",
+        "predicted_class": "bug",
+        "bic": [
+            "73c25d7156ae0f6bc42f21f5c9466d80fca4550a"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49252,
+        "issue_title": "Upgrade to Couchbase Client 3.11.1",
+        "issue_body": "Upgrade to [Couchbase Client 3.11.1](https://docs.couchbase.com/java-sdk/current/project-docs/sdk-release-notes.html).\n\nFollow up to #49226 because `3.11.0` contains a regression that has been fixed in `3.11.1`. See also https://github.com/couchbase/couchbase-jvm-clients/issues/48",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49252",
+        "assignees": [],
+        "labels": [
+            "type: dependency-upgrade"
+        ],
+        "issue_closed_at": "2026-02-18T17:38:00.000Z",
+        "fix_commit_hash": "47b9c6d739a306067b0005b9018118aa7a63d234",
+        "commit_type": "commit",
+        "commit_message": "Upgrade to Couchbase Client 3.11.1\n\nCloses gh-49252",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/47b9c6d739a306067b0005b9018118aa7a63d234",
+        "earliest_issue_date": "2026-02-18T13:11:25Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49272,
+        "issue_title": "Changelog generator wrongly flags identical arrays of default values as changed",
+        "issue_body": "In https://github.com/spring-projects/spring-boot/pull/48962 we've improved the changelog generator to show properties whose default has changed. The logic that tests if the default value has changed is flawed for arrays and collections. ",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49272",
+        "assignees": [
+            "snicoll"
+        ],
+        "labels": [
+            "type: task"
+        ],
+        "issue_closed_at": "2026-02-20T09:48:12.000Z",
+        "fix_commit_hash": "c33e7585acec6fb2be02dc9434487e440d6a05f1",
+        "commit_type": "commit",
+        "commit_message": "Fix equality check for multiple values\n\nThis commit fixes the changelog generator to not flag two identical\narrays as changed. Previously, any candidate property with an array\nof default values were flagged incorrectly.\n\nCloses gh-49272",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/c33e7585acec6fb2be02dc9434487e440d6a05f1",
+        "earliest_issue_date": "2026-02-19T16:07:45Z",
+        "predicted_class": "bug",
+        "bic": [
+            "d760b171c3538ebce79402ca3eb1e010b8c2e952"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49273,
+        "issue_title": "Configuration properties changelog is incomplete as the list of modules is applied for 4.0 only",
+        "issue_body": "The list of modules to consider is current hardcoded:\n\nhttps://github.com/spring-projects/spring-boot/blob/1af054775bb5ca65358fae5e0d35f443297e44ae/configuration-metadata/spring-boot-configuration-metadata-changelog-generator/build.gradle#L46\n\nAs of 4.1 we are only using the previous arrangements so no property change was discovered. ",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49273",
+        "assignees": [
+            "snicoll"
+        ],
+        "labels": [
+            "type: documentation"
+        ],
+        "issue_closed_at": "2026-02-20T13:38:47.000Z",
+        "fix_commit_hash": "cfee3f10f4fc02c9d0bb3a8b8f85b8f4e5d5012d",
+        "commit_type": "commit",
+        "commit_message": "Handle Spring Boot 4.1 modules in changelog generation\n\nCloses gh-49273",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/cfee3f10f4fc02c9d0bb3a8b8f85b8f4e5d5012d",
+        "earliest_issue_date": "2026-02-19T16:09:31Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49274,
+        "issue_title": "HTTP Service Interface Client doesn't work in a native image due to missing property binding",
+        "issue_body": "It appears that new http service clients are not getting proper configuration from application.properties, as a result these clients don't work at all. This happening when running Spring Boot application in Native Image mode.\n\nFor example:\nwe have following `application.properties`\n\n```yaml\nspring:\n  http:\n    clients:\n      connect-timeout: 5000\n      read-timeout: 5000\n    serviceclient:\n      myclient:\n        base-url: https://example.com\n```\n\nAnd following config for this client:\n```java\n@Configuration\n@ImportHttpServices(group = \"myclient\", types = MyClient.class)\npublic class RestClientsConfig {\n}\n```\nWhere MyClient.java is\n```java\npublic interface MyClient {\n\n    @GetExchange(\"/hello\")\n    SomeResponseDto hello();\n}\n```\nNow when we try to call our client `myClient.hello()` we'll get\n\nThis exception\n\n```\njava.lang.IllegalArgumentException: URI with undefined scheme\n\tat java.net.http@25/jdk.internal.net.http.common.Utils.newIAE(Utils.java:394)\n\tat java.net.http@25/jdk.internal.net.http.HttpRequestBuilderImpl.checkURI(HttpRequestBuilderImpl.java:81)\n\tat java.net.http@25/jdk.internal.net.http.HttpRequestBuilderImpl.uri(HttpRequestBuilderImpl.java:73)\n\tat java.net.http@25/jdk.internal.net.http.HttpRequestBuilderImpl.uri(HttpRequestBuilderImpl.java:45)\n\tat org.springframework.http.client.JdkClientHttpRequest.buildRequest(JdkClientHttpRequest.java:167)\n\tat org.springframework.http.client.JdkClientHttpRequest.executeInternal(JdkClientHttpRequest.java:117)\n\tat org.springframework.http.client.AbstractStreamingClientHttpRequest.executeInternal(AbstractStreamingClientHttpRequest.java:87)\n\tat org.springframework.http.client.AbstractClientHttpRequest.execute(AbstractClientHttpRequest.java:80)\n\tat org.springframework.web.client.DefaultRestClient$DefaultRequestBodyUriSpec.exchangeInternal(DefaultRestClient.java:609)\n\tat org.springframework.web.client.DefaultRestClient$DefaultRequestBodyUriSpec.exchange(DefaultRestClient.java:567)\n\tat org.springframework.web.client.RestClient$RequestHeadersSpec.exchange(RestClient.java:750)\n\tat org.springframework.web.client.DefaultRestClient$DefaultResponseSpec.executeAndExtract(DefaultRestClient.java:908)\n\tat org.springframework.web.client.DefaultRestClient$DefaultResponseSpec.body(DefaultRestClient.java:831)\n\tat org.springframework.web.client.support.RestClientAdapter.exchangeForBody(RestClientAdapter.java:79)\n\tat org.springframework.web.service.invoker.HttpServiceMethod$ExchangeResponseFunction.lambda$create$4(HttpServiceMethod.java:442)\n\tat org.springframework.web.service.invoker.HttpServiceMethod$ExchangeResponseFunction.execute(HttpServiceMethod.java:399)\n\tat org.springframework.web.service.invoker.HttpServiceMethod.invoke(HttpServiceMethod.java:134)\n\tat org.springframework.web.service.invoker.HttpServiceProxyFactory$HttpServiceMethodInterceptor.invoke(HttpServiceProxyFactory.java:300)\n```\n\nI'm using `Spring Boot 4.0.3` and gradle plugin `org.graalvm.buildtools.native 0.11.4`. Image is built by `./gradlew bootBuildImage`\n\nThere is no issue when running application in standard(non-native) mode ",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49274",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2026-02-25T15:21:17.000Z",
+        "fix_commit_hash": "20ff2b7ff17be57317b1f0bde9724532c8ea0f33",
+        "commit_type": "commit",
+        "commit_message": "Register reflection hints for HTTP service client property binding\n\nFixes gh-49274",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/20ff2b7ff17be57317b1f0bde9724532c8ea0f33",
+        "earliest_issue_date": "2026-02-19T16:57:42Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49289,
+        "issue_title": "RouterFunctions descriptions in Actuator do not support nesting",
+        "issue_body": "Hello!\n\nCurrently, I'm migrating over the non-reactive RouterFunctions with Spring Boot 4.0.3 using this code:\n```java\n    @Bean\n    public RouterFunction<ServerResponse> testEndpoints() {\n        return RouterFunctions.route()\n                .path(\"/rootPath\", customizer -> customizer\n                        .GET(\"/subPathOne\", request -> ServerResponse.ok().build())\n                        .GET(\"/subPathTwo\", request -> ServerResponse.ok().build()))\n                .build();\n\n    }\n```\nWhile the RouterFunctions are built properly (or at least the structure looks good), the generated EndPoints are missing the actual structure, and in case of the sample above only the `/subPathOne` and `/subPathTwo` endpoints are registered:\n<img width=\"1102\" height=\"427\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/b26d8736-6b80-486a-95b1-576a26cad13e\" />\n\nSpring-Boot version: 4.0.3 (but tested with 4.1.0.M2 with the same result)\nJava version: Temurin JDK 25\nSample application: https://github.com/zolkiss/spring-routing-sample\n\nSo far what I found is that the `RouterFunctionMappingDescriptionProvider#describe` Method does not generating correctly. While the mappings are looking OK, the visitor's description does not:\n<img width=\"1978\" height=\"510\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/f0c6f8ed-2ad3-4ad3-950d-ccb159f6a9b0\" />\n\nTried a different syntax, the result is the same\n ```java\n    @Bean\n    public RouterFunction<ServerResponse> testAlternative() {\n        return RouterFunctions.route()\n                .nest(path(\"/altPath\"), customizer -> customizer\n                        .GET(\"/subPathOne\", request -> ServerResponse.ok().build())\n                        .GET(\"/subPathTwo\", request -> ServerResponse.ok().build()))\n                .build();\n    }\n```",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49289",
+        "assignees": [
+            "bclozel"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2026-02-23T17:40:44.000Z",
+        "fix_commit_hash": "9c509cf5b3e734b0306cd371346879ff9125e3e8",
+        "commit_type": "commit",
+        "commit_message": "Fix nesting support in RouterFunctions descriptions\n\nPrior to this commit, descriptions for `RouterFunctions` web routes\nwould not include `nest` predicates and would only consider the last\npredicate in the chain.\n\nThis commit ensures that nested predicates are properly chained adn\nconsidered in the resulting description that is displayed in Actuator\nendpoints.\n\nFixes gh-49289",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/9c509cf5b3e734b0306cd371346879ff9125e3e8",
+        "earliest_issue_date": "2026-02-22T17:56:22Z",
+        "predicted_class": "bug",
+        "bic": [
+            "a747bcf6d43e2c78afc8b3de6f131698ba4cdf8a"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49311,
+        "issue_title": "Tomcat's default max part count is too low in 4.0.x",
+        "issue_body": "### Description\n\nWhen upgrading from Spring Boot 3.5.11 to 4.0.3, a multipart request containing multiple parts starts failing with a `413 Payload Too Large` error.\n\nI investigated the issue and found that it can be resolved by configuring the Tomcat limit for the number of parts (e.g., setting `server.tomcat.max-part-count`). I assume this might be due to a stricter default value introduced in the underlying Tomcat version used by Spring Boot 4.0.x.\n\nI did a text search in the Spring Boot 4.0 Migration Guide but couldn't find any mention of this breaking change or the new default limit. It is possible that it is documented somewhere and I simply missed it. However, if that is the case, it might be a bit difficult for developers to discover.\n\n**My Question & Proposal:**\n\nI would like to ask if this change in default behavior is a bug, an intentional change, or perhaps an issue with how my test is written?\n\n- **If it is a bug:** Please let me know if there is anything I can do to help fix it.\n- **If it is intentional:** I strongly suggest adding a clearer mention of it in [the Spring Boot 4.0 Migration Guide](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide). Without a prominent note, developers might be surprised and confused by sudden 413 errors after upgrading.\n- **If my test implementation is incorrect/outdated for 4.0.x:** I would greatly appreciate any guidance on the proper way to construct this multipart request in the new version.\n\n### Steps to Reproduce\n\nI have created a minimal reproducible example repository here:\n\nhttps://github.com/shayFoo/spring-multi-part\n\nThis repository contains two separate folders to demonstrate the difference in behavior:\n\n- **`demo-multipart-3-5-11` folder:** The test passes successfully (returns 200).\n- **`demo-multipart-4-0-3` folder:** The exact same test fails (returns 413).\n\n**How to reproduce:**\n\n1. Clone the repository: `git clone https://github.com/shayFoo/spring-multi-part.git`\n2. Run the test in the `demo-multipart-4-0-3` project. You will observe the `413 Payload Too Large` error.\n3. Run the test in the `demo-multipart-3-5-11` project. You will see it passes without issues.\n\n### Expected Behavior\nThe test in 4.0.3 should pass with a `200 OK` status, just like it does in Spring Boot 3.5.11. \nIf the default multipart limit has intentionally changed in 4.0.x, it should be explicitly and prominently mentioned in the migration guide along with the relevant property (`server.tomcat.max-part-count`) to configure it.\n\n### Actual Behavior\nThe test fails with a `413 Payload Too Large` error in Spring Boot 4.0.3.\n\n### Workaround\nExplicitly setting `server.tomcat.max-part-count` in `application.properties` (or YAML) resolves the issue in 4.0.3.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49311",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: regression",
+            "for: upgrade-attention"
+        ],
+        "issue_closed_at": "2026-02-24T15:35:24.000Z",
+        "fix_commit_hash": "e808d7a7de85bd41079427b76f217f8bf4f19189",
+        "commit_type": "commit",
+        "commit_message": "Align server.tomcat.max-part-count default with Tomcat's default\n\nFixes gh-49311",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/e808d7a7de85bd41079427b76f217f8bf4f19189",
+        "earliest_issue_date": "2026-02-24T12:48:24Z",
+        "predicted_class": "bug",
+        "bic": [
+            "d9e4b66eeeba7ab4eb892028f83207fa490633a2"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49332,
+        "issue_title": "Several reactive starters do not depend on spring-boot-reactor",
+        "issue_body": "I noticed this while troubleshooting why `spring.reactor.context-propagation=auto` wasn't working for me after upgrading to 4.0.\n\nIMHO, all starters for reactive technologies should also bring in Boot's reactor module.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49332",
+        "assignees": [
+            "bclozel"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2026-02-26T13:55:46.000Z",
+        "fix_commit_hash": "bbd566c3cfefc4d30c431d26d938b4c941bb4584",
+        "commit_type": "commit",
+        "commit_message": "Add spring-boot-reactor to reactive starters\n\nThis commit adds the \"spring-boot-reactor\" module as a dependency to\nreactive starters. While this was already the case for many starters,\nthis module was missing from GraphQL, RSocket, WebClient and WebFlux.\n\nCloses gh-49332",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/bbd566c3cfefc4d30c431d26d938b4c941bb4584",
+        "earliest_issue_date": "2026-02-26T13:20:50Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49338,
+        "issue_title": "Duplicate dependency declaration in ':module:spring-boot-jackson2' build.gradle",
+        "issue_body": "In reviewing the dependencies declared in `:module:spring-boot-jackson2` build.gradle, I noticed an `api` ([here](https://github.com/spring-projects/spring-boot/blob/main/module/spring-boot-jackson2/build.gradle#L30)) AND an `optional` ([here](https://github.com/spring-projects/spring-boot/blob/main/module/spring-boot-jackson2/build.gradle#L41)) dependency declaration on `org.springframework:spring-web`.\n\nThis is benign, but I believe the `api` declaration is sufficient. Although, outside of generating an \"`<optional>true</optional>`\" dependency declaration in the final Maven POM, ATM, I don't recall all the other facilities provided/supported by Spring Boot's custom `optional` configuration.\n\nIn any case, when I look at the final generated and published Maven POM for `org.springframework.boot:spring-boot-jackson2` [in Maven Central](https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-jackson2), it is correct. There is only a single `compile`-time dependency on `org.springframework:spring-web` as I would expect.\n\nTherefore, I think the `optional` declaration is safe to remove.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49338",
+        "assignees": [],
+        "labels": [
+            "type: task",
+            "status: team-only"
+        ],
+        "issue_closed_at": "2026-02-27T09:37:39.000Z",
+        "fix_commit_hash": "7f7532a0b90d98d7a9758aca36321445bbf5ae8b",
+        "commit_type": "commit",
+        "commit_message": "Remove duplicate spring-web dependency\n\nCloses gh-49338",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/7f7532a0b90d98d7a9758aca36321445bbf5ae8b",
+        "earliest_issue_date": "2026-02-26T18:01:59Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49365,
+        "issue_title": "Upgrade to Jackson Bom 2.21.2",
+        "issue_body": "`jackson-core` 2.19.4, as used in Spring Boot 3.5.11, is affected by [Number Length Constraint Bypass in Async Parser Leads to Potential DoS Condition](https://github.com/advisories/GHSA-72hv-8253-57qq).\n\nI've [asked](https://github.com/FasterXML/jackson-core/issues/1548#issuecomment-3984768946) the Jackson project if there will be a 2.19.x patch update with the fix, but I got response saying that Jackson 2.19 is no longer maintained and that 2.18 and 2.21 are the LTS releases that got updates ([2.18.6](https://github.com/FasterXML/jackson/wiki/Jackson-Release-2.18.6), [2.21.1](https://github.com/FasterXML/jackson/wiki/Jackson-Release-2.21.1)).\n\nLooking at the release notes for Jackson [2.20](https://github.com/FasterXML/jackson/wiki/Jackson-Release-2.20#changes-compatibility) and [2.21](https://github.com/FasterXML/jackson/wiki/Jackson-Release-2.21#changes-compatibility), it looks like 2.19 to 2.21 should be a backwards compatible update in the context of Spring Boot 3.5 applications, because the JDK baseline changes for `jackson-annotations`, `jackson-datatype-hibernate` and `jackson-jakarta-providers` won't affect Spring Boot 3.5 applications which already requires Java 17 or later due to the use of Spring Boot 3.5.\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49365",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: dependency-upgrade",
+            "for: upgrade-attention"
+        ],
+        "issue_closed_at": "2026-03-23T15:12:13.000Z",
+        "fix_commit_hash": "94536b0428da0f14396e5c82566020a3ccc8c37f",
+        "commit_type": "commit",
+        "commit_message": "Upgrade to Jackson 2.21.2\n\nThe Jackson team have ended support for Jackson 2.19.x (and 2.20.x).\nIn response to this, this commit upgrades to Jackson 2.21.2. 2.21.x\nis designated as an LTS release so future minor upgrades should not\nbe necessary.\n\nCloses gh-49365",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/94536b0428da0f14396e5c82566020a3ccc8c37f",
+        "earliest_issue_date": "2026-03-02T15:41:06Z",
+        "predicted_class": "bug",
+        "bic": [
+            "84b553a8ca98f62bc87aa1c5f74003eeb566c8fd"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49367,
+        "issue_title": "Auto-configuration overrides authorization server configuration applied by Customizer<HttpSecurity> beans",
+        "issue_body": "Spring Boot's auto configuration should use [`HttpSecurity.oauth2AuthorizationServer`](https://docs.spring.io/spring-security/reference/servlet/oauth2/authorization-server/getting-started.html#oauth2AuthorizationServer-defining-required-components) instead of [`HttpSecurity.with`](https://github.com/spring-projects/spring-boot/blob/f9c71284850b9473036847ce0ebb9f70aacd3e10/module/spring-boot-security-oauth2-authorization-server/src/main/java/org/springframework/boot/security/oauth2/server/authorization/autoconfigure/servlet/OAuth2AuthorizationServerWebSecurityConfiguration.java#L53).\n\n* Spring Boot's auto configuration currently overrides authorization server configuration applied by users providing `Customizer<HttpSecurity>` Beans. Switching to `oauth2AuthorzationServer` (which caches previous invocations made by the `Customizer<HttpSecurity>`) will fix this problem.\n* The built in DSL is the modern and documented way to configure Authorization Server in Spring Security 7.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49367",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2026-03-03T09:04:22.000Z",
+        "fix_commit_hash": "42466e47760f9fb2a38cb8260283096a0f6d8b15",
+        "commit_type": "commit",
+        "commit_message": "Allow Customizer<HttpSecurity> beans to refine auth server config\n\nFixes gh-49367",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/42466e47760f9fb2a38cb8260283096a0f6d8b15",
+        "earliest_issue_date": "2026-03-02T16:40:52Z",
+        "predicted_class": "bug",
+        "bic": [
+            "07c18ea9f158293b37959b61f76e06f7bacc6237"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49383,
+        "issue_title": "Upgrade to Jackson Bom 3.1.0",
+        "issue_body": "Spring Boot 4.0.x includes `tools.jackson.core:jackson-core:3.0.4`, which is affected by the vulnerability GHSA-72hv-8253-57qq (CVSS 8.7). This is the same async parser `maxNumberLength` bypass issue that is being addressed in Spring Boot 3.5.x via #49365.\n\nThe same pattern applies here:\n- The vulnerability is fixed in `jackson-core:3.1.0` (released 2026-02-23).\n- No fix has been backported to the `3.0.x` branch.\n- Spring Boot 4.0.x cannot adopt the fix without a minor version upgrade.\n\nSince the team previously decided to take the unusual but necessary step of upgrading to a new Jackson minor version in a 3.5.x patch release to address this vulnerability (#49365), would it be possible and appropriate to do the same for 4.0.x?",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49383",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: dependency-upgrade",
+            "for: upgrade-attention"
+        ],
+        "issue_closed_at": "2026-03-03T14:04:27.000Z",
+        "fix_commit_hash": "e5dc27754ee6a0fe4528ee571fb8d1d932dea419",
+        "commit_type": "commit",
+        "commit_message": "Upgrade to Jackson Bom 3.1.0\n\nThe Jackson team have ended support for Jackson 3.0.x. In response to\nthis, this commit upgrades to Jackson 3.1.0. 3.1.x is designated as\nan LTS release so further Jackson 3.x upgrades should not be\nnecessary in Spring Boot 4.0.x.\n\nCloses gh-49383",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/e5dc27754ee6a0fe4528ee571fb8d1d932dea419",
+        "earliest_issue_date": "2026-03-03T11:21:14Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49411,
+        "issue_title": "Tutorial in the reference guide has outdated instructions",
+        "issue_body": "See https://docs.spring.io/spring-boot/tutorial/first-application/index.html#getting-started.first-application.gradle",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49411",
+        "assignees": [
+            "snicoll"
+        ],
+        "labels": [
+            "type: documentation"
+        ],
+        "issue_closed_at": "2026-03-05T15:16:06.000Z",
+        "fix_commit_hash": "17b4d97e7b2ef15b11cd3f0ece6939a26d457db3",
+        "commit_type": "commit",
+        "commit_message": "Harmonize tutorial with JDK, Maven and Gradle recent versions\n\nCloses gh-49411",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/17b4d97e7b2ef15b11cd3f0ece6939a26d457db3",
+        "earliest_issue_date": "2026-03-05T08:35:15Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49412,
+        "issue_title": "downloadJdk tasks use outdated JDKs",
+        "issue_body": "",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49412",
+        "assignees": [
+            "snicoll"
+        ],
+        "labels": [
+            "type: task"
+        ],
+        "issue_closed_at": "2026-03-09T13:06:46.000Z",
+        "fix_commit_hash": "c9145e69d9da54046617a18808af1ad3c11bfd72",
+        "commit_type": "commit",
+        "commit_message": "Refresh JDK versions used in integration tests\n\nCloses gh-49412",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/c9145e69d9da54046617a18808af1ad3c11bfd72",
+        "earliest_issue_date": "2026-03-05T08:35:46Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49423,
+        "issue_title": "Output Docker Compose's logs when start or up fails",
+        "issue_body": "When our Docker Compose support calls `docker compose up` (or `docker compose start`) and it fails, we log output like this to the console:\n\n```\n2026-03-05T09:11:09.047Z  INFO 54079 --- [utReader-stderr] o.s.boot.docker.compose.core.DockerCli   :  Network dockercomposetestextension-16188999590674317805_default  Creating\n2026-03-05T09:11:09.069Z  INFO 54079 --- [utReader-stderr] o.s.boot.docker.compose.core.DockerCli   :  Network dockercomposetestextension-16188999590674317805_default  Created\n2026-03-05T09:11:09.071Z  INFO 54079 --- [utReader-stderr] o.s.boot.docker.compose.core.DockerCli   :  Container dockercomposetestextension-16188999590674317805-elasticsearch-1  Creating\n2026-03-05T09:11:09.112Z  INFO 54079 --- [utReader-stderr] o.s.boot.docker.compose.core.DockerCli   :  Container dockercomposetestextension-16188999590674317805-elasticsearch-1  Created\n2026-03-05T09:11:09.134Z  INFO 54079 --- [utReader-stderr] o.s.boot.docker.compose.core.DockerCli   :  Container dockercomposetestextension-16188999590674317805-elasticsearch-1  Starting\n2026-03-05T09:11:09.291Z  INFO 54079 --- [utReader-stderr] o.s.boot.docker.compose.core.DockerCli   :  Container dockercomposetestextension-16188999590674317805-elasticsearch-1  Started\n2026-03-05T09:11:09.292Z  INFO 54079 --- [utReader-stderr] o.s.boot.docker.compose.core.DockerCli   :  Container dockercomposetestextension-16188999590674317805-elasticsearch-1  Waiting\n2026-03-05T09:11:18.347Z  INFO 54079 --- [utReader-stderr] o.s.boot.docker.compose.core.DockerCli   : container dockercomposetestextension-16188999590674317805-elasticsearch-1 exited (1)\n```\n\nThis shows that the elasticsearch container exited with an error code, but doesn't help you to figure out why. You can run `docker compose logs` on the command line to get some further information, but it would be useful if we did this automatically and logged the result at the configured log level.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49423",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: enhancement"
+        ],
+        "issue_closed_at": "2026-03-05T11:03:01.000Z",
+        "fix_commit_hash": "ad0538f6d967adb06b3c600b32203b12e0788f43",
+        "commit_type": "commit",
+        "commit_message": "Log Docker Compose logs when up or start fails\n\nCloses gh-49423",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/ad0538f6d967adb06b3c600b32203b12e0788f43",
+        "earliest_issue_date": "2026-03-05T09:14:17Z",
+        "predicted_class": "bug",
+        "bic": [
+            "6c0c9b9a80cb2cf00e754bfc66e314bf242547f3"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49425,
+        "issue_title": "Tests annotated with @DisabledIfDockerUnavailable are always skipped if Testcontainers isn't on the classpath",
+        "issue_body": "The condition that backs `@DisabledIfDockerUnavailable` uses `org.testcontainers.DockerClientFactory` but `spring-boot-docker-test-support` only has a `compileOnly` dependency on Testcontainers. If a consumer of `spring-boot-docker-test-support` uses `@DisabledIfDockerUnavailable` without also declaring a dependency on Testcontainers, all of its `@DisabledIfDockerUnavailable` tests will be skipped even when Docker is available.\n\nWe can either make `@DisabledIfDockerUnavailable` fail when `DockerClientFactory` is absent or make Testcontainers an `implementation` dependency of `spring-boot-docker-test-support`. Given that JUnit Jupiter (which is required to use `@DisabledIfDockerUnavailable` is also `compileOnly`), the first option seems the better of the two.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49425",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: task"
+        ],
+        "issue_closed_at": "2026-03-05T11:03:00.000Z",
+        "fix_commit_hash": "bb65863891b40ef09aa76f1d807888511e4adad3",
+        "commit_type": "commit",
+        "commit_message": "Fail if using @DisabledIfDockerUnavailable without Testcontainers\n\nCloses gh-49425",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/bb65863891b40ef09aa76f1d807888511e4adad3",
+        "earliest_issue_date": "2026-03-05T10:40:00Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49478,
+        "issue_title": "\"spring.main.cloud-platform=none\" does not disable cloud features",
+        "issue_body": "When the application sets `\"spring.main.cloud-platform=none\"`, related auto-configurations react to this property but the `CloudPlatform` enum itself should disable all cloud-related features.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49478",
+        "assignees": [
+            "bclozel"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2026-03-06T17:05:50.000Z",
+        "fix_commit_hash": "b35a19c8876a9f99a449ec66b3d42a035ad03027",
+        "commit_type": "commit",
+        "commit_message": "Disable cloud features when platform is NONE\n\nPrior to this commit, applying the \"spring.main.cloud-platform=none\"\nproperty would apply this choice to the relevant auto-configuration\nconditions, but the `CloudPlatform` enum itself would still signal that\ncloud features like header forwarding is enabled.\n\nThis commit ensures that \"NONE\" disables such features.\n\nFixes gh-49478",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/b35a19c8876a9f99a449ec66b3d42a035ad03027",
+        "earliest_issue_date": "2026-03-06T16:46:25Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49518,
+        "issue_title": "SpringBootContextLoader mentions class that no longer exists in message for classes or locations assertion",
+        "issue_body": "I think the following may now be dead code:\n\nhttps://github.com/spring-projects/spring-boot/blob/0ede2b0e60011704d3e64a80e5c4bf4e132885ef/core/spring-boot-test/src/main/java/org/springframework/boot/test/context/SpringBootContextLoader.java#L159-L166\n\nFollowing the introduction of `@SpringBootConfiguration`, if you use `@SpringBootTest` in a package where `@SpringBootConfiguration` cannot be found, a failure occurs before `assertHasClassesOrLocations` is reached. That failure is the following:\n\n```\njava.lang.IllegalStateException: Unable to find a @SpringBootConfiguration by searching packages upwards from the test. You can use @ContextConfiguration, @SpringBootTest(classes=...) or other Spring Test supported mechanisms to explicitly declare the configuration classes to load. Classes annotated with @TestConfiguration are not considered.\n\tat org.springframework.util.Assert.state(Assert.java:80)\n\tat org.springframework.boot.test.context.SpringBootTestContextBootstrapper.findConfigurationClass(SpringBootTestContextBootstrapper.java:223)\n\tat org.springframework.boot.test.context.SpringBootTestContextBootstrapper.getOrFindConfigurationClasses(SpringBootTestContextBootstrapper.java:210)\n\tat org.springframework.boot.test.context.SpringBootTestContextBootstrapper.processMergedContextConfiguration(SpringBootTestContextBootstrapper.java:141)\n\tat org.springframework.test.context.support.AbstractTestContextBootstrapper.buildMergedContextConfiguration(AbstractTestContextBootstrapper.java:424)\n\tat org.springframework.test.context.support.AbstractTestContextBootstrapper.buildDefaultMergedContextConfiguration(AbstractTestContextBootstrapper.java:278)\n\tat org.springframework.test.context.support.AbstractTestContextBootstrapper.buildMergedContextConfiguration(AbstractTestContextBootstrapper.java:225)\n\tat org.springframework.test.context.support.AbstractTestContextBootstrapper.buildTestContext(AbstractTestContextBootstrapper.java:116)\n\tat org.springframework.boot.test.context.SpringBootTestContextBootstrapper.buildTestContext(SpringBootTestContextBootstrapper.java:102)\n\tat org.springframework.test.context.TestContextManager.<init>(TestContextManager.java:142)\n\tat org.springframework.test.context.TestContextManager.<init>(TestContextManager.java:126)\n\tat java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)\n\tat org.springframework.test.context.junit.jupiter.SpringExtension.getTestContextManager(SpringExtension.java:434)\n\tat org.springframework.test.context.junit.jupiter.SpringExtension.beforeAll(SpringExtension.java:177)\n\tat java.base/java.util.ArrayList.forEach(ArrayList.java:1511)\n\tSuppressed: java.util.NoSuchElementException\n\t\tat java.base/java.util.ArrayDeque.removeLast(ArrayDeque.java:372)\n\t\tat org.springframework.boot.test.system.OutputCapture.pop(OutputCapture.java:81)\n\t\tat org.springframework.boot.test.system.OutputCaptureExtension.afterAll(OutputCaptureExtension.java:106)\n\t\t... 1 more\n\tSuppressed: java.lang.IllegalStateException: Unable to find a @SpringBootConfiguration by searching packages upwards from the test. You can use @ContextConfiguration, @SpringBootTest(classes=...) or other Spring Test supported mechanisms to explicitly declare the configuration classes to load. Classes annotated with @TestConfiguration are not considered.\n\t\tat org.springframework.util.Assert.state(Assert.java:80)\n\t\tat org.springframework.boot.test.context.SpringBootTestContextBootstrapper.findConfigurationClass(SpringBootTestContextBootstrapper.java:223)\n\t\tat org.springframework.boot.test.context.SpringBootTestContextBootstrapper.getOrFindConfigurationClasses(SpringBootTestContextBootstrapper.java:210)\n\t\tat org.springframework.boot.test.context.SpringBootTestContextBootstrapper.processMergedContextConfiguration(SpringBootTestContextBootstrapper.java:141)\n\t\tat org.springframework.test.context.support.AbstractTestContextBootstrapper.buildMergedContextConfiguration(AbstractTestContextBootstrapper.java:424)\n\t\tat org.springframework.test.context.support.AbstractTestContextBootstrapper.buildDefaultMergedContextConfiguration(AbstractTestContextBootstrapper.java:278)\n\t\tat org.springframework.test.context.support.AbstractTestContextBootstrapper.buildMergedContextConfiguration(AbstractTestContextBootstrapper.java:225)\n\t\tat org.springframework.test.context.support.AbstractTestContextBootstrapper.buildTestContext(AbstractTestContextBootstrapper.java:116)\n\t\tat org.springframework.boot.test.context.SpringBootTestContextBootstrapper.buildTestContext(SpringBootTestContextBootstrapper.java:102)\n\t\tat org.springframework.test.context.TestContextManager.<init>(TestContextManager.java:142)\n\t\tat org.springframework.test.context.TestContextManager.<init>(TestContextManager.java:126)\n\t\tat java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)\n\t\tat org.springframework.test.context.junit.jupiter.SpringExtension.getTestContextManager(SpringExtension.java:434)\n\t\tat org.springframework.test.context.junit.jupiter.SpringExtension.afterAll(SpringExtension.java:188)\n\t\t... 1 more\n```\n\nI'd like to discuss this with the team in case there's a code path that I have overlooked.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49518",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2026-03-09T17:27:44.000Z",
+        "fix_commit_hash": "7280d248e4604bd1ddc398f09a52216033545a16",
+        "commit_type": "commit",
+        "commit_message": "Modernize assertion message for no classes or locations\n\nCloses gh-49518",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/7280d248e4604bd1ddc398f09a52216033545a16",
+        "earliest_issue_date": "2026-03-09T09:14:11Z",
+        "predicted_class": "bug",
+        "bic": [
+            "889d43ddc4bf53178eb98aecd99df29f9f238639"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49519,
+        "issue_title": "Update hibernatePropertiesCustomizerCanDisableBeanContainer to test that the bean container is disabled",
+        "issue_body": "`hibernatePropertiesCustomizerCanDisableBeanContainer` passes with or without the `DisableBeanContainerConfiguration` user configuration. We need to change the assertion.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49519",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: task"
+        ],
+        "issue_closed_at": "2026-03-09T11:30:33.000Z",
+        "fix_commit_hash": "eb439875266592d62c40ec45640014b69e2d965f",
+        "commit_type": "commit",
+        "commit_message": "Improve test assertions for bean container enablement\n\nCloses gh-49519",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/eb439875266592d62c40ec45640014b69e2d965f",
+        "earliest_issue_date": "2026-03-09T10:05:20Z",
+        "predicted_class": "bug",
+        "bic": [
+            "068040e22731151fa4531a313c27839cf69ee8b6"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49547,
+        "issue_title": "Configure BootBuildInfo task created using the DSL as a src dir of the main source set's resources",
+        "issue_body": "I've opened this issues as requested by https://github.com/spring-projects/spring-boot/pull/49537#issuecomment-4029470451\n\nSimplest reproducer:\n```kotlin\nspringBoot {\n    buildInfo()\n}\n\ntasks.register(\"resourceProcessor\") {\n    // this task does *something* with the resources\n    val resourceProcessorInput = objects.directoryProperty()\n    resourceProcessorInput.fileProvider(tasks.processResources.map { it.destinationDir })\n    inputs.dir(resourceProcessorInput)\n    doFirst {\n        println(resourceProcessorInput.get().asFile)\n    }\n}\n```\nNow run `gradle bootBuildInfo resourceProcessor` and you should see\n```\n2: Task failed with an exception.\n-----------\n* What went wrong:\nA problem was found with the configuration of task ':bootBuildInfo' (type 'BuildInfo').\n  - Gradle detected a problem with the following location: 'C:\\Users\\Clayton\\Source\\gradle-generated-file-simplest-reproducer\\build\\resources\\main\\META-INF'.\n    \n    Reason: Task ':resourceProcessor' uses this output of task ':bootBuildInfo' without declaring an explicit or implicit dependency. This can lead to incorrect results being produced, depending on what order the tasks are executed.\n    \n    Possible solutions:\n      1. Declare task ':bootBuildInfo' as an input of ':resourceProcessor'.\n      2. Declare an explicit dependency on ':bootBuildInfo' from ':resourceProcessor' using Task#dependsOn.\n      3. Declare an explicit dependency on ':bootBuildInfo' from ':resourceProcessor' using Task#mustRunAfter.\n```\n\nInstead of writing into the `build/resources` directory directly, the task should probably generate a file in the build/generated subdirectory, then mark that as an input to the processResources task and not rely on dependsOn to work around gradles input/output tracking.",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49547",
+        "assignees": [
+            "wilkinsona"
+        ],
+        "labels": [
+            "type: enhancement"
+        ],
+        "issue_closed_at": "2026-03-11T10:15:37.000Z",
+        "fix_commit_hash": "e7c0bec8ab37af3f3eeb94c9de3b4aa6c9a30d71",
+        "commit_type": "commit",
+        "commit_message": "Improve input/output configuration of DSL-created bootBuildInfo task\n\nThere are two problems with the current approach:\n\n1. The DSL uses dependsOn to try to inform Gradle of the dependency\n   relationship between tasks. This isn't recommended and inputs and\n   outputs should be used instead.\n2. The generated build-info.properties file doesn't appear on the\n   classpath when running an application in an IDE, unless that IDE\n   delegates the execution to Gradle.\n\nThis commit addresses both of these shortcomings by configuring the\nbootBuildInfo task's output to be a src dir of the main source set's\nresources. This gives Gradle the preferred input- and output-based\nview of the tasks' interdependencies. It also causes the generated\nbuild-info.properties to appear on the classpath in IDEs that don't\ndelegate to Gradle. For example, the Eclipse Buildship plugin\nautomatically configures build/bootBuildInfo as a source folder on\nthe project's build path.\n\nCloses gh-49547",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/e7c0bec8ab37af3f3eeb94c9de3b4aa6c9a30d71",
+        "earliest_issue_date": "2026-03-10T13:42:29Z",
+        "predicted_class": "bug",
+        "bic": [
+            "f4bd8956afe5ffd3dd7fb668da8fa283661991e2"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "spring-boot",
+        "issue_number": 49565,
+        "issue_title": "Properties in '@ConfigurationProperties' annotated type shouldn't be able to define the same '@Name'",
+        "issue_body": "Courtesy of @yanncebron\n\n```java\n@ConfigurationProperties(\"vet\")\npublic class VetConfigProps {\n\n    @Name(\"aaa\")\n    private String company;\n\n    @Name(\"aaa\")\n    private String name;\n\n    public void setCompany(String company) {\n        this.company = company;\n    }\n\n    public String getCompany() {\n        return company;\n    }\n\n    public void setName(String name) {\n        this.name = name;\n    }\n\n    public String getName() {\n        return name;\n    }\n\n}\n```\n\nThe annotation processor completes successfully and generates the following JSON:\n\n```json\n{\n  \"groups\": [\n    {\n      \"name\": \"vet\",\n      \"type\": \"org.springframework.samples.petclinic.vet.VetConfigProps\",\n      \"sourceType\": \"org.springframework.samples.petclinic.vet.VetConfigProps\"\n    }\n  ],\n  \"properties\": [\n    {\n      \"name\": \"vet.aaa\",\n      \"type\": \"java.lang.String\",\n      \"sourceType\": \"org.springframework.samples.petclinic.vet.VetConfigProps\"\n    }\n  ],\n  \"hints\": [],\n  \"ignored\": {\n    \"properties\": []\n  }\n}\n```\n\nAt runtime setting `vet.aaa` binds to the two annotated fields. I believe this should raise an error as two properties have the same ID (which they can't).\n",
+        "issue_url": "https://github.com/spring-projects/spring-boot/issues/49565",
+        "assignees": [
+            "snicoll"
+        ],
+        "labels": [
+            "type: bug"
+        ],
+        "issue_closed_at": "2026-04-13T15:15:55.000Z",
+        "fix_commit_hash": "b1672ba0406e7135d4812d5eac1962fdc0d8871f",
+        "commit_type": "commit",
+        "commit_message": "Detect duplicate property names in configuration processing\n\nThis commit updates the annotation processor to fail the build if a\ngiven configuration property defines the same property name on two\ndifferent elements.\n\nCloses gh-49565",
+        "closer_url": "https://github.com/spring-projects/spring-boot/commit/b1672ba0406e7135d4812d5eac1962fdc0d8871f",
+        "earliest_issue_date": "2026-03-11T11:45:51Z",
+        "predicted_class": "bug",
+        "bic": [
+            "3125f424ce7aae14945d14a98207bc74c1d00f61"
+        ],
+        "method_type": "pdszz"
+    }
+]
