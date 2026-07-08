@@ -7,6 +7,7 @@ query ($owner: String!, $name: String!, $prNumber: Int!) {
           ... on ReferencedEvent {
             commit {
               oid
+              message
             }
           }
         }
@@ -25,6 +26,7 @@ query ($owner: String!, $name: String!, $issueNumber: Int!) {
           ... on ReferencedEvent {
             commit {
               oid
+              message
             }
           }
         }
@@ -38,7 +40,7 @@ REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY = """
 query ($owner: String!, $name: String!, $after: String) {
   repository(owner: $owner, name: $name) {
     createdAt
-    issues(first: 20, after: $after, states: CLOSED) {
+    issues(first:20, after:$after, states:CLOSED) {
       totalCount
       pageInfo {
         hasNextPage
@@ -48,13 +50,20 @@ query ($owner: String!, $name: String!, $after: String) {
         number
         title
         body
+        url
+        assignees(first: 10) {
+          nodes {
+            login
+            url
+          }
+        }
+        labels(first: 10) {
+          nodes {
+            name
+          }
+        }
         createdAt
         closedAt
-        url
-        author {
-          login
-          url
-        }
         timelineItems(itemTypes: CLOSED_EVENT, last: 1) {
           nodes {
             ... on ClosedEvent {
@@ -77,6 +86,7 @@ query ($owner: String!, $name: String!, $after: String) {
                   }
                   mergeCommit {
                     oid
+                    message
                   }
                   author {
                     login
@@ -84,8 +94,8 @@ query ($owner: String!, $name: String!, $after: String) {
                 }
                 ... on Commit {
                   oid
+                  message
                   committedDate
-                  messageHeadline
                   url
                   author {
                     user {
