@@ -1,0 +1,1117 @@
+[
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23547,
+        "issue_title": "[Bug] package upload will timeout when the package size is big",
+        "issue_body": "### Search before asking\r\n\r\n- [X] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\r\n\r\n\r\n### Read release policy\r\n\r\n- [X] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\r\n\r\n\r\n### Version\r\n\r\nuse the apachepulsar/pulsar:4.0.0 image, image index digest is: sha256:51e92bc45ba495b9753585b12625579ddaeea8e02d08aecd336ceff26e1099f1\r\n\r\n### Minimal reproduce step\r\n\r\n1. deploy pulsar using docker-compose, below is the compose yaml:\r\n\r\n```yaml\r\nversion: '3'\r\nnetworks:\r\n  pulsar:\r\n    driver: bridge\r\nservices:\r\n  # Start zookeeper\r\n  zookeeper:\r\n    image: apachepulsar/pulsar:4.0.0\r\n    container_name: zookeeper\r\n    restart: on-failure\r\n    networks:\r\n      - pulsar\r\n    volumes:\r\n      - ./data/zookeeper:/pulsar/data/zookeeper\r\n    environment:\r\n      - metadataStoreUrl=zk:zookeeper:2181\r\n      - PULSAR_MEM=-Xms256m -Xmx256m -XX:MaxDirectMemorySize=256m\r\n    command: >\r\n      bash -c \"bin/apply-config-from-env.py conf/zookeeper.conf && \\\r\n             bin/generate-zookeeper-config.sh conf/zookeeper.conf && \\\r\n             exec bin/pulsar zookeeper\"\r\n    healthcheck:\r\n      test: [\"CMD\", \"bin/pulsar-zookeeper-ruok.sh\"]\r\n      interval: 10s\r\n      timeout: 5s\r\n      retries: 30\r\n\r\n  # Init cluster metadata\r\n  pulsar-init:\r\n    container_name: pulsar-init\r\n    hostname: pulsar-init\r\n    image: apachepulsar/pulsar:4.0.0\r\n    networks:\r\n      - pulsar\r\n    command: >\r\n      bin/pulsar initialize-cluster-metadata --cluster cluster-a --zookeeper zookeeper:2181 --configuration-store zookeeper:2181 --web-service-url http://broker:8080 --broker-service-url pulsar://broker:6650\r\n    depends_on:\r\n      zookeeper:\r\n        condition: service_healthy\r\n\r\n  # Start bookie\r\n  bookie:\r\n    image: apachepulsar/pulsar:4.0.0\r\n    container_name: bookie\r\n    restart: on-failure\r\n    networks:\r\n      - pulsar\r\n    environment:\r\n      - clusterName=cluster-a\r\n      - zkServers=zookeeper:2181\r\n      - metadataServiceUri=metadata-store:zk:zookeeper:2181\r\n      # otherwise every time we run docker compose uo or down we fail to start due to Cookie\r\n      # See: https://github.com/apache/bookkeeper/blob/405e72acf42bb1104296447ea8840d805094c787/bookkeeper-server/src/main/java/org/apache/bookkeeper/bookie/Cookie.java#L57-68\r\n      - advertisedAddress=bookie\r\n      - BOOKIE_MEM=-Xms512m -Xmx512m -XX:MaxDirectMemorySize=256m\r\n    depends_on:\r\n      zookeeper:\r\n        condition: service_healthy\r\n      pulsar-init:\r\n        condition: service_completed_successfully\r\n    # Map the local directory to the container to avoid bookie startup failure due to insufficient container disks.\r\n    volumes:\r\n      - ./data/bookkeeper:/pulsar/data/bookkeeper\r\n    command: bash -c \"bin/apply-config-from-env.py conf/bookkeeper.conf && exec bin/pulsar bookie\"\r\n\r\n  # Start broker\r\n  broker:\r\n    image: apachepulsar/pulsar:4.0.0\r\n    container_name: broker\r\n    hostname: broker\r\n    restart: on-failure\r\n    networks:\r\n      - pulsar\r\n    environment:\r\n      - metadataStoreUrl=zk:zookeeper:2181\r\n      - zookeeperServers=zookeeper:2181\r\n      - clusterName=cluster-a\r\n      - managedLedgerDefaultEnsembleSize=1\r\n      - managedLedgerDefaultWriteQuorum=1\r\n      - managedLedgerDefaultAckQuorum=1\r\n      - advertisedAddress=broker\r\n      - advertisedListeners=external:pulsar://127.0.0.1:6650\r\n      - enablePackagesManagement=true\r\n      - PULSAR_MEM=-Xms512m -Xmx512m -XX:MaxDirectMemorySize=256m\r\n    depends_on:\r\n      zookeeper:\r\n        condition: service_healthy\r\n      bookie:\r\n        condition: service_started\r\n    ports:\r\n      - \"6650:6650\"\r\n      - \"8080:8080\"\r\n    command: bash -c \"bin/apply-config-from-env.py conf/broker.conf && exec bin/pulsar broker\"\r\n```\r\n2. generate a 500MB file:\r\n```\r\ndd if=/dev/zero of=500MB_file bs=1M count=500\r\n```\r\n\r\n3. upload this file to package service:\r\n```\r\nazureuser@dev-machie:~/pulsar$ ./bin/pulsar-admin packages upload --path ~/500MB_file --description \"testing\" function://public/default/test500\r\n```\r\n\r\n### What did you expect to see?\r\n\r\n```\r\nThe package 'function://public/default/test500' uploaded from path '/home/azureuser/500MB_file' successfully\r\n```\r\n\r\n### What did you see instead?\r\n\r\n```\r\nnull\r\nReason: java.util.concurrent.CompletionException: java.util.concurrent.TimeoutException: Read timeout to localhost/127.0.0.1:8080 after 60000 ms\r\n```\r\n\r\n### Anything else?\r\n\r\nThe reason is that the `DLOutputStream` will read 8192 bytes each time, and write them to bk, so for a 500 MB file, it will write:\r\n\r\n500 * 1024 * 1024 / 8192.0 = 64000.0 times\r\n\r\nwhich leads to timeout\r\n\r\nThis error also happened in branch-3.0 and 3.3\r\n\r\n### Are you willing to submit a PR?\r\n\r\n- [X] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23547",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2024-11-05T00:19:24.000Z",
+        "fix_commit_hash": "7a4788895e31dcd794fcb89b3af2bc36fa221343",
+        "commit_type": "pr",
+        "commit_message": "[fix][broker] Increase readBuffer size for bookkeeper.DLOutputStream (#23548)",
+        "closer_url": "https://github.com/apache/pulsar/pull/23548",
+        "earliest_issue_date": "2024-11-04T07:01:55Z",
+        "predicted_class": "bug",
+        "bic": [
+            "da2a1910a32e622ea609ff7b9e91711ecaf36de6"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23550,
+        "issue_title": "[Bug][txn] txn committing stuck and never finish commit process",
+        "issue_body": "### Search before asking\r\n\r\n- [X] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\r\n\r\n\r\n### Read release policy\r\n\r\n- [X] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\r\n\r\n\r\n### Version\r\n\r\n3.0.x\r\n\r\n### Minimal reproduce step\r\n\r\nrun transaction.\r\n\r\n### What did you expect to see?\r\n\r\ntransaction not stuck\r\n\r\n### What did you see instead?\r\n\r\nAfter running txn for a long time in a multi-node cluster, notice that some transactions are stuck in one broker and never finish. These transactions are stuck in the committing -> committed process. However, after dumping the object, finding that the requestCredits is 1000, but transaction commit still can not be executed. And the tb_client_pending_request keep growing.\r\n\r\n![image](https://github.com/user-attachments/assets/6624c3bd-e748-48fe-8454-33dc241e0a33)\r\n\r\n![image](https://github.com/user-attachments/assets/484424c2-6e86-4fbb-a7c5-c19f573a2542)\r\n\r\n\r\n\r\n### Anything else?\r\n\r\n_No response_\r\n\r\n### Are you willing to submit a PR?\r\n\r\n- [X] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23550",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2025-11-04T20:17:15.000Z",
+        "fix_commit_hash": "c4f125cfa292a8d61e0d037fa2d0fa1e89308b29",
+        "commit_type": "pr",
+        "commit_message": "[fix][txn] fix concurrent error cause txn stuck in TransactionBufferHandlerImpl#endTxn (#23551)\n\nCo-authored-by: fanjianye <fanjianye@bigo.sg>",
+        "closer_url": "https://github.com/apache/pulsar/pull/23551",
+        "earliest_issue_date": "2024-11-04T07:57:20Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23572,
+        "issue_title": "[Bug] Blue-Green Cluster Migration results in migration of healthcheck topic which causes timeout on GET /admin/v2/brokers/health",
+        "issue_body": "### Search before asking\r\n\r\n- [X] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\r\n\r\n\r\n### Read release policy\r\n\r\n- [X] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\r\n\r\n\r\n### Version\r\n\r\nLatest on master  i.e.4.1.0\r\n\r\n### Minimal reproduce step\r\n\r\n1) Create two local pulsar clusters (for me it was in Minikube) with the same clustername (different services) \r\n2) Confirm healthcheck is passing e.g. \r\n```\r\nkubectl port-forward service/pulsar-broker 8080:8080\r\ncurl http://localhost:8080/admin/v2/brokers/health\r\n```\r\n3) Enable Cluster Migration from one cluster to the other e.g. \r\n```\r\nkubectl port-forward service/pulsar-broker 8080:8080\r\n./bin/pulsar-admin clusters update-cluster-migration blue --broker-url  pulsar://pulsar-green-broker:6650 --service-url http://pulsar-green-broker:8080 --migrated\r\n```\r\n\r\n4) Monitor healthcheck on the original cluster\r\n```\r\nwhile true; do curl http://localhost:8080/admin/v2/brokers/health; date; sleep 5; done\r\nok\r\nWed Nov  6 09:37:51 EST 2024\r\nok\r\nWed Nov  6 09:37:56 EST 2024\r\n.\r\n.\r\nWed Nov  6 09:42:19 EST 2024\r\n{\"reason\":\"\\n --- An unexpected error occurred in the server ---\\n\\nMessage: request timeout {'durationMs': '30000', 'reqId':'4072026808692081594', 'remote':'pulsar-broker-0.pulsar-broker.cogito.svc.cluster.local/10.244.0.12:6650', 'local':'/10.244.0.12:43376'}\\n\\nStacktrace:\\n\\norg.apache.pulsar.client.api.PulsarClientException$TimeoutException: request timeout {'durationMs': '30000', 'reqId':'4072026808692081594', 'remote':'pulsar-broker-0.pulsar-broker.cogito.svc.cluster.local/10.244.0.12:6650', 'local':'/10.244.0.12:43376'}\\n\\tat org.apache.pulsar.client.impl.ClientCnx.checkRequestTimeout(ClientCnx.java:1422)\\n\\tat org.apache.pulsar.common.util.Runnables$CatchingAndLoggingRunnable.run(Runnables.java:54)\\n\\tat io.netty.util.concurrent.PromiseTask.runTask(PromiseTask.java:98)\\n\\tat io.netty.util.concurrent.ScheduledFutureTask.run(ScheduledFutureTask.java:162)\\n\\tat io.netty.util.concurrent.AbstractEventExecutor.runTask(AbstractEventExecutor.java:173)\\n\\tat io.netty.util.concurrent.AbstractEventExecutor.safeExecute(AbstractEventExecutor.java:166)\\n\\tat io.netty.util.concurrent.SingleThreadEventExecutor.runAllTasks(SingleThreadEventExecutor.java:472)\\n\\tat io.netty.channel.epoll.EpollEventLoop.run(EpollEventLoop.java:408)\\n\\tat io.netty.util.concurrent.SingleThreadEventExecutor$4.run(SingleThreadEventExecutor.java:997)\\n\\tat io.netty.util.internal.ThreadExecutorMap$2.run(ThreadExecutorMap.java:74)\\n\\tat io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)\\n\\tat java.base/java.lang.Thread.run(Unknown Source)\\n\"}\r\n```\r\n\r\n\r\n### What did you expect to see?\r\n\r\nThe original \"blue\" cluster should appear to be healthy after cluster migration.\r\n\r\n### What did you see instead?\r\n\r\n\"Blue\" cluster reports as not healthy.\r\nThe impact in my system is that we have microservices which have readiness and liveness checks which depend on the Pulsar broker health check (based on admin client / API) and since that fails, the microservices then start to fail when the blue cluster is technically still operational. \r\n\r\n\r\n### Anything else?\r\n\r\nI'm not sure it even makes sense logically to migrate the healthcheck.\r\nLooking here it is surprising that the healthcheck topic does not register as an Internal topic\r\n\r\nhttps://github.com/apache/pulsar/blob/c266db236df5f57bf59df1b25a23521419b2ad02/pulsar-broker/src/main/java/org/apache/pulsar/broker/service/persistent/PersistentTopic.java#L2923-L2926\r\n\r\nhttps://github.com/apache/pulsar/blob/c266db236df5f57bf59df1b25a23521419b2ad02/pulsar-broker/src/main/java/org/apache/pulsar/broker/loadbalance/extensions/ExtensibleLoadManagerImpl.java#L822-L827\r\n\r\nThe healthcheck (heartbeat) topic name is defined here\r\nhttps://github.com/apache/pulsar/blob/c266db236df5f57bf59df1b25a23521419b2ad02/pulsar-broker/src/main/java/org/apache/pulsar/broker/admin/impl/BrokersBase.java#L422-L427\r\n\r\nI might be interested in submitting a PR but would need some clarity on whether to change the logic in PersistentTopic.java e.g.\r\n```\r\n   public CompletableFuture<Void> checkClusterMigration() {\r\n        if (ExtensibleLoadManagerImpl.isInternalTopic(topic)) {\r\n            return CompletableFuture.completedFuture(null);\r\n        }\r\n.\r\n.\r\nADD LOGIC HERE\r\n```\r\nor if it makes more sense that `ExtensibleLoadManagerImpl.isInternalTopic` returns true for the healthcheck topic also.\r\n\r\n### Are you willing to submit a PR?\r\n\r\n- [ ] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23572",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2024-12-21T13:32:34.000Z",
+        "fix_commit_hash": "1967a9309586286580ac0f3b75a34e1f70e63f75",
+        "commit_type": "pr",
+        "commit_message": "[fix][broker] System topic should not be migrated during blue-green cluster migration (#23767)\n\nCo-authored-by: ruihongzhou <ruihongzhou@tencent.com>",
+        "closer_url": "https://github.com/apache/pulsar/pull/23767",
+        "earliest_issue_date": "2024-11-06T14:59:24Z",
+        "predicted_class": "bug",
+        "bic": [
+            "094742d5fa6f07b5ceed581876c45564fa0379bd"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23588,
+        "issue_title": "[Bug] proxy DNS UDP timed out after 5000  milliseconds  error in kubernetes",
+        "issue_body": "### Search before asking\r\n\r\n- [X] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\r\n\r\n\r\n### Read release policy\r\n\r\n- [X] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\r\n\r\n\r\n### Version\r\n\r\npulsar 3.3.0\r\nkubernetes 1.18.4 \r\n\r\n\r\n### Minimal reproduce step\r\n\r\nonline error, reproduction is not easy\r\n\r\n\r\n### What did you expect to see?\r\n\r\nconsume success\r\n\r\n### What did you see instead?\r\n\r\n``` java\r\njava.util.concurrent.CompletionException: io.netty.resolver.dns.DnsResolveContext$SearchDomainUnknownHostException: Failed to resolve 'pulsar-uqhf-178-pulsar-cluster-broker-1.pulsar-uqhf-178-pulsar-cluster-broker-headless.pulsar.svc.cluster.local' [A(1)] and search domain query for configured domains failed as well: [pulsar.svc.cluster.local, svc.cluster.local, cluster.local]\r\nCaused by: io.netty.resolver.dns.DnsResolveContext$SearchDomainUnknownHostException: Failed to resolve 'pulsar-uqhf-178-pulsar-cluster-broker-1.pulsar-uqhf-178-pulsar-cluster-broker-headless.pulsar.svc.cluster.local' [A(1)] and search domain query for configured domains failed as well: [pulsar.svc.cluster.local, svc.cluster.local, cluster.local]\r\nCaused by: io.netty.resolver.dns.DnsNameResolverTimeoutException: [37005: /9.165.255.254:53] DefaultDnsQuestion(pulsar-uqhf-178-pulsar-cluster-broker-1.pulsar-uqhf-178-pulsar-cluster-broker-headless.pulsar.svc.cluster.local. IN A) query '37005' via UDP timed out after 5000 milliseconds (no stack trace available)\r\n2024-10-20T15:18:34,102+0800 [pulsar-proxy-io-2-5] INFO  org.apache.pulsar.proxy.server.ProxyConnection - [/21.10.52.200:38756] Connection closed\r\n\r\n```\r\nthis error happen in proxy and then some consumers will disconnect and close the client\r\n\r\n### Anything else?\r\n\r\nWith the increase in traffic, we have recently discovered that this problem will occasionally occur in the cluster. And there are many consumers using reader mode in our cluster.\r\n\r\n### Are you willing to submit a PR?\r\n\r\n- [X] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23588",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2024-11-13T21:07:03.000Z",
+        "fix_commit_hash": "5d924bfb451bccdad0c1dc9a22c6dde49d65a47d",
+        "commit_type": "pr",
+        "commit_message": "Enabling DNS retryOnTimeout with TCP in DnsNameResolver (#23590)",
+        "closer_url": "https://github.com/apache/pulsar/pull/23590",
+        "earliest_issue_date": "2024-11-11T12:20:45Z",
+        "predicted_class": "bug",
+        "bic": [
+            "76045bdb78e4645a78831d9b9a3312f17d6454d1"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23617,
+        "issue_title": "[Bug] window functions ack messages directly when they comes, which is not expected",
+        "issue_body": "### Search before asking\n\n- [X] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [X] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\nhttps://github.com/apache/pulsar/tree/v3.0.7\n\n### Minimal reproduce step\n\n1. deploy the pulsar cluster using v3.0.7\r\n2. create a window function\r\n```\r\nbin/pulsar-admin functions create --jar /pulsar/examples/api-examples.jar --name test-window-java --className org.apache.pulsar.functions.api.examples.window.LoggingWindowFunction --inputs persistent://public/default/api-java-fn-input --window-length-count 10 --sliding-interval-count 5\r\n```\r\n3. send 3 messages to the `persistent://public/default/api-java-fn-input` topic\r\n4. get the topic stats of `persistent://public/default/api-java-fn-input`, the backlog of subscription `public/default/test-window-java` should be 3, because the window is not triggered yet, so the 3 messages should not be acked\n\n### What did you expect to see?\n\nthe `msgBacklog` for subscription `public/default/test-window-java` should be 3\n\n### What did you see instead?\n\nthe `msgBacklog` for subscription `public/default/test-window-java` is 0\n\n### Anything else?\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [X] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23617",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2024-11-22T01:05:02.000Z",
+        "fix_commit_hash": "024ff7574b55104b2460c7969eb127577bfb54dc",
+        "commit_type": "pr",
+        "commit_message": "[fix][fn] ack messages for window function when its result is null (#23618)",
+        "closer_url": "https://github.com/apache/pulsar/pull/23618",
+        "earliest_issue_date": "2024-11-21T02:58:51Z",
+        "predicted_class": "bug",
+        "bic": [
+            "c6100186b5ba267c9a3af638eb76652d953a60b3"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23622,
+        "issue_title": "[Bug][client] Consumer incomingMessageSize and client memory usage is negative",
+        "issue_body": "### Search before asking\n\n- [X] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [X] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\nmaster\n\n### Minimal reproduce step\n\nuse a simple demo to consume. Found that client memory usage is negative, and ConsumerBase#incomingMessagesSize is also negative.\r\n\r\n```\r\nConsumer<byte[]> consumer = client.newConsumer(Schema.BYTES)\r\n                .topic(\"persistent://test/normal/test\")\r\n                .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest)\r\n                .subscriptionName(\"test\")\r\n                .subscriptionType(SubscriptionType.Shared)\r\n                .autoScaledReceiverQueueSizeEnabled(true)\r\n                .subscribe();\r\n\r\nwhile (true) {\r\n    Message msg = consumer.receive();\r\n}\r\n```\r\n\n\n### What did you expect to see?\n\nincomingMessageSize and client memory usage should not be negative\n\n### What did you see instead?\n\nincomingMessageSize and client memory usage is negative\n\n### Anything else?\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [X] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23622",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "triage/lhotari/important"
+        ],
+        "issue_closed_at": "2024-11-22T01:51:04.000Z",
+        "fix_commit_hash": "708c5cc0c5f86d6c6bbdb438067122074f4de994",
+        "commit_type": "pr",
+        "commit_message": "[fix][client] fix incomingMessageSize and client memory usage is negative (#23624)\n\nCo-authored-by: fanjianye <fanjianye@bigo.sg>",
+        "closer_url": "https://github.com/apache/pulsar/pull/23624",
+        "earliest_issue_date": "2024-11-21T07:45:02Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23650,
+        "issue_title": "[Bug] Deadlock in NegativeAcksTracker.close",
+        "issue_body": "### Search before asking\n\n- [X] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [X] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\nbranch-4.0 at 3112ae9\r\n\n\n### Minimal reproduce step\n\nThis occurred in CI while running org.apache.pulsar.client.api.InterceptorsTest.testConsumerInterceptorForNegativeAcksSend\n\n### What did you expect to see?\n\nNo deadlocks\n\n### What did you see instead?\n\n```\r\n\r\nFound one Java-level deadlock:\r\n=============================\r\n\"TestNG-method=testConsumerInterceptorForNegativeAcksSend-1\":\r\n  waiting to lock monitor 0x00007ff75811c860 (object 0x0000100026ab72e8, a org.apache.pulsar.client.impl.NegativeAcksTracker),\r\n  which is held by \"pulsar-timer-4412-1\"\r\n\r\n\"pulsar-timer-4412-1\":\r\n  waiting to lock monitor 0x00007ff7749f2c20 (object 0x0000100026ab6c18, a org.apache.pulsar.client.impl.ConsumerImpl),\r\n  which is held by \"TestNG-method=testConsumerInterceptorForNegativeAcksSend-1\"\r\n\r\nJava stack information for the threads listed above:\r\n===================================================\r\n\"TestNG-method=testConsumerInterceptorForNegativeAcksSend-1\":\r\n\tat org.apache.pulsar.client.impl.NegativeAcksTracker.close(NegativeAcksTracker.java:148)\r\n\t- waiting to lock <0x0000100026ab72e8> (a org.apache.pulsar.client.impl.NegativeAcksTracker)\r\n\tat org.apache.pulsar.client.impl.ConsumerImpl.closeConsumerTasks(ConsumerImpl.java:1179)\r\n\tat org.apache.pulsar.client.impl.ConsumerImpl.closeAsync(ConsumerImpl.java:1114)\r\n\t- locked <0x0000100026ab6c18> (a org.apache.pulsar.client.impl.ConsumerImpl)\r\n\tat org.apache.pulsar.client.impl.ConsumerBase.close(ConsumerBase.java:747)\r\n\tat org.apache.pulsar.client.api.InterceptorsTest.testConsumerInterceptorForNegativeAcksSend(InterceptorsTest.java:773)\r\n\tat java.lang.invoke.DirectMethodHandle$Holder.invokeVirtual(java.base@21.0.5/DirectMethodHandle$Holder)\r\n\tat java.lang.invoke.LambdaForm$MH/0x00007ff7a0531c00.invoke(java.base@21.0.5/LambdaForm$MH)\r\n\tat java.lang.invoke.Invokers$Holder.invokeExact_MT(java.base@21.0.5/Invokers$Holder)\r\n\tat jdk.internal.reflect.DirectMethodHandleAccessor.invokeImpl(java.base@21.0.5/DirectMethodHandleAccessor.java:154)\r\n\tat jdk.internal.reflect.DirectMethodHandleAccessor.invoke(java.base@21.0.5/DirectMethodHandleAccessor.java:103)\r\n\tat java.lang.reflect.Method.invoke(java.base@21.0.5/Method.java:580)\r\n\tat org.testng.internal.invokers.MethodInvocationHelper.invokeMethod(MethodInvocationHelper.java:139)\r\n\tat org.testng.internal.invokers.InvokeMethodRunnable.runOne(InvokeMethodRunnable.java:47)\r\n\tat org.testng.internal.invokers.InvokeMethodRunnable.call(InvokeMethodRunnable.java:76)\r\n\tat org.testng.internal.invokers.InvokeMethodRunnable.call(InvokeMethodRunnable.java:11)\r\n\tat java.util.concurrent.FutureTask.run(java.base@21.0.5/FutureTask.java:317)\r\n\tat java.util.concurrent.ThreadPoolExecutor.runWorker(java.base@21.0.5/ThreadPoolExecutor.java:1144)\r\n\tat java.util.concurrent.ThreadPoolExecutor$Worker.run(java.base@21.0.5/ThreadPoolExecutor.java:642)\r\n\tat java.lang.Thread.runWith(java.base@21.0.5/Thread.java:1596)\r\n\tat java.lang.Thread.run(java.base@21.0.5/Thread.java:1583)\r\n\"pulsar-timer-4412-1\":\r\n\tat org.apache.pulsar.client.impl.ConsumerImpl.redeliverUnacknowledgedMessages(ConsumerImpl.java:2076)\r\n\t- waiting to lock <0x0000100026ab6c18> (a org.apache.pulsar.client.impl.ConsumerImpl)\r\n\tat org.apache.pulsar.client.impl.ConsumerImpl.redeliverUnacknowledgedMessages(ConsumerImpl.java:2136)\r\n\tat org.apache.pulsar.client.impl.NegativeAcksTracker.triggerRedelivery(NegativeAcksTracker.java:97)\r\n\t- locked <0x0000100026ab72e8> (a org.apache.pulsar.client.impl.NegativeAcksTracker)\r\n\tat org.apache.pulsar.client.impl.NegativeAcksTracker$$Lambda/0x00007ff7a0edaf90.run(Unknown Source)\r\n\tat io.netty.util.HashedWheelTimer$HashedWheelTimeout.run(HashedWheelTimer.java:713)\r\n\tat io.netty.util.concurrent.ImmediateExecutor.execute(ImmediateExecutor.java:34)\r\n\tat io.netty.util.HashedWheelTimer$HashedWheelTimeout.expire(HashedWheelTimer.java:701)\r\n\tat io.netty.util.HashedWheelTimer$HashedWheelBucket.expireTimeouts(HashedWheelTimer.java:788)\r\n\tat io.netty.util.HashedWheelTimer$Worker.run(HashedWheelTimer.java:501)\r\n\tat io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)\r\n\tat java.lang.Thread.runWith(java.base@21.0.5/Thread.java:1596)\r\n\tat java.lang.Thread.run(java.base@21.0.5/Thread.java:1583)\r\n\r\nFound 1 deadlock.\r\n```\r\n\r\nAnalysis:\r\nhttps://jstack.review/?https://gist.github.com/lhotari/b95fc071c1e488ba4f0a4606ae85c76a#tda_1_sync_0x0000100026ab6c18\r\nThread dump: https://gist.github.com/lhotari/b95fc071c1e488ba4f0a4606ae85c76a\n\n### Anything else?\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [ ] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23650",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2024-11-28T14:58:26.000Z",
+        "fix_commit_hash": "68eb8f29c50f16f0aa50ecacec16882b82230122",
+        "commit_type": "pr",
+        "commit_message": "[fix][client] Fix deadlock of NegativeAcksTracker (#23651)",
+        "closer_url": "https://github.com/apache/pulsar/pull/23651",
+        "earliest_issue_date": "2024-11-28T06:48:38Z",
+        "predicted_class": "bug",
+        "bic": [
+            "9d65a85d6fafbc5f5534caef9b20a808cb5e4d26"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23670,
+        "issue_title": "[Bug] `onFilter` method in custom `BrokerInterceptor` doesn't get called",
+        "issue_body": "### Search before asking\n\n- [X] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [X] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\nmaster(f27905560207eb2ade32f8086b4585dffb918b80)\n\n### Minimal reproduce step\n\n1. implement a simple `BrokerInterceptor` like below, and build a nar package for it:\r\n\r\n  ```\r\n  public class TestFilter implements BrokerInterceptor {\r\n      private static final Logger log = LoggerFactory.getLogger(TestFilter.class);\r\n      @Override\r\n      public void onPulsarCommand(BaseCommand command, ServerCnx cnx) {\r\n      }\r\n  \r\n      @Override\r\n      public void onConnectionClosed(ServerCnx cnx) {\r\n      }\r\n  \r\n      @Override\r\n      public void onWebserviceRequest(ServletRequest request) {\r\n      }\r\n  \r\n      @Override\r\n      public void onWebserviceResponse(ServletRequest request, ServletResponse response) {\r\n      }\r\n  \r\n      @Override\r\n      public void initialize(PulsarService pulsarService) {\r\n      }\r\n  \r\n      @Override\r\n      public void onFilter(ServletRequest request, ServletResponse response, FilterChain chain)\r\n              throws ServletException, IOException {\r\n          log.info(\"====test\");\r\n          chain.doFilter(request, response);\r\n      }\r\n  \r\n      @Override\r\n      public void close() {\r\n  \r\n      }\r\n  }\r\n  ```\r\n\r\n2. edit the `standalone.conf`, and update the `brokerInterceptors=` field to the `test-filter`\r\n3. start the pulsar service in standalone mode\r\n4. call `pulsar-admin tenants list` to fire a http request\n\n### What did you expect to see?\n\nthe pulsar process should printed below logs:\r\n\r\n```\r\n====test\r\n```\n\n### What did you see instead?\n\nthe `====test` logs doesn't get printed\n\n### Anything else?\n\nThe issue lies in the implementation:\r\n\r\nAlthough [PR #10489](https://github.com/apache/pulsar/pull/10489) introduced an `onFilter` method in the `BrokerInterceptor` interface, the `PulsarService` is hardcoded to use `BrokerInterceptors` as the entry interceptor. Custom interceptors configured via the `brokerInterceptors=` parameter are loaded into `BrokerInterceptors` and executed sequentially. However, `BrokerInterceptors` does not override the `onFilter` method, causing it to fall back to the default implementation:\r\n\r\n```java\r\ndefault void onFilter(ServletRequest request, ServletResponse response, FilterChain chain)\r\n        throws IOException, ServletException {\r\n    // Just continue the chain by default.\r\n    chain.doFilter(request, response);\r\n}\r\n```\r\n\r\nAs a result, even if a custom `BrokerInterceptor` implements the `onFilter` method, it is never invoked.\r\n\r\nThis issue exists in branch-3.0, 3.3, 4.0 too\n\n### Are you willing to submit a PR?\n\n- [X] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23670",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2024-12-04T10:13:52.000Z",
+        "fix_commit_hash": "7f7e12bf6e1a74119b87be2c85a509a935b20e57",
+        "commit_type": "pr",
+        "commit_message": "[fix][broker] Invoke custom BrokerInterceptor's `onFilter` method if it's defined (#23676)",
+        "closer_url": "https://github.com/apache/pulsar/pull/23676",
+        "earliest_issue_date": "2024-12-03T03:48:31Z",
+        "predicted_class": "bug",
+        "bic": [
+            "bb983332718207e17e6bde520ff1d12d339c6a31"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23690,
+        "issue_title": "[Bug] TopicName does not throw IllegalArgumentException if localName is whitespace only",
+        "issue_body": "### Search before asking\r\n\r\n- [X] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\r\n\r\n\r\n### Read release policy\r\n\r\n- [X] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\r\n\r\n\r\n### Version\r\n\r\nPulsar master\r\n\r\n### Minimal reproduce step\r\n\r\nCall `TopicName.get(\" \")`.\r\n\r\n### What did you expect to see?\r\n\r\nThis is a test for the behavior I would expect:\r\n```java\r\ntry {\r\n    TopicName.get(\" \");\r\n    fail(\"Should have raised exception\");\r\n} catch (IllegalArgumentException e) {\r\n    // Ok\r\n}\r\n```\r\n\r\nWhen creating a consumer with the topic name only being a whitespace we get:\r\n\r\n> java.lang.IllegalArgumentException: topicNames cannot have blank topic\r\n\r\nThat's why I expect `TopicName.get(\" \")` to throw an exception too.\r\n\r\n### What did you see instead?\r\n\r\nNo exception is thrown.\r\n\r\n### Anything else?\r\n\r\n_No response_\r\n\r\n### Are you willing to submit a PR?\r\n\r\n- [X] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23690",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2024-12-17T06:23:14.000Z",
+        "fix_commit_hash": "034791f66b3b91489ab2819f93c7f1fbcc3d8c38",
+        "commit_type": "pr",
+        "commit_message": "[fix][common] TopicName: Throw IllegalArgumentException if localName is whitespace only (#23691)",
+        "closer_url": "https://github.com/apache/pulsar/pull/23691",
+        "earliest_issue_date": "2024-12-08T08:30:02Z",
+        "predicted_class": "bug",
+        "bic": [
+            "3ae511518558499729ea9ac2154b183718fc0668"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23704,
+        "issue_title": "[Bug] deadLetterPolicy attribute in the ConsumerConfigurationData class marked as transient",
+        "issue_body": "### Search before asking\r\n\r\n- [X] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\r\n\r\n\r\n### Read release policy\r\n\r\n- [X] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\r\n\r\n\r\n### Version\r\n\r\nAll Java clients of version v2.8.0 and above\r\n\r\n### Minimal reproduce step\r\n\r\nCreate an instance of `ConsumerConfigurationData` class and set a `deadLetterPolicy` on it. Serialize it and de-serialize it back to get a new instance of the same. The `deadLetterPolicy` previously set will not be present after deserialization.\r\n\r\n### What did you expect to see?\r\n\r\nIdeally the `deadLetterPolicy` should have been preserved through serialization-deserialization.\r\n\r\n### What did you see instead?\r\n\r\nnull\r\n\r\n### Anything else?\r\n\r\n_No response_\r\n\r\n### Are you willing to submit a PR?\r\n\r\n- [X] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23704",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2024-12-24T06:41:43.000Z",
+        "fix_commit_hash": "14129e352e4bb4e06cbf2c6c581edcdbaf9f6775",
+        "commit_type": "pr",
+        "commit_message": "[fix][client] Make DeadLetterPolicy & KeySharedPolicy serializable (#23718)\n\nCo-authored-by: anurag.reddy <anurag.reddy@flipkart.com>",
+        "closer_url": "https://github.com/apache/pulsar/pull/23718",
+        "earliest_issue_date": "2024-12-10T13:57:59Z",
+        "predicted_class": "bug",
+        "bic": [
+            "adb9014dbac21afdfb5fc252ac38e07ed2d6b19c"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23705,
+        "issue_title": "[Bug] Pulsar Function processing time doesn't get properly recorded for asynchronous functions",
+        "issue_body": "### Search before asking\r\n\r\n- [X] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\r\n\r\n\r\n### Read release policy\r\n\r\n- [X] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\r\n\r\n\r\n### Version\r\n\r\nany released version\r\n\r\n### Minimal reproduce step\r\n\r\nIn the code, it can be seen that asynchronous functions don't get handled properly. `stats.processTimeEnd()` gets called immediately when the result is returned:\r\nhttps://github.com/apache/pulsar/blob/6fe8100b1fd5d37a6e1bf33803a8904fa3879321/pulsar-functions/instance/src/main/java/org/apache/pulsar/functions/instance/JavaInstanceRunnable.java#L337-L355\r\n\r\n\r\n### What did you expect to see?\r\n\r\nasynchronous functions would also be handled\r\n\r\n### What did you see instead?\r\n\r\nasynchronous functions have invalid processing time stats\r\n\r\n### Anything else?\r\n\r\nThe current processing metric for async functions includes the time for doing the async calls and the waiting time when the concurrency limit is reached. The metric is useful for this purpose. \r\nIt doesn't tell the actual end-to-completion processing time which contains the async processing time.\r\n\r\n### Are you willing to submit a PR?\r\n\r\n- [ ] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23705",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "release/4.0.3"
+        ],
+        "issue_closed_at": "2025-01-28T16:03:13.000Z",
+        "fix_commit_hash": "08270dd99f7c166316175c8f437b976f9dd69e44",
+        "commit_type": "pr",
+        "commit_message": "[fix][fn] Record Pulsar Function processing time properly for asynchronous functions (#23811)\n\nCo-authored-by: Zixuan Liu <nodeces@gmail.com>",
+        "closer_url": "https://github.com/apache/pulsar/pull/23811",
+        "earliest_issue_date": "2024-12-10T15:48:41Z",
+        "predicted_class": "bug",
+        "bic": [
+            "1cbd5b4dbb2c7611650065bb7be0a3541cf48b50"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23715,
+        "issue_title": "[Bug] validatePoliciesReadOnlyAccessAsync is missing from internalRevokePermissionsOnTopic",
+        "issue_body": "### Search before asking\n\n- [X] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [X] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\nafter 62c6f0872f65a9861c07fb3555d0364ddcd2d0c1 / PR #20478\n\n### Minimal reproduce step\n\nvalidatePoliciesReadOnlyAccessAsync is missing from internalRevokePermissionsOnTopic\n\n### What did you expect to see?\n\nvalidatePoliciesReadOnlyAccessAsync to be called like it's the case for internalGrantPermissionsOnTopic\n\n### What did you see instead?\n\nThe method call is missing\n\n### Anything else?\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [ ] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23715",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2024-12-17T03:38:14.000Z",
+        "fix_commit_hash": "069cc3db7c741a7b1fc64c79733ada847dca873e",
+        "commit_type": "pr",
+        "commit_message": "[fix][admin] Verify is policies read only before revoke permissions on topic (#23730)",
+        "closer_url": "https://github.com/apache/pulsar/pull/23730",
+        "earliest_issue_date": "2024-12-11T13:45:05Z",
+        "predicted_class": "bug",
+        "bic": [
+            "f571aa1e6c247bea54d7a10ed508991fee1ea71b"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23717,
+        "issue_title": "[Bug] Pulsar 4.0.1 image crashed when loading the native SSL library",
+        "issue_body": "### Search before asking\n\n- [X] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [X] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\n```\r\napachepulsar/pulsar                                                latest      93b5506ac8eb   12 days ago     481MB\r\n```\n\n### Minimal reproduce step\n\n```\r\ngit clone https://github.com/apache/pulsar-client-python.git\r\ncd pulsar-client-python\r\n./build-support/pulsar-test-service-start.sh\r\n```\r\n\r\nThe script is stuck at waiting for the 8080 port.\n\n### What did you expect to see?\n\nThe script should succeed\n\n### What did you see instead?\n\nThe Pulsar process in the container was crashed and the log from `/pulsar/logs` inside the container stopped at:\r\n\r\n```\r\n2024-12-12T02:49:54,604+0000 [main] INFO\r\norg.apache.pulsar.broker.service.BrokerService - Started Pulsar Broker\r\nservice\r\n```\r\n\r\nhttps://github.com/apache/pulsar/blob/f571aa1e6c247bea54d7a10ed508991fee1ea71b/pulsar-broker/src/main/java/org/apache/pulsar/broker/service/BrokerService.java#L608-L612\r\n\r\nAs you can see, it didn't log the listened port.\n\n### Anything else?\n\n[hs_err_pid296.log](https://github.com/user-attachments/files/18105163/hs_err_pid296.log)\r\n\r\nIt crashed when loading the native SSL library:\r\n\r\n```\r\nCurrent thread (0x0000ffffaa98c800):  JavaThread \"main\"             [_thread_in_native, id=349, stack(0x0000ffffadd2d000,0x0000ffffadf2ba80) (2042K)]\r\n\r\nStack: [0x0000ffffadd2d000,0x0000ffffadf2ba80],  sp=0x0000ffffadf287f0,  free space=2029k\r\nNative frames: (J=compiled Java code, j=interpreted, Vv=VM code, C=native code)\r\nC  [libnetty_tcnative_linux_aarch_6415896617181118050458.so+0x240ec]  init_have_lse_atomics+0xc\r\nC  [ld-musl-aarch64.so.1+0x6b2fc]\r\nC  [ld-musl-aarch64.so.1+0x6d058]  dlopen+0xc4\r\nV  [libjvm.so+0xbc2078]  os::Linux::dlopen_helper(char const*, char*, int)+0x28\r\nV  [libjvm.so+0xbc2364]  os::dll_load(char const*, char*, int)+0x74\r\nV  [libjvm.so+0x90704c]  JVM_LoadLibrary+0x88\r\nC  [libjava.so+0xf3cc]  Java_jdk_internal_loader_NativeLibraries_load+0x21c\r\nj  jdk.internal.loader.NativeLibraries.load(Ljdk/internal/loader/NativeLibraries$NativeLibraryImpl;Ljava/lang/String;ZZ)Z+0 java.base@21.0.5\r\nj  jdk.internal.loader.NativeLibraries$NativeLibraryImpl.open()Z+57 java.base@21.0.5\r\nj  jdk.internal.loader.NativeLibraries.loadLibrary(Ljava/lang/Class;Ljava/lang/String;Z)Ljdk/internal/loader/NativeLibrary;+254 java.base@21.0.5\r\nj  jdk.internal.loader.NativeLibraries.loadLibrary(Ljava/lang/Class;Ljava/io/File;)Ljdk/internal/loader/NativeLibrary;+51 java.base@21.0.5\r\nj  java.lang.ClassLoader.loadLibrary(Ljava/lang/Class;Ljava/io/File;)Ljdk/internal/loader/NativeLibrary;+31 java.base@21.0.5\r\nj  java.lang.Runtime.load0(Ljava/lang/Class;Ljava/lang/String;)V+61 java.base@21.0.5\r\nj  java.lang.System.load(Ljava/lang/String;)V+7 java.base@21.0.5\r\nj  io.netty.util.internal.NativeLibraryUtil.loadLibrary(Ljava/lang/String;Z)V+5\r\nj  java.lang.invoke.LambdaForm$DMH+0x0000008800430000.invokeStatic(Ljava/lang/Object;Ljava/lang/Object;I)V+11 java.base@21.0.5\r\nj  java.lang.invoke.LambdaForm$MH+0x0000008800431000.invoke(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;+54 java.base@21.0.5\r\nj  java.lang.invoke.LambdaForm$MH+0x0000008800128400.invokeExact_MT(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;+22 java.base@21.0.5\r\nj  jdk.internal.reflect.DirectMethodHandleAccessor.invokeImpl(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;+72 java.base@21.0.5\r\nj  jdk.internal.reflect.DirectMethodHandleAccessor.invoke(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;+23 java.base@21.0.5\r\nJ 3874 c1 java.lang.reflect.Method.invoke(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object; java.base@21.0.5 (108 bytes) @ 0x0000ffff9bf827e4 [0x0000ffff9bf82240+0x00000000000005a4]\r\nj  io.netty.util.internal.NativeLibraryLoader$1.run()Ljava/lang/Object;+53\r\nJ 1613 c1 java.security.AccessController.doPrivileged(Ljava/security/PrivilegedAction;)Ljava/lang/Object; java.base@21.0.5 (9 bytes) @ 0x0000ffff9bb92fd0 [0x0000ffff9bb92e00+0x00000000000001d0]\r\nj  io.netty.util.internal.NativeLibraryLoader.loadLibraryByHelper(Ljava/lang/Class;Ljava/lang/String;Z)V+10\r\nj  io.netty.util.internal.NativeLibraryLoader.loadLibrary(Ljava/lang/ClassLoader;Ljava/lang/String;Z)V+15\r\nj  io.netty.util.internal.NativeLibraryLoader.load(Ljava/lang/String;Ljava/lang/ClassLoader;)V+352\r\nj  io.netty.util.internal.NativeLibraryLoader.loadFirstAvailable(Ljava/lang/ClassLoader;[Ljava/lang/String;)V+33\r\nj  io.netty.handler.ssl.OpenSsl.loadTcNative()V+297\r\nj  io.netty.handler.ssl.OpenSsl.<clinit>()V+170\r\nv  ~StubRoutines::call_stub 0x0000ffffa2d99130\r\nV  [libjvm.so+0x83f4e8]  JavaCalls::call_helper(JavaValue*, methodHandle const&, JavaCallArguments*, JavaThread*)+0x218\r\nV  [libjvm.so+0x819560]  InstanceKlass::call_class_initializer(JavaThread*)+0x280\r\nV  [libjvm.so+0x81b214]  InstanceKlass::initialize_impl(JavaThread*)+0x5a4\r\nV  [libjvm.so+0xa71540]  LinkResolver::resolve_static_call(CallInfo&, LinkInfo const&, bool, JavaThread*)+0x1a0\r\nV  [libjvm.so+0xa71cf0]  LinkResolver::resolve_invoke(CallInfo&, Handle, constantPoolHandle const&, int, Bytecodes::Code, JavaThread*)+0x1e0\r\nV  [libjvm.so+0x837358]  InterpreterRuntime::resolve_invoke(JavaThread*, Bytecodes::Code)+0x228\r\nV  [libjvm.so+0x8377b8]  InterpreterRuntime::resolve_from_cache(JavaThread*, Bytecodes::Code)+0x108\r\nj  io.netty.handler.ssl.SslContext.defaultProvider()Lio/netty/handler/ssl/SslProvider;+0\r\nj  io.netty.handler.ssl.SslContext.defaultServerProvider()Lio/netty/handler/ssl/SslProvider;+0\r\nj  io.netty.handler.ssl.SslContext.newServerContextInternal(Lio/netty/handler/ssl/SslProvider;Ljava/security/Provider;[Ljava/security/cert/X509Certificate;Ljavax/net/ssl/TrustManagerFactory;[Ljava/security/cert/X509Certificate;Ljava/security/PrivateKey;Ljava/lang/String;Ljavax/net/ssl/KeyManagerFactory;Ljava/lang/Iterable;Lio/netty/handler/ssl/CipherSuiteFilter;Lio/netty/handler/ssl/ApplicationProtocolConfig;JJLio/netty/handler/ssl/ClientAuth;[Ljava/lang/String;ZZLjava/security/SecureRandom;Ljava/lang/String;[Ljava/util/Map$Entry;)Lio/netty/handler/ssl/SslContext;+4\r\nj  io.netty.handler.ssl.SslContextBuilder.build()Lio/netty/handler/ssl/SslContext;+101\r\nj  org.apache.pulsar.common.util.SecurityUtility.createNettySslContextForServer(Lio/netty/handler/ssl/SslProvider;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;Ljava/util/Set;Z)Lio/netty/handler/ssl/SslContext;+123\r\nj  org.apache.pulsar.common.util.DefaultPulsarSslFactory.buildNettySslContext()Lio/netty/handler/ssl/SslContext;+279\r\nj  org.apache.pulsar.common.util.DefaultPulsarSslFactory.createInternalSslContext()V+60\r\nj  org.apache.pulsar.broker.service.PulsarChannelInitializer.<init>(Lorg/apache/pulsar/broker/PulsarService;Lorg/apache/pulsar/broker/service/PulsarChannelInitializer$PulsarChannelOptions;)V+87\r\nj  org.apache.pulsar.broker.service.PulsarChannelInitializer$$Lambda+0x00000088004fa480.newPulsarChannelInitializer(Lorg/apache/pulsar/broker/PulsarService;Lorg/apache/pulsar/broker/service/PulsarChannelInitializer$PulsarChannelOptions;)Lorg/apache/pulsar/broker/service/PulsarChannelInitializer;+6\r\nj  org.apache.pulsar.broker.service.BrokerService.start()V+201\r\n```\n\n### Are you willing to submit a PR?\n\n- [ ] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23717",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2024-12-21T08:41:39.000Z",
+        "fix_commit_hash": "906d10e547abf8097dfd16e5564df3573246f6fc",
+        "commit_type": "pr",
+        "commit_message": "[fix] Fix issues with Pulsar Alpine docker image stability: remove glibc-compat  (#23762)",
+        "closer_url": "https://github.com/apache/pulsar/pull/23762",
+        "earliest_issue_date": "2024-12-12T03:40:07Z",
+        "predicted_class": "bug",
+        "bic": [
+            "45b493f03c95de12102ab65d1de5fbdb61b9761f"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23746,
+        "issue_title": "Flaky-test: KeySharedSubscriptionTest.testNoKeySendAndReceiveWithHashRangeAutoSplitStickyKeyConsumerSelector",
+        "issue_body": "### Search before asking\n\n- [X] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Example failure\n\nhttps://github.com/apache/pulsar/actions/runs/12074341127/job/33672445502#step:10:1712\n\n### Exception stacktrace\n\n<!-- copy-paste the stack trace in the code block below -->\r\n```\r\njava.lang.AssertionError: expected [33.333333333333336] but found [18.0]\r\n\tat org.testng.Assert.fail(Assert.java:110)\r\n\tat org.testng.Assert.failNotEquals(Assert.java:1577)\r\n\tat org.testng.Assert.assertEquals(Assert.java:697)\r\n\tat org.testng.Assert.assertEquals(Assert.java:710)\r\n\tat org.apache.pulsar.client.api.KeySharedSubscriptionTest.receiveAndCheckDistribution(KeySharedSubscriptionTest.java:1478)\r\n\tat org.apache.pulsar.client.api.KeySharedSubscriptionTest.testNoKeySendAndReceiveWithHashRangeAutoSplitStickyKeyConsumerSelector(KeySharedSubscriptionTest.java:400)\r\n```\r\n\n\n### Are you willing to submit a PR?\n\n- [X] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23746",
+        "assignees": [],
+        "labels": [
+            "area/test",
+            "type/flaky-tests"
+        ],
+        "issue_closed_at": "2024-12-20T11:39:06.000Z",
+        "fix_commit_hash": "a54be73e95e02f12e6656acb46c339c81dc0e531",
+        "commit_type": "pr",
+        "commit_message": "[fix][test] Fix flaky KeySharedSubscriptionTest.testNoKeySendAndReceiveWithHashRangeAutoSplitStickyKeyConsumerSelector (#23747)",
+        "closer_url": "https://github.com/apache/pulsar/pull/23747",
+        "earliest_issue_date": "2024-12-17T13:14:13Z",
+        "predicted_class": "bug",
+        "bic": [
+            "5b98d371922832b78c596c33042932c660bea0c4"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23765,
+        "issue_title": "[Bug] TimeoutException encountered while accessing the admin's getMessageById API in version 3.0.7",
+        "issue_body": "### Search before asking\n\n- [X] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [X] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\nOS\uff1acentos7\r\nJdk\uff1a17\r\nPulsar version\uff1a3.0.7\n\n### Minimal reproduce step\n\n1. Add a test case to the testGetMessageById method in PersistentTopicsTest.java.\r\n\r\n2. Specifically, you can add the following code:\r\n`Assert.expectThrows(PulsarAdminException.ServerSideErrorException.class, () -> {\r\n    admin.topics().getMessageById(topicName1, id1.getLedgerId(), id1.getEntryId() + 10);\r\n});\r\n`\r\n\r\n3. Run this test case to reproduce the issue. You will encounter the following error:\r\n`Caused by: org.apache.pulsar.client.admin.PulsarAdminException$TimeoutException: java.util.concurrent.TimeoutException\r\n    at org.apache.pulsar.client.admin.internal.BaseResource.sync(BaseResource.java:347)\r\n    at org.apache.pulsar.client.admin.internal.TopicsImpl.getMessageById(TopicsImpl.java:1010)\r\n    at org.apache.pulsar.broker.admin.PersistentTopicsTest.lambda$testGetMessageById$11(PersistentTopicsTest.java:1385)\r\n    at org.testng.Assert.expectThrows(Assert.java:2440)\r\n    ... 29 more\r\n`\n\n### What did you expect to see?\n\nThe issue occurs when trying to query a non-existent message, which usually happens when a topic is newly created but hasn't received any traffic yet. In such cases, querying some information about the topic might invoke this API, leading to a timeout.\r\n\r\nFor this scenario, I would expect a fast failure, rather than being blocked until the timeout occurs.\n\n### What did you see instead?\n\nWhat I observed instead is that the getMessageById request gets blocked until the timeout occurs.\r\n\r\nThe hidden risk is that, since the timeout duration is uncertain, if the user has not configured a timeout (e.g., PulsarAdmin.builder().readTimeout(5, TimeUnit.SECONDS);) or if the timeout configuration is unreasonable, it can cause the TCP connection to enter a CLOSE_WAIT state. In extreme cases, this could potentially lead to a tcp.listenOverflow, which can affect other functionalities.\r\n\r\nThe following image shows a large number of connections in the CLOSE_WAIT state on the broker's 8080 port:\r\n![image](https://github.com/user-attachments/assets/ac845f7e-e62f-4f77-9def-e54f303dda28)\r\n\n\n### Anything else?\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [X] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23765",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2024-12-21T11:20:58.000Z",
+        "fix_commit_hash": "3d505742e05e403144d17aef59c95e2758982a26",
+        "commit_type": "pr",
+        "commit_message": "[fix][admin] Fix exception loss in getMessageId method (#23766)\n\nCo-authored-by: houbonan <houbonan@didiglobal.com>",
+        "closer_url": "https://github.com/apache/pulsar/pull/23766",
+        "earliest_issue_date": "2024-12-20T08:27:50Z",
+        "predicted_class": "bug",
+        "bic": [
+            "55520bd810d29991d4af2124151c8d75c25b0800"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23825,
+        "issue_title": "Flaky-test: BatchMessageTest.testBatchMessageDispatchingAccordingToPermits",
+        "issue_body": "### Search before asking\r\n\r\n- [X] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\r\n\r\n### Example failures\r\n\r\n- [2025-01-07T10:46:47.4307801Z](https://github.com/apache/pulsar/actions/runs/12635032254/job/35247450509#step:11:1178) \r\n- [2025-01-03T19:03:01.9270671Z](https://github.com/apache/pulsar/actions/runs/12602408785/job/35125717078#step:11:1222) \r\n\r\n\r\n### Exception stacktrace\r\n\r\n```\r\njava.lang.AssertionError: expected [10.0] but found [100.0]\r\n\tat org.testng.Assert.fail(Assert.java:110)\r\n\tat org.testng.Assert.failNotEquals(Assert.java:1577)\r\n\tat org.testng.Assert.assertEquals(Assert.java:836)\r\n\tat org.testng.Assert.assertEquals(Assert.java:849)\r\n\tat org.apache.pulsar.broker.service.BatchMessageTest.testBatchMessageDispatchingAccordingToPermits(BatchMessageTest.java:1016)\r\n\tat java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)\r\n\tat java.base/java.lang.reflect.Method.invoke(Method.java:580)\r\n\tat org.testng.internal.invokers.MethodInvocationHelper.invokeMethod(MethodInvocationHelper.java:139)\r\n\tat org.testng.internal.invokers.InvokeMethodRunnable.runOne(InvokeMethodRunnable.java:47)\r\n\tat org.testng.internal.invokers.InvokeMethodRunnable.call(InvokeMethodRunnable.java:76)\r\n\tat org.testng.internal.invokers.InvokeMethodRunnable.call(InvokeMethodRunnable.java:11)\r\n\tat java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)\r\n\tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)\r\n\tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)\r\n\tat java.base/java.lang.Thread.run(Thread.java:1583)\r\n```\r\n\r\n\r\n### Are you willing to submit a PR?\r\n\r\n- [ ] I'm willing to submit a PR!\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/23825",
+        "assignees": [
+            "BewareMyPower"
+        ],
+        "labels": [
+            "area/test",
+            "type/flaky-tests"
+        ],
+        "issue_closed_at": "2025-03-19T07:58:07.000Z",
+        "fix_commit_hash": "2f6345d490c374714a8418e9664e4fe3a9d97afc",
+        "commit_type": "pr",
+        "commit_message": "[fix][broker] Restore the behavior to dispatch batch messages according to consumer permits (#24092)",
+        "closer_url": "https://github.com/apache/pulsar/pull/24092",
+        "earliest_issue_date": "2025-01-08T13:29:54Z",
+        "predicted_class": "bug",
+        "bic": [
+            "77570d5db5f2809c23ee40fc7aae743a1750f5c3"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23827,
+        "issue_title": "Flaky-test: DisabledCreateTopicToRemoteClusterForReplicationTest.testCreatePartitionedTopicWithNsReplication",
+        "issue_body": "### Search before asking\r\n\r\n- [X] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\r\n\r\n### Example failures\r\n\r\n- [2025-01-02T10:04:01.9336740Z](https://github.com/apache/pulsar/actions/runs/12580383927/job/35062462009#step:10:1316) \r\n\r\n\r\n### Exception stacktrace\r\n\r\n```\r\njava.lang.NullPointerException: Cannot invoke \"org.apache.pulsar.client.api.Message.getValue()\" because the return value of \"org.apache.pulsar.client.api.Consumer.receive(int, java.util.concurrent.TimeUnit)\" is null\r\n\tat org.apache.pulsar.broker.service.DisabledCreateTopicToRemoteClusterForReplicationTest.testCreatePartitionedTopicWithNsReplication(DisabledCreateTopicToRemoteClusterForReplicationTest.java:111)\r\n\tat java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\r\n\tat java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)\r\n\tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n\tat java.base/java.lang.reflect.Method.invoke(Method.java:569)\r\n\tat org.testng.internal.invokers.MethodInvocationHelper.invokeMethod(MethodInvocationHelper.java:139)\r\n\tat org.testng.internal.invokers.InvokeMethodRunnable.runOne(InvokeMethodRunnable.java:47)\r\n\tat org.testng.internal.invokers.InvokeMethodRunnable.call(InvokeMethodRunnable.java:76)\r\n\tat org.testng.internal.invokers.InvokeMethodRunnable.call(InvokeMethodRunnable.java:11)\r\n\tat java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)\r\n\tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)\r\n\tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)\r\n\tat java.base/java.lang.Thread.run(Thread.java:840)\r\n```\r\n\r\n\r\n### Are you willing to submit a PR?\r\n\r\n- [ ] I'm willing to submit a PR!\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/23827",
+        "assignees": [],
+        "labels": [
+            "area/test",
+            "type/flaky-tests"
+        ],
+        "issue_closed_at": "2025-04-07T02:18:18.000Z",
+        "fix_commit_hash": "ec196f4927b0c2c9b0638c432bd44203b11c2cae",
+        "commit_type": "pr",
+        "commit_message": "[fix][test] Fix flaky DisabledCreateTopicToRemoteClusterForReplicationTest (#24141)",
+        "closer_url": "https://github.com/apache/pulsar/pull/24141",
+        "earliest_issue_date": "2025-01-08T13:32:59Z",
+        "predicted_class": "bug",
+        "bic": [
+            "44f986014e4d314a4a52484856c7dfb2d89ea3c1"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23845,
+        "issue_title": "[Bug] Key_Shared subscription doesn't always deliver messages from the replay queue after a consumer disconnects and leaves a backlog unless new messages are produced",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\nPulsar 4.0.1\n\n### Minimal reproduce step\n\nExact steps to reproduce aren't yet confirmed.\n\nThis problem was faced in a test where there was a large number of consumers that were scaled in a way where consumers were added and removed. The problem was noticed at the end of the test case, where all messages didn't get delivered to consumers and remained in the backlog.\n\nIn the topic stats for the subscription, `msgInReplay` showed a positive value and in internal stats for the subscription `subscriptionHavePendingRead` was true. By looking at the code, it seems to be a case that isn't handled for PersistentDispatcherMultipleConsumers/PersistentStickyKeyDispatcherMultipleConsumers. \n\n### What did you expect to see?\n\nThe cursor shouldn't go into completely into \"waiting\" state when there are messages in the replay queue.\n\n### What did you see instead?\n\nMessages in the replay queue don't get dispatched to consumers.\n\n### Anything else?\n\nPossible workaround is to set `dispatcherDispatchMessagesInSubscriptionThread=false` in `broker.conf` to prevent the race condition causing this issue from happening.\n\n### Are you willing to submit a PR?\n\n- [x] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23845",
+        "assignees": [
+            "lhotari"
+        ],
+        "labels": [
+            "type/bug",
+            "triage/lhotari/important"
+        ],
+        "issue_closed_at": "2025-09-12T12:53:50.000Z",
+        "fix_commit_hash": "80beab677b699e20ea59d49950442c5543a6540d",
+        "commit_type": "pr",
+        "commit_message": "[fix][broker] Key_Shared subscription doesn't always deliver messages from the replay queue after a consumer disconnects and leaves a backlog (#24736)\n\nCo-authored-by: Nikolai Borisov <nikolai.borisov@onde.app>",
+        "closer_url": "https://github.com/apache/pulsar/pull/24736",
+        "earliest_issue_date": "2025-01-13T18:42:59Z",
+        "predicted_class": "bug",
+        "bic": [
+            "b340a17b8ffbe5022b5f0de18cfc2aeb68f00259"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23848,
+        "issue_title": "[Bug] Deadlock in DrainingHashesTracker due to synchronized methods",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\nPulsar 4.0.1\n\n### Minimal reproduce step\n\nExact steps to reproduce aren't yet confirmed.\n\nThis problem was faced in a test. The problem is that there isn't a `jstack -l <PID>` thread dump of the deadlocked state. I have a heap dump, but since heap dumps don't contain exactly the same information as a thread dump about threads, it's hard to find out the exact reason why the dead lock happens. There are multiple blocked threads which indicates a dead lock:\n\n<img width=\"1314\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/e0e94d2b-d61d-478a-b644-41dad2b93e65\" />\n\n<img width=\"1153\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/34da420d-33bb-4185-819e-96812a12910b\" />\n\n<img width=\"1011\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/b7d02f4e-cc0a-4de6-b943-f18ff747d94d\" />\n\n<img width=\"1129\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/4715666f-f498-47a4-933c-b8e6a652ed85\" />\n\n<img width=\"1197\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/371366a4-938e-4994-8291-ca593389618f\" />\n\n<img width=\"1200\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/28c78430-0a79-46ff-bd4c-c356e3538424\" />\n\n<img width=\"1203\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/6a0a4f9f-2541-4584-a619-0a29105c53b9\" />\n\n<img width=\"1241\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/f4ff8988-3d03-47e8-aa83-1263f13e530f\" />\n\n<img width=\"1244\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/13a3a20a-68db-4913-b502-2e3fdd5d5002\" />\n\n### What did you expect to see?\n\nNo dead locks.\n\n### What did you see instead?\n\nThere are multiple threads in blocked state which indicates a dead lock.\n\n### Anything else?\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [x] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23848",
+        "assignees": [
+            "lhotari"
+        ],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2025-01-16T11:53:57.000Z",
+        "fix_commit_hash": "8f04945c475dfc7d36d75878660b80015c97b176",
+        "commit_type": "pr",
+        "commit_message": "[fix][broker] Fix deadlock in Key_Shared PIP-379 implementation (#23854)",
+        "closer_url": "https://github.com/apache/pulsar/pull/23854",
+        "earliest_issue_date": "2025-01-14T17:23:30Z",
+        "predicted_class": "bug",
+        "bic": [
+            "acac72ea03f7c38cab99ec011b309d5e6bb4fe9d"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23870,
+        "issue_title": "[Bug] PIP-379 Key_Shared implementation can deliver messages out-of-order due to racecondition when a hash gets unblocked",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\n4.0.0, 4.0.1, 4.0.2\n\n### Minimal reproduce step\n\nIt was possible to reproduce the issue in a test case by disabling broker cache and by setting dispatcher retry backoff and keySharedUnblockingIntervalMs to 0. \n```\n        conf.setManagedLedgerCacheSizeMB(0);\n        conf.setManagedLedgerMaxReadsInFlightSizeInMB(0);\n        conf.setDispatcherRetryBackoffInitialTimeInMs(0);\n        conf.setDispatcherRetryBackoffMaxTimeInMs(0);\n        conf.setKeySharedUnblockingIntervalMs(0);\n```\nThe test case is\nhttps://github.com/lhotari/pulsar/blob/caac334465ca3de9a87e93a13b8fee377a2a467b/pulsar-broker/src/test/java/org/apache/pulsar/client/api/KeySharedSubscriptionDisabledBrokerCacheTest.java\n\nThe problem doesn't reproduce in testing with the default configuration when the retry backoff and keySharedUnblockingIntervalMs are set to default. However, the test reveals a race condition that needs to be addressed.  \n\n### What did you expect to see?\n\nMessages should be delivered in order, also when retry backoff and keySharedUnblockingIntervalMs is set to 0.\n\n### What did you see instead?\n\nThere are message ordering issues in 25%-40% of the test runs.\n\n### Anything else?\n\nThe problem seems to be a race condition of the hash getting unblocked while sending of entries is in progress.\n\n### Are you willing to submit a PR?\n\n- [x] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23870",
+        "assignees": [
+            "lhotari"
+        ],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2025-01-23T10:21:46.000Z",
+        "fix_commit_hash": "eaf9ac11eafb5c07edb4ff1fa15d7d4f478e2011",
+        "commit_type": "pr",
+        "commit_message": "[fix][broker] PIP-379 Key_Shared implementation race condition causing out-of-order message delivery (#23874)",
+        "closer_url": "https://github.com/apache/pulsar/pull/23874",
+        "earliest_issue_date": "2025-01-20T19:40:03Z",
+        "predicted_class": "bug",
+        "bic": [
+            "77570d5db5f2809c23ee40fc7aae743a1750f5c3"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23880,
+        "issue_title": "[Bug] pulsar-admin functions list without specifying tenant and namespace return a NPE error",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\n[e5bd774](https://github.com/apache/pulsar/commit/e5bd77419e91d1602731cd0c1d02a738e1b7ebc7)\n\n### Minimal reproduce step\n\n1. start pulsar in standalone mode:\n\n```\nbin/pulsar standalone\n```\n\n2. list functions:\n\n```\nbin/pulsar-admin functions list\n\nnull\n\nReason: java.lang.NullPointerException: path is 'null'.\n```\n\n### What did you expect to see?\n\nan empty list since no functions exist:\n\n```\n```\n\n### What did you see instead?\n\nan error:\n\n```\nnull\n\nReason: java.lang.NullPointerException: path is 'null'.\n```\n\n### Anything else?\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [x] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23880",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2025-01-24T04:11:01.000Z",
+        "fix_commit_hash": "66d1bb0d734f12d758b0f0e9e3c0b42543508f8d",
+        "commit_type": "pr",
+        "commit_message": "[improve][fn] Set default tenant and namespace for ListFunctions cmd (#23881)",
+        "closer_url": "https://github.com/apache/pulsar/pull/23881",
+        "earliest_issue_date": "2025-01-23T02:56:04Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23882,
+        "issue_title": "Flaky-test: DelayedDeliveryTest.testEnableTopicDelayedDelivery",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Example failure\n\nhttps://github.com/apache/pulsar/actions/runs/12923783677/job/36041928951?pr=23874#step:11:1423\n\n### Exception stacktrace\n\n<!-- copy-paste the stack trace in the code block below -->\n```\n  Error:  org.apache.pulsar.broker.service.persistent.DelayedDeliveryTest.testEnableTopicDelayedDelivery  Time elapsed: 6.941 s  <<< FAILURE!\n  java.lang.AssertionError: expected [null] but found [org.apache.pulsar.client.impl.TopicMessageImpl@728268b3]\n  \tat org.testng.Assert.fail(Assert.java:110)\n  \tat org.testng.Assert.failNotSame(Assert.java:1573)\n  \tat org.testng.Assert.assertNull(Assert.java:1506)\n  \tat org.testng.Assert.assertNull(Assert.java:1494)\n  \tat org.apache.pulsar.broker.service.persistent.DelayedDeliveryTest.testEnableTopicDelayedDelivery(DelayedDeliveryTest.java:488)\n  \tat java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)\n  \tat java.base/java.lang.reflect.Method.invoke(Method.java:580)\n  \tat org.testng.internal.invokers.MethodInvocationHelper.invokeMethod(MethodInvocationHelper.java:139)\n  \tat org.testng.internal.invokers.InvokeMethodRunnable.runOne(InvokeMethodRunnable.java:47)\n  \tat org.testng.internal.invokers.InvokeMethodRunnable.call(InvokeMethodRunnable.java:76)\n  \tat org.testng.internal.invokers.InvokeMethodRunnable.call(InvokeMethodRunnable.java:11)\n  \tat java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)\n  \tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)\n  \tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)\n  \tat java.base/java.lang.Thread.run(Thread.java:1583)\n```\n\n\n### Are you willing to submit a PR?\n\n- [ ] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23882",
+        "assignees": [],
+        "labels": [
+            "area/test",
+            "type/flaky-tests"
+        ],
+        "issue_closed_at": "2025-01-28T22:17:23.000Z",
+        "fix_commit_hash": "9079262aaedce719bda786a63781292a4257e299",
+        "commit_type": "pr",
+        "commit_message": "[fix][test] Fix flaky DelayedDeliveryTest.testEnableTopicDelayedDelivery (#23893)",
+        "closer_url": "https://github.com/apache/pulsar/pull/23893",
+        "earliest_issue_date": "2025-01-23T07:25:05Z",
+        "predicted_class": "bug",
+        "bic": [
+            "e417d77a5035e93993ca2e1912282eddf315a6ca"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23889,
+        "issue_title": "Metadata information is not cleaned when broker exits abnormally",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Motivation\n\nWhen a broker starts, it registers its metadata with the metadata service (such as Zookeeper or ETCD) under the `/loadbalance/brokers` directory.  When the broker exits gracefully, it actively calls the unregister method to remove its own metadata.\nhttps://github.com/apache/pulsar/blob/66d1bb0d734f12d758b0f0e9e3c0b42543508f8d/pulsar-broker/src/main/java/org/apache/pulsar/broker/loadbalance/extensions/BrokerRegistryImpl.java#L134-L143\n\nhttps://github.com/apache/pulsar/blob/66d1bb0d734f12d758b0f0e9e3c0b42543508f8d/pulsar-broker/src/main/java/org/apache/pulsar/broker/loadbalance/extensions/BrokerRegistryImpl.java#L172-L178\n\nHowever, if the broker is forced to exit due to issues like hardware failure, network problems, or being terminated with `kill -9`, it does not call the unregister method to delete its metadata.  This results in the metadata for brokers that are no longer accessible remaining in the system.\n\nCurrently, Pulsar retrieves all active brokers by fetching all child nodes under the metadata service's `/loadbalance/brokers` path.  This can lead to offline brokers being considered active, and bundles may be assigned to brokers that are not accessible, causing new namespace clients to experience read and write failures.\nhttps://github.com/apache/pulsar/blob/66d1bb0d734f12d758b0f0e9e3c0b42543508f8d/pulsar-broker/src/main/java/org/apache/pulsar/broker/loadbalance/extensions/BrokerRegistryImpl.java#L197-L201\n\n\n### Solution\n\nI am not yet certain how to resolve this issue. I am currently reviewing the relevant code and drafting a solution document. If you have any suggestions, please feel free to leave a comment.\n\n### Alternatives\n\n_No response_\n\n### Anything else?\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [x] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23889",
+        "assignees": [],
+        "labels": [
+            "type/enhancement"
+        ],
+        "issue_closed_at": "2025-02-14T10:52:15.000Z",
+        "fix_commit_hash": "40d5af4a43ca508ef496367925868310ea683780",
+        "commit_type": "pr",
+        "commit_message": "[fix][meta] Fix ephemeral Zookeeper put which creates a persistent znode (#23984)",
+        "closer_url": "https://github.com/apache/pulsar/pull/23984",
+        "earliest_issue_date": "2025-01-24T08:37:35Z",
+        "predicted_class": "bug",
+        "bic": [
+            "0497f679fd1a8b6c59e5d5ba521991ff540fea24"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23897,
+        "issue_title": "[Bug] set-bookie-affinity-group overwrites \"number of bundles\" passed during namespace creation",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\nOS: MacOs Sonoma 14.6.1 \nJava: 17\nPulsar version: 4.0.2\n\n### Minimal reproduce step\n\n1.  pulsar-admin namespaces create t/n --bundles 10\n2.  pulsar-admin namespaces set-bookie-affinity-group --primary-group temp t/n\n\n\n\n### What did you expect to see?\n\nThe namespace \"n\" should have 10 bundles\n\n### What did you see instead?\n\nThe namespace \"n\" have 4 bundles\n\n### Anything else?\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [ ] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23897",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2025-11-04T13:46:49.000Z",
+        "fix_commit_hash": "3983ff012dbf97a656dd99f68b63b79bdf6f1602",
+        "commit_type": "pr",
+        "commit_message": "[fix][admin] Set local policies overwrites \"number of bundles\" passed during namespace creation (#24762)\n\nCo-authored-by: oneby-wang <onebywang@qq.com>",
+        "closer_url": "https://github.com/apache/pulsar/pull/24762",
+        "earliest_issue_date": "2025-01-26T17:54:13Z",
+        "predicted_class": "bug",
+        "bic": [
+            "bbe2cabc3ec0375607cb12665cab0b4745dbd36e"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23900,
+        "issue_title": "[Bug] Redelivery messages (replay queue reads) don't get read from cache even when they exist in cache, causing extra bookkeeper reads",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\nSince Pulsar 3.0.6, 3.2.4, 3.3.1, 4.0.0\n\n### Minimal reproduce step\n\nReplay queue reads cache cache misses in all cases, even when the entry is already available in the cache.\nOne detail of the current broker cache implementation is that it is necessary to configure `cacheEvictionByMarkDeletedPosition=true` so that cached entries don't get evicted by the read position in the managed ledger. (There's a separate issue #16421 about by-passing the cache when `cacheEvictionByMarkDeletedPosition=true` isn't used.)\n\n### What did you expect to see?\n\nReplay queue reads should get read from the cache.\n\n### What did you see instead?\n\nNo caching\n\n### Anything else?\n\nThis was previously reported as part of #23504. In addition, there's another issue that when reads are performed, the returned entries aren't added to the cache.\n\n### Are you willing to submit a PR?\n\n- [x] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23900",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2025-01-28T23:23:53.000Z",
+        "fix_commit_hash": "b6cfecce5f3a1eecbf6f5df81cb835fbbfe35980",
+        "commit_type": "pr",
+        "commit_message": "[fix][broker Fix bug in RangeCache where different instance of the key wouldn't ever match (#23903)",
+        "closer_url": "https://github.com/apache/pulsar/pull/23903",
+        "earliest_issue_date": "2025-01-27T19:35:56Z",
+        "predicted_class": "bug",
+        "bic": [
+            "9eeffe595b6c2312b1b92eb8b9606639f25ab276"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23910,
+        "issue_title": "[Bug] Seek on a timestamp causes the subscription to be resetted to the earliest position.",
+        "issue_body": "### Search before asking\n\n- [ ] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\nPulsar v4.0.2\nPulsar Go client v0.14\n\n### Minimal reproduce step\n\nWith v4.0.2, after restarting brokers, we observe a wrong position in subscription after a seek by timestamp. The position seems to be the earliest position instead of the next message after the timestamp.\n\nNote that after downgrading to v4.0.1, the seeking position gets back to the proper one so the message after the timestamp.\n\n### What did you expect to see?\n\nOn a seek by timestamp, we expect the subscription to reset to the next message after the timestamp available in the topic.\n\n### What did you see instead?\n\nWe observe subscriptions to reset on the earliest position when we use seek by timestamp.\n\nMay that be related to #22129 ?\n\n### Anything else?\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [ ] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23910",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "release/4.0.2"
+        ],
+        "issue_closed_at": "2025-02-11T06:25:15.000Z",
+        "fix_commit_hash": "59cf36f217daf8ab7b2665dc6b377c0375c8e87a",
+        "commit_type": "pr",
+        "commit_message": "[fix][broker] Fix seeking by timestamp can be reset the cursor position to earliest (#23919)",
+        "closer_url": "https://github.com/apache/pulsar/pull/23919",
+        "earliest_issue_date": "2025-01-29T17:26:37Z",
+        "predicted_class": "bug",
+        "bic": [
+            "2eb4eabc84f68fef5b29d894631c7c23d06ec3af"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23920,
+        "issue_title": "[Bug] Producers getting timed out intermittently",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\nSetup summary:\n * Pulsar 4.0.1, 3 brokers, 5 bookies, 3 ZKs, JVM - 17.0.13\n * Produce and Consume through Pulsar Java client (4.0.1) - Clients are using Java 11\n\nAlso tried with 4.0.2 version\n\nPulsar Deployment - VM based, we are running on EC2 machines.\n\nAs far as configurations are concerned, we had following settings enabled\n * Extensible load balnacer and TransferShedder \n * Bundle split algorithm - `flow_or_qps_equally_divide`\n * Tiered storage to S3\n\nWe updated the load balancer configurations to use the Pulsar defaults, i.e. Modular Load balancer, ThresholdShedder and `range_equally_divide` for bundle split strategy. Reason for this change was because we observed errors in broker logs related to topic shedding.\n\n\nThen we also disabled tiered storage.\n\nIn all cases, the reported issue is observed.\n\n\n### Minimal reproduce step\n\nThis issue is continuation of Apache Pulsar's slack thread - https://apache-pulsar.slack.com/archives/C5Z4T36F7/p1738158630009249\nTo and fro discussion with @lhotari can be found there.\n\nWe are observing an intermittent issue where Pulsar producer client is unable to produce message to a partitioned topic, it is failing with org.apache.pulsar.client.api.PulsarClientException$TimeoutException  after 30 seconds.\n\n```java\n// Pulsar client\nthis.pulsarClient =\n          PulsarClient.builder()\n              .serviceUrl(connectionUrl)\n              .memoryLimit(0, SizeUnit.MEGA_BYTES)\n              .build();\n\n// Producer configurations\nProducerBuilder<T> builder =\n        pulsarClient\n            .newProducer(schema)\n            .producerName(producerName)\n            .topic(topicName)\n            .compressionType(CompressionType.LZ4)\n            .enableBatching(true)\n            .batchingMaxPublishDelay(30, TimeUnit.MILLISECONDS)\n            .blockIfQueueFull(true);\n```\n\nPulsar brokers, bookies and client instances are running in the same AWS VPC, so chances of network outage are quite low. Brokers are configured to use advertisedAddress , advertisedListeners is not configured.\n\nIn the client application, the Pulsar client and Producer object is initialized once and then messages are produced in sporadic intervals.\nThere is no other producer or consumer running on the cluster and there is more than sufficient resources available to cater to produce request.\n\nPulsar topics are partitioned.\nWe also have applied publish rate and dispatch rate policies of 1 MBps on the said topic (per partition)\nBut the throughput of messages being produced is far less than applied quota, for example, 1-5 messages in 2-5 minutes.\n\n![Image](https://github.com/user-attachments/assets/c8f6a1d7-ebe0-4d8b-849a-319f1fb4ea60)\n\nWe did try to remove the publish and dispatch rates on the topic and issue was resolved.\nAlthough we could not conclusively say that issue got resolved after removing those policies.\nWe also applied those policies back and did not observe issue for a day and when issue occurred again, we unload the namespace bundles and assigned to different brokers.\n\nWe did this several times so unloading namespace bundles seems to quick fix for the issue.\n\nWe also enabled debug logs on client and the server side.\n\nObserved a \"Setting auto read to false\" false in broker logs (see below)\n\n```\n2025-02-02T16:49:45,932+0000 [BookKeeperClientWorker-OrderedExecutor-4-0] DEBUG org.apache.pulsar.broker.service.AbstractTopic - [persistent://public/default/default_shivam_stream-partition-8] Producer352f00f6-a898-4ed4-9469-8eb62c2ed0bf Got request to create producer \n2025-02-02T16:49:45,932+0000 [BookKeeperClientWorker-OrderedExecutor-4-0] DEBUG org.apache.pulsar.broker.service.AbstractTopic - [persistent://public/default/default_shivam_stream-partition-8] [Producer352f00f6-a898-4ed4-9469-8eb62c2ed0bf] Added producer -- count: 1\n2025-02-02T16:49:45,932+0000 [BookKeeperClientWorker-OrderedExecutor-4-0] DEBUG org.apache.pulsar.broker.service.schema.SchemaRegistryServiceImpl - [public/default/default_shivam_stream] Put schema finished\n2025-02-02T16:49:45,933+0000 [broker-topic-workers-OrderedExecutor-5-0] INFO  org.apache.pulsar.broker.service.ServerCnx - [/10.22.2.15:39103] Created new producer: Producer{topic=PersistentTopic{topic=persistent://public/default/default_shivam_stream-partition-8}, client=[id: 0x8eacecff, L:/10.10.17.40:6650 - R:/10.22.2.15:39103] [SR:10.22.2.15, state:Connected], producerName=Producer352f00f6-a898-4ed4-9469-8eb62c2ed0bf, producerId=8}, role: null\n2025-02-02T16:49:45,933+0000 [BookKeeperClientWorker-OrderedExecutor-4-0] DEBUG org.apache.pulsar.broker.service.schema.SchemaRegistryServiceImpl - [public/default/default_shivam_stream] Schema is already exists\n2025-02-02T16:49:45,933+0000 [BookKeeperClientWorker-OrderedExecutor-4-0] DEBUG org.apache.pulsar.broker.service.AbstractTopic - [persistent://public/default/default_shivam_stream-partition-9] Producer352f00f6-a898-4ed4-9469-8eb62c2ed0bf Got request to create producer \n2025-02-02T16:49:45,933+0000 [BookKeeperClientWorker-OrderedExecutor-4-0] DEBUG org.apache.pulsar.broker.service.AbstractTopic - [persistent://public/default/default_shivam_stream-partition-9] [Producer352f00f6-a898-4ed4-9469-8eb62c2ed0bf] Added producer -- count: 1\n2025-02-02T16:49:45,933+0000 [broker-topic-workers-OrderedExecutor-5-0] INFO  org.apache.pulsar.broker.service.ServerCnx - [/10.22.2.15:39103] Created new producer: Producer{topic=PersistentTopic{topic=persistent://public/default/default_shivam_stream-partition-9}, client=[id: 0x8eacecff, L:/10.10.17.40:6650 - R:/10.22.2.15:39103] [SR:10.22.2.15, state:Connected], producerName=Producer352f00f6-a898-4ed4-9469-8eb62c2ed0bf, producerId=9}, role: null\n2025-02-02T16:49:45,933+0000 [BookKeeperClientWorker-OrderedExecutor-4-0] DEBUG org.apache.pulsar.broker.service.schema.SchemaRegistryServiceImpl - [public/default/default_shivam_stream] Put schema finished\n2025-02-02T16:49:46,175+0000 [pulsar-io-3-12] DEBUG org.apache.pulsar.broker.service.ServerCnx - [/10.22.2.15:39103] Received send message request. producer: 9:0 Producer352f00f6-a898-4ed4-9469-8eb62c2ed0bf:0 size: 133, partition key is: 1, ordering key is null, uncompressedSize is 45\n2025-02-02T16:49:46,175+0000 [pulsar-io-3-12] DEBUG org.apache.pulsar.broker.service.ServerCnxThrottleTracker - [[id: 0x8eacecff, L:/10.10.17.40:6650 - R:/10.22.2.15:39103] [SR:10.22.2.15, state:Connected]] Setting auto read to false\n2025-02-02T16:49:46,180+0000 [BookKeeperClientWorker-OrderedExecutor-4-0] DEBUG org.apache.pulsar.broker.service.Producer - [PersistentTopic{topic=persistent://public/default/default_shivam_stream-partition-9}] [Producer352f00f6-a898-4ed4-9469-8eb62c2ed0bf] [9] triggered send callback. cnx /10.22.2.15:39103, sequenceId 0\n2025-02-02T16:49:46,180+0000 [pulsar-io-3-12] DEBUG org.apache.pulsar.broker.service.Producer - [PersistentTopic{topic=persistent://public/default/default_shivam_stream-partition-9}] [Producer352f00f6-a898-4ed4-9469-8eb62c2ed0bf] [9] Persisted message. cnx [id: 0x8eacecff, L:/10.10.17.40:6650 - R:/10.22.2.15:39103] [SR:10.22.2.15, state:Connected], sequenceId 0\n2025-02-02T16:49:47,082+0000 [pulsar-io-3-13] DEBUG org.apache.pulsar.broker.service.ServerCnx - New connection from /127.0.0.1:57030\n2025-02-02T16:49:47,083+0000 [pulsar-io-3-13] INFO  org.apache.pulsar.broker.service.ServerCnx - Closed connection from /127.0.0.1:57030\n2025-02-02T16:49:51,001+0000 [pulsar-backlog-quota-checker-OrderedScheduler-0-0] DEBUG org.apache.pulsar.broker.service.persistent.PersistentTopic - [persistent://public/default/default_shivam_stream-partition-6] No backlog. Update old position info is null\n2025-02-02T16:49:51,001+0000 [pulsar-backlog-quota-checker-OrderedScheduler-0-0] DEBUG org.apache.pulsar.broker.service.persistent.PersistentTopic - [persistent://public/default/default_shivam_stream-partition-6] Time backlog quota = [-1]. Checking if exceeded.\n2025-02-02T16:49:51,001+0000 [pulsar-backlog-quota-checker-OrderedScheduler-0-0] DEBUG org.apache.pulsar.broker.service.BrokerService - quota not exceeded for [persistent://public/default/default_shivam_stream-partition-6]\n2025-02-02T16:49:51,001+0000 [pulsar-backlog-quota-checker-OrderedScheduler-0-0] DEBUG org.apache.pulsar.broker.service.persistent.PersistentTopic - [persistent://public/default/default_shivam_stream-partition-7] No backlog. Update old position info is null\n2025-02-02T16:49:51,001+0000 [pulsar-backlog-quota-checker-OrderedScheduler-0-0] DEBUG org.apache.pulsar.broker.service.persistent.PersistentTopic - [persistent://public/default/default_shivam_stream-partition-7] Time backlog quota = [-1]. Checking if exceeded.\n2025-02-02T16:49:51,001+0000 [pulsar-backlog-quota-checker-OrderedScheduler-0-0] DEBUG org.apache.pulsar.broker.service.BrokerService - quota not exceeded for [persistent://public/default/default_shivam_stream-partition-7]\n--\n2025-02-02T16:52:39,369+0000 [BookKeeperClientWorker-OrderedExecutor-1-0] DEBUG org.apache.pulsar.broker.service.AbstractTopic - [persistent://public/default/default_shivam_stream-partition-7] Producer3e526aac-10f4-4a5e-8c51-2dbda8545bbf Got request to create producer \n2025-02-02T16:52:39,369+0000 [BookKeeperClientWorker-OrderedExecutor-1-0] DEBUG org.apache.pulsar.broker.service.AbstractTopic - [persistent://public/default/default_shivam_stream-partition-7] [Producer3e526aac-10f4-4a5e-8c51-2dbda8545bbf] Added producer -- count: 1\n2025-02-02T16:52:39,369+0000 [BookKeeperClientWorker-OrderedExecutor-1-0] DEBUG org.apache.pulsar.broker.service.schema.SchemaRegistryServiceImpl - [public/default/default_shivam_stream] Put schema finished\n2025-02-02T16:52:39,369+0000 [broker-topic-workers-OrderedExecutor-4-0] INFO  org.apache.pulsar.broker.service.ServerCnx - [/10.22.2.15:54474] Created new producer: Producer{topic=PersistentTopic{topic=persistent://public/default/default_shivam_stream-partition-7}, client=[id: 0x83526df1, L:/10.10.17.40:6650 - R:/10.22.2.15:54474] [SR:10.22.2.15, state:Connected], producerName=Producer3e526aac-10f4-4a5e-8c51-2dbda8545bbf, producerId=7}, role: null\n2025-02-02T16:52:39,369+0000 [BookKeeperClientWorker-OrderedExecutor-1-0] DEBUG org.apache.pulsar.broker.service.schema.SchemaRegistryServiceImpl - [public/default/default_shivam_stream] Schema is already exists\n2025-02-02T16:52:39,369+0000 [BookKeeperClientWorker-OrderedExecutor-1-0] DEBUG org.apache.pulsar.broker.service.AbstractTopic - [persistent://public/default/default_shivam_stream-partition-4] Producer3e526aac-10f4-4a5e-8c51-2dbda8545bbf Got request to create producer \n2025-02-02T16:52:39,369+0000 [BookKeeperClientWorker-OrderedExecutor-1-0] DEBUG org.apache.pulsar.broker.service.AbstractTopic - [persistent://public/default/default_shivam_stream-partition-4] [Producer3e526aac-10f4-4a5e-8c51-2dbda8545bbf] Added producer -- count: 1\n2025-02-02T16:52:39,369+0000 [BookKeeperClientWorker-OrderedExecutor-1-0] DEBUG org.apache.pulsar.broker.service.schema.SchemaRegistryServiceImpl - [public/default/default_shivam_stream] Put schema finished\n2025-02-02T16:52:39,369+0000 [broker-topic-workers-OrderedExecutor-3-0] INFO  org.apache.pulsar.broker.service.ServerCnx - [/10.22.2.15:54474] Created new producer: Producer{topic=PersistentTopic{topic=persistent://public/default/default_shivam_stream-partition-4}, client=[id: 0x83526df1, L:/10.10.17.40:6650 - R:/10.22.2.15:54474] [SR:10.22.2.15, state:Connected], producerName=Producer3e526aac-10f4-4a5e-8c51-2dbda8545bbf, producerId=4}, role: null\n2025-02-02T16:52:39,596+0000 [pulsar-io-3-7] DEBUG org.apache.pulsar.broker.service.ServerCnx - [/10.22.2.15:54474] Received send message request. producer: 9:0 Producer3e526aac-10f4-4a5e-8c51-2dbda8545bbf:0 size: 133, partition key is: 1, ordering key is null, uncompressedSize is 45\n2025-02-02T16:52:39,596+0000 [pulsar-io-3-7] DEBUG org.apache.pulsar.broker.service.ServerCnxThrottleTracker - [[id: 0x83526df1, L:/10.10.17.40:6650 - R:/10.22.2.15:54474] [SR:10.22.2.15, state:Connected]] Setting auto read to false\n2025-02-02T16:52:39,601+0000 [BookKeeperClientWorker-OrderedExecutor-4-0] DEBUG org.apache.pulsar.broker.service.Producer - [PersistentTopic{topic=persistent://public/default/default_shivam_stream-partition-9}] [Producer3e526aac-10f4-4a5e-8c51-2dbda8545bbf] [9] triggered send callback. cnx /10.22.2.15:54474, sequenceId 0\n2025-02-02T16:52:39,601+0000 [pulsar-io-3-7] DEBUG org.apache.pulsar.broker.service.Producer - [PersistentTopic{topic=persistent://public/default/default_shivam_stream-partition-9}] [Producer3e526aac-10f4-4a5e-8c51-2dbda8545bbf] [9] Persisted message. cnx [id: 0x83526df1, L:/10.10.17.40:6650 - R:/10.22.2.15:54474] [SR:10.22.2.15, state:Connected], sequenceId 0\n2025-02-02T16:52:51,001+0000 [pulsar-backlog-quota-checker-OrderedScheduler-0-0] DEBUG org.apache.pulsar.broker.service.persistent.PersistentTopic - [persistent://public/default/default_shivam_stream-partition-6] No backlog. Update old position info is null\n2025-02-02T16:52:51,001+0000 [pulsar-backlog-quota-checker-OrderedScheduler-0-0] DEBUG org.apache.pulsar.broker.service.persistent.PersistentTopic - [persistent://public/default/default_shivam_stream-partition-6] Time backlog quota = [-1]. Checking if exceeded.\n2025-02-02T16:52:51,001+0000 [pulsar-backlog-quota-checker-OrderedScheduler-0-0] DEBUG org.apache.pulsar.broker.service.BrokerService - quota not exceeded for [persistent://public/default/default_shivam_stream-partition-6]\n2025-02-02T16:52:51,001+0000 [pulsar-backlog-quota-checker-OrderedScheduler-0-0] DEBUG org.apache.pulsar.broker.service.persistent.PersistentTopic - [persistent://public/default/default_shivam_stream-partition-7] No backlog. Update old position info is null\n2025-02-02T16:52:51,001+0000 [pulsar-backlog-quota-checker-OrderedScheduler-0-0] DEBUG org.apache.pulsar.broker.service.persistent.PersistentTopic - [persistent://public/default/default_shivam_stream-partition-7] Time backlog quota = [-1]. Checking if exceeded.\n2025-02-02T16:52:51,001+0000 [pulsar-backlog-quota-checker-OrderedScheduler-0-0] DEBUG org.apache.pulsar.broker.service.BrokerService - quota not exceeded for [persistent://public/default/default_shivam_stream-partition-7]\n2025-02-02T16:52:51,001+0000 [pulsar-backlog-quota-checker-OrderedScheduler-0-0] DEBUG org.apache.pulsar.broker.service.persistent.PersistentTopic - [persistent://public/default/default_shivam_stream-partition-8] No backlog. Update old position info is null\n2025-02-02T16:52:51,001+0000 [pulsar-backlog-quota-checker-OrderedScheduler-0-0] DEBUG org.apache.pulsar.broker.service.persistent.PersistentTopic - [persistent://public/default/default_shivam_stream-partition-8] Time backlog quota = [-1]. Checking if exceeded.\n--\n2025-02-02T16:54:29,252+0000 [BookKeeperClientWorker-OrderedExecutor-1-0] DEBUG org.apache.pulsar.broker.service.AbstractTopic - [persistent://public/default/default_shivam_stream-partition-4] Producerbc584de6-13d3-46c3-9d7f-9f5c4f7619b2 Got request to create producer \n2025-02-02T16:54:29,252+0000 [BookKeeperClientWorker-OrderedExecutor-1-0] DEBUG org.apache.pulsar.broker.service.AbstractTopic - [persistent://public/default/default_shivam_stream-partition-4] [Producerbc584de6-13d3-46c3-9d7f-9f5c4f7619b2] Added producer -- count: 1\n2025-02-02T16:54:29,252+0000 [BookKeeperClientWorker-OrderedExecutor-1-0] DEBUG org.apache.pulsar.broker.service.schema.SchemaRegistryServiceImpl - [public/default/default_shivam_stream] Put schema finished\n2025-02-02T16:54:29,252+0000 [broker-topic-workers-OrderedExecutor-3-0] INFO  org.apache.pulsar.broker.service.ServerCnx - [/10.22.2.15:55876] Created new producer: Producer{topic=PersistentTopic{topic=persistent://public/default/default_shivam_stream-partition-4}, client=[id: 0x4b78fe29, L:/10.10.17.40:6650 - R:/10.22.2.15:55876] [SR:10.22.2.15, state:Connected], producerName=Producerbc584de6-13d3-46c3-9d7f-9f5c4f7619b2, producerId=4}, role: null\n2025-02-02T16:54:29,253+0000 [BookKeeperClientWorker-OrderedExecutor-1-0] DEBUG org.apache.pulsar.broker.service.schema.SchemaRegistryServiceImpl - [public/default/default_shivam_stream] Schema is already exists\n20...\n```\n\n\nWe also observed that `pulsar.pulsar_publish_rate_limit_times` for the topics with this issue and found that they had non-zero values for this metric.\n\n<img width=\"1678\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/8adda537-9d4c-4484-873b-38baa4e07cea\" />\n\n\nAnother observation when we encounter this issue is that no messages are delivered to subscriptions. We tried consuming data from topic using Pulsar's CLI client from earliest position but no records were delivered.\nWe enabled `unblockStuckSubscriptionEnabled=true` in broker.conf but still observed this issue.\n\n\nCurrently we are removing the topicPolicies - publish rate and dispatch rate and will observe if the issue recurs.\n\nAs per our tests, these policies are working fine when there is sufficient records being produced and consumed from pulsar topics.\nBut when producer load is sparse, we are encountering the issue where producer is unable to produce message.\n\nLet me know if any other details are required around this.\n\n### What did you expect to see?\n\nRecords getting produced successfully\n\n### What did you see instead?\n\nRecords not being produced or consumed at sporadic intervals.\nThe issue happens intermittently and gets some solved on it's own, we haven't been able to nail the scenarios which deterministically leads to this issue.\n\nThe client patterns would be sparse producer and non zero values of `pulsar.pulsar_publish_rate_limit_times` during the duration of issue.\n\n### Anything else?\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [x] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23920",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2025-02-08T17:01:08.000Z",
+        "fix_commit_hash": "f8e4c11b5cd94382a3493b3e129e46bfc6a0621d",
+        "commit_type": "pr",
+        "commit_message": "[fix][broker] Fix rate limiter token bucket and clock consistency issues causing excessive throttling and connection timeouts (#23930)",
+        "closer_url": "https://github.com/apache/pulsar/pull/23930",
+        "earliest_issue_date": "2025-02-03T10:17:49Z",
+        "predicted_class": "bug",
+        "bic": [
+            "ed68ec106fed34ea39fc52810e270094b35e2ca3"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23952,
+        "issue_title": "[Bug] Deadlock in PersistentSubscription.close / NamespaceService.unloadNamespaceBundle / PulsarService.closeAsync countered in tests",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\nmaster branch\n\n### Minimal reproduce step\n\nNo steps to reproduce, faced in tests\n```\nFound one Java-level deadlock:\n=============================\n\"main\":\n  waiting to lock monitor 0x00007fd520fe6f10 (object 0x000010003425f350, a org.apache.pulsar.broker.service.persistent.PersistentSubscrip\ntion),\n  which is held by \"PulsarTestContext-executor-OrderedExecutor-0-0\"\n\n\"PulsarTestContext-executor-OrderedExecutor-0-0\":\n  waiting to lock monitor 0x00007fd4f400dd00 (object 0x000010003425fd70, a org.apache.pulsar.broker.service.persistent.PersistentDispatch\nerSingleActiveConsumer),\n  which is held by \"broker-topic-workers-OrderedExecutor-0-0\"\n\n\"broker-topic-workers-OrderedExecutor-0-0\":\n  waiting to lock monitor 0x00007fd7a406f4a0 (object 0x000010003427f678, a org.apache.bookkeeper.mledger.impl.cache.PendingReadsManager$PendingRead),\n  which is held by \"PulsarTestContext-executor-OrderedExecutor-0-0\"\n\nJava stack information for the threads listed above:\n===================================================\n\"main\":\n\tat org.apache.pulsar.broker.service.persistent.PersistentSubscription.close(PersistentSubscription.java)\n\t- waiting to lock <0x000010003425f350> (a org.apache.pulsar.broker.service.persistent.PersistentSubscription)\n\tat org.apache.pulsar.broker.service.persistent.PersistentTopic.lambda$close$56(PersistentTopic.java:1697)\n\tat org.apache.pulsar.broker.service.persistent.PersistentTopic$$Lambda/0x00007fd54cb397a8.accept(Unknown Source)\n\tat java.util.concurrent.ConcurrentHashMap.forEach(java.base@21.0.6/ConcurrentHashMap.java:1603)\n\tat org.apache.pulsar.broker.service.persistent.PersistentTopic.lambda$close$57(PersistentTopic.java:1697)\n\tat org.apache.pulsar.broker.service.persistent.PersistentTopic$$Lambda/0x00007fd54cb39358.accept(Unknown Source)\n\tat java.util.concurrent.CompletableFuture.uniAcceptNow(java.base@21.0.6/CompletableFuture.java:757)\n\tat java.util.concurrent.CompletableFuture.uniAcceptStage(java.base@21.0.6/CompletableFuture.java:735)\n\tat java.util.concurrent.CompletableFuture.thenAccept(java.base@21.0.6/CompletableFuture.java:2214)\n\tat org.apache.pulsar.broker.service.persistent.PersistentTopic.close(PersistentTopic.java:1688)\n\tat org.apache.pulsar.broker.service.BrokerService.lambda$unloadServiceUnit$116(BrokerService.java:2371)\n\tat org.apache.pulsar.broker.service.BrokerService$$Lambda/0x00007fd54cb76aa8.apply(Unknown Source)\n\tat java.util.concurrent.CompletableFuture.uniComposeStage(java.base@21.0.6/CompletableFuture.java:1187)\n\tat java.util.concurrent.CompletableFuture.thenCompose(java.base@21.0.6/CompletableFuture.java:2341)\n\tat org.apache.pulsar.broker.service.BrokerService.lambda$unloadServiceUnit$118(BrokerService.java:2371)\n\tat org.apache.pulsar.broker.service.BrokerService$$Lambda/0x00007fd54cb6f800.accept(Unknown Source)\n\tat java.util.concurrent.ConcurrentHashMap.forEach(java.base@21.0.6/ConcurrentHashMap.java:1603)\n\tat org.apache.pulsar.broker.service.BrokerService.unloadServiceUnit(BrokerService.java:2341)\n\tat org.apache.pulsar.broker.service.BrokerService.unloadServiceUnit(BrokerService.java:2314)\n\tat org.apache.pulsar.broker.namespace.OwnedBundle.lambda$handleUnloadRequest$0(OwnedBundle.java:138)\n\tat org.apache.pulsar.broker.namespace.OwnedBundle$$Lambda/0x00007fd54cb6f5c8.apply(Unknown Source)\n\tat java.util.concurrent.CompletableFuture.uniComposeStage(java.base@21.0.6/CompletableFuture.java:1187)\n\tat java.util.concurrent.CompletableFuture.thenCompose(java.base@21.0.6/CompletableFuture.java:2341)\n\tat org.apache.pulsar.broker.namespace.OwnedBundle.handleUnloadRequest(OwnedBundle.java:138)\n\tat org.apache.pulsar.broker.namespace.NamespaceService.unloadNamespaceBundle(NamespaceService.java:848)\n...\n\tat org.apache.pulsar.broker.namespace.NamespaceService.unloadNamespaceBundle(NamespaceService.java:839)\n...\n\tat org.apache.pulsar.broker.namespace.NamespaceService.unloadNamespaceBundle(NamespaceService.java:830)\n\tat org.apache.pulsar.broker.service.BrokerService.lambda$unloadNamespaceBundlesGracefully$30(BrokerService.java:999)\n\tat org.apache.pulsar.broker.service.BrokerService$$Lambda/0x00007fd54cb6ef58.accept(Unknown Source)\n\tat java.lang.Iterable.forEach(java.base@21.0.6/Iterable.java:75)\n\tat org.apache.pulsar.broker.service.BrokerService.unloadNamespaceBundlesGracefully(BrokerService.java:992)\n\tat org.apache.pulsar.broker.service.BrokerService.unloadNamespaceBundlesGracefully(BrokerService.java:962)\n\tat org.apache.pulsar.broker.PulsarService.closeAsync(PulsarService.java:525)\n...\n\tat org.apache.pulsar.broker.PulsarService.closeAsync(PulsarService.java:509)\n\tat org.apache.pulsar.broker.PulsarService.close(PulsarService.java:484)\n...\n\n\n\"PulsarTestContext-executor-OrderedExecutor-0-0\":\n\tat org.apache.pulsar.broker.service.AbstractDispatcherSingleActiveConsumer.disconnectActiveConsumers(AbstractDispatcherSingleActiveConsumer.java)\n\t- waiting to lock <0x000010003425fd70> (a org.apache.pulsar.broker.service.persistent.PersistentDispatcherSingleActiveConsumer)\n\tat org.apache.pulsar.broker.service.persistent.PersistentSubscription.resetCursor(PersistentSubscription.java:856)\n\t- locked <0x000010003425f350> (a org.apache.pulsar.broker.service.persistent.PersistentSubscription)\n\tat org.apache.pulsar.broker.service.persistent.PersistentSubscription$6.findEntryComplete(PersistentSubscription.java:824)\n\tat org.apache.pulsar.broker.service.persistent.PersistentMessageFinder.findEntryComplete(PersistentMessageFinder.java:162)\n\tat org.apache.bookkeeper.mledger.impl.OpFindNewest.readEntryComplete(OpFindNewest.java:133)\n\tat org.apache.bookkeeper.mledger.impl.cache.RangeEntryCacheImpl$1.readEntriesComplete(RangeEntryCacheImpl.java:241)\n\tat org.apache.bookkeeper.mledger.impl.cache.PendingReadsManager$PendingRead.readEntriesComplete(PendingReadsManager.java:253)\n\t- locked <0x000010003427f678> (a org.apache.bookkeeper.mledger.impl.cache.PendingReadsManager$PendingRead)\n\tat org.apache.bookkeeper.mledger.impl.cache.PendingReadsManager$PendingRead.lambda$attach$0(PendingReadsManager.java:232)\n\tat org.apache.bookkeeper.mledger.impl.cache.PendingReadsManager$PendingRead$$Lambda/0x00007fd54cb0fc60.run(Unknown Source)\n\tat org.apache.bookkeeper.common.util.SingleThreadExecutor.safeRunTask(SingleThreadExecutor.java:137)\n\tat org.apache.bookkeeper.common.util.SingleThreadExecutor.run(SingleThreadExecutor.java:107)\n\tat io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)\n\tat java.lang.Thread.runWith(java.base@21.0.6/Thread.java:1596)\n\tat java.lang.Thread.run(java.base@21.0.6/Thread.java:1583)\n\"broker-topic-workers-OrderedExecutor-0-0\":\n\tat org.apache.bookkeeper.mledger.impl.cache.PendingReadsManager$PendingRead.addListener(PendingReadsManager.java)\n\t- waiting to lock <0x000010003427f678> (a org.apache.bookkeeper.mledger.impl.cache.PendingReadsManager$PendingRead)\n\tat org.apache.bookkeeper.mledger.impl.cache.PendingReadsManager.readEntries(PendingReadsManager.java:430)\n...\n\tat org.apache.pulsar.broker.service.persistent.PersistentDispatcherSingleActiveConsumer.readMoreEntries(PersistentDispatcherSingleActiveConsumer.java:387)\n\t- locked <0x000010003425fd70> (a org.apache.pulsar.broker.service.persistent.PersistentDispatcherSingleActiveConsumer)\n...\n```\nfull dead lock details: https://gist.github.com/lhotari/135bb1a5a045d00c19cf374fca1ff8f7#file-threaddump15633_2025-02-08_00-txt-L1327-L1542\nfull thread dump: https://gist.github.com/lhotari/135bb1a5a045d00c19cf374fca1ff8f7\nanalysis: https://jstack.review/?https://gist.github.com/lhotari/135bb1a5a045d00c19cf374fca1ff8f7\n\n\n### What did you expect to see?\n\nno deadlocks\n\n### What did you see instead?\n\nthere was a deadlock in closing PulsarService\n\n### Anything else?\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [ ] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23952",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2025-02-11T15:14:19.000Z",
+        "fix_commit_hash": "367faefc2e61c68e587626d07f9d98163d3cd935",
+        "commit_type": "pr",
+        "commit_message": "[fix][ml] Fix deadlock in PendingReadsManager (#23958)",
+        "closer_url": "https://github.com/apache/pulsar/pull/23958",
+        "earliest_issue_date": "2025-02-08T18:53:52Z",
+        "predicted_class": "bug",
+        "bic": [
+            "c5173d5e15efade90afb9b0b1c19f3ba5b3aab37"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23963,
+        "issue_title": "[Bug] Pulsar Proxy Keep-Alive Interval is Hardcoded to 30s and Cannot Be Configured",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\napachepulsar/pulsar-all:3.0.2\n\n### Minimal reproduce step\n\n- Start a connection to the Pulsar Broker through Pulsar Proxy.\n- Observe the debug logs\u2014keep-alive is scheduled every 30 seconds, regardless of configuration settings.\n\n### What did you expect to see?\n\nI expected the keep-alive interval for connections in Pulsar Proxy to be configurable through proxy.conf like as described [here](https://pulsar.apache.org/reference/#/3.0.x/config/reference-configuration-broker?id=keepaliveintervalseconds)\n\n### What did you see instead?\n\nThe keep-alive interval is hardcoded to 30 seconds, with no way to modify it. The logs confirm this behavior:\n\n```\n2025-02-11T09:18:20,392+0000 [pulsar-proxy-io-2-8] DEBUG org.apache.pulsar.common.protocol.PulsarHandler - [[id: 0x4bf907e2, L:/xxx:6651 - R:/xxx:60882]] Scheduling keep-alive task every 30 s\n```\n\n### Anything else?\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [ ] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23963",
+        "assignees": [
+            "lhotari"
+        ],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2025-02-14T06:56:42.000Z",
+        "fix_commit_hash": "eb1391a199d2c85f1ad7ce22a4d3eefa78d2fed3",
+        "commit_type": "pr",
+        "commit_message": "[improve][proxy] Make keep-alive interval configurable in Pulsar Proxy (#23981)",
+        "closer_url": "https://github.com/apache/pulsar/pull/23981",
+        "earliest_issue_date": "2025-02-11T16:35:44Z",
+        "predicted_class": "bug",
+        "bic": [
+            "1952f94769d9dc80908d159be6e6ce1ff48b83fb"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 23982,
+        "issue_title": "[Bug] Broker cannot always shutdown gracefully",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\nmaster\n\n### Minimal reproduce step\n\nModify `cleanup` in `InmemoryTopicPoliciesServiceServiceTest` and run it. This will timeout:\n\n```java\n    @AfterClass\n    @Override\n    protected void cleanup() throws Exception {\n        admin.brokers().shutDownBrokerGracefully(0, false)\n                .get(15, TimeUnit.SECONDS);\n        super.internalCleanup();\n    }\n```\n\n### What did you expect to see?\n\nThe broker should be able to shutdown using the graceful shutdown API.\n\n### What did you see instead?\n\nThe shutdown timed out.\n\n### Anything else?\n\nThe shutdown times out.\n\n### Are you willing to submit a PR?\n\n- [ ] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/23982",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2025-09-12T08:12:38.000Z",
+        "fix_commit_hash": "4169395d1aea6d2a12101ae4ef2cfcca2c6cc48c",
+        "commit_type": "pr",
+        "commit_message": "[fix][broker] Fix cannot shutdown broker gracefully by admin api (#24731)",
+        "closer_url": "https://github.com/apache/pulsar/pull/24731",
+        "earliest_issue_date": "2025-02-13T11:54:18Z",
+        "predicted_class": "bug",
+        "bic": [
+            "4341f0f301e0da344bb5ce07bc62c373e7ce48ef"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24001,
+        "issue_title": "[Bug] Rate-Limiter fails with a huge spike in a traffic, and publish/consume stuck for a longer time.",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\n`> 3.x`\n\n### Minimal reproduce step\n\nIt sounds like your current token bucket rate-limiter suffers from issues due to eventual consistency, leading to a situation where a sudden traffic spike causes an excessive increase in `pendingConsumedTokens`, pushing the bucket into deep negative values. This, in turn, results in prolonged pauses in publish/dispatch operations.\n\n**Fundamental Issues Identified:**\n\n**1. Eventual Consistency Across Multiple Threads:**\n\nEach thread maintains its own counter for `pendingConsumedTokens`, which gets [aggregated periodically](https://github.com/apache/pulsar/blob/master/pulsar-broker/src/main/java/org/apache/pulsar/broker/qos/AsyncTokenBucket.java#L192).\nDuring a spike, [multiple producers concurrently increase pendingConsumedTokens](https://github.com/apache/pulsar/blob/master/pulsar-broker/src/main/java/org/apache/pulsar/broker/qos/AsyncTokenBucket.java#L210), leading to an aggregated count that significantly exceeds the configured rate.\n\n**2. Deep Negative Token Count Problem:**\n\nSince tokens are refreshed at fixed intervals, a large negative value requires multiple refresh cycles to recover.\nThis leads to long pauses, causing the publish/dispatch system to get stuck.\n\n![Image](https://github.com/user-attachments/assets/4b8e55a3-1e8f-4fa5-aac8-88156280b36a)\n\n**3. Previous RateLimiter Had a Controlled Spike Handling:**\n\n[Previous Rate Limiter](https://github.com/apache/pulsar/pull/634) was able to handle the spike and it doesn't; allow topic or dispatcher to stuck without dispatching messages.\n\nAlternative:\n**Bound Negative Token Values**: Implement a threshold to prevent tokens from going excessively negative, limiting recovery time.\n\nLet's step back and fix this issue fundamentally without adding any more patches, and we should at least revert to Dispatch Rate-Limiter until we have a matured solution in place because the current Rate-Limiter has certainly changed the behavior when the broker hits the spike in dispatch or publish.\n\nThis can be reproduced with below test \n\n```\nvoid testAsyncToken() throws Exception {\n        int rate = 2000;\n        int resolutionTimeNano = 8;\n        asyncTokenBucket = AsyncTokenBucket.builder().rate(rate).ratePeriodNanos(TimeUnit.SECONDS.toNanos(1)).clock(\n                new DefaultMonotonicSnapshotClock(TimeUnit.MILLISECONDS.toNanos(resolutionTimeNano), System::nanoTime))\n                .build();\n\n        for (int j = 0; j < (1000); j++) {\n            for (int i = 0; i < (1000); i++) {\n                long token = asyncTokenBucket.getTokens();\n                if (token < 0) {\n                    // sleep to allow add more tokens\n                    Thread.sleep(resolutionTimeNano * 5);\n                    assertTrue(asyncTokenBucket.getTokens() > 0);\n                }\n                // calling consumeTokens iteratively to simulate calling this method multiple times from multiple\n                // threads\n                asyncTokenBucket.consumeTokens(100);\n            }\n        }\n    }\n```\n\n\n\n### What did you expect to see?\n\nRate-Limiter should not be blocked for long time but like previous Rate-Limiter it should handle spike and allow configured rate at every second(or configured rate time)\n\n### What did you see instead?\n\nRate-Limiter should blocks publish/consume for long time\n\n### Anything else?\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [x] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/24001",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2025-02-25T09:30:51.000Z",
+        "fix_commit_hash": "e547beaa6dad72359bb5b8d30ce9fa80a6989f71",
+        "commit_type": "pr",
+        "commit_message": "[fix][broker] PIP-322 Fix issue with rate limiters where rates can exceed limits initially and consumption pauses until token balance is positive (#24012)\n\nCo-authored-by: Matteo Merli <mmerli@apache.org>",
+        "closer_url": "https://github.com/apache/pulsar/pull/24012",
+        "earliest_issue_date": "2025-02-19T08:19:06Z",
+        "predicted_class": "bug",
+        "bic": [
+            "f5fd327ee7d4cb34376fc68ec483c8958c6c76fa"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24041,
+        "issue_title": "Flaky-test: PrometheusMetricsTest.testBrokerMetrics",
+        "issue_body": "\n### Search before asking\n\n- [X] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n### Example failures\n\n- [2025-01-17T12:27:55.6479535Z](https://github.com/apache/pulsar/actions/runs/12828782765/job/35774002940#step:11:1140) \n\n\n### Exception stacktrace\n\n```\njava.lang.AssertionError: expected [195.0] but found [0.0]\n\tat org.testng.Assert.fail(Assert.java:110)\n\tat org.testng.Assert.failNotEquals(Assert.java:1577)\n\tat org.testng.Assert.assertEquals(Assert.java:727)\n\tat org.testng.Assert.assertEquals(Assert.java:774)\n\tat org.apache.pulsar.broker.stats.PrometheusMetricsTest.testBrokerMetrics(PrometheusMetricsTest.java:315)\n\tat java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)\n\tat java.base/java.lang.reflect.Method.invoke(Method.java:580)\n\tat org.testng.internal.invokers.MethodInvocationHelper.invokeMethod(MethodInvocationHelper.java:139)\n\tat org.testng.internal.invokers.InvokeMethodRunnable.runOne(InvokeMethodRunnable.java:47)\n\tat org.testng.internal.invokers.InvokeMethodRunnable.call(InvokeMethodRunnable.java:76)\n\tat org.testng.internal.invokers.InvokeMethodRunnable.call(InvokeMethodRunnable.java:11)\n\tat java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)\n\tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)\n\tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)\n\tat java.base/java.lang.Thread.run(Thread.java:1583)\n```\n\n\n### Are you willing to submit a PR?\n\n- [x] I'm willing to submit a PR!\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/24041",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2025-03-14T07:22:18.000Z",
+        "fix_commit_hash": "694969f7ef35d2c049f7430e9151168938c2bbb9",
+        "commit_type": "pr",
+        "commit_message": "[fix][test] Fix flaky PrometheusMetricsTest.testBrokerMetrics (#24042)",
+        "closer_url": "https://github.com/apache/pulsar/pull/24042",
+        "earliest_issue_date": "2025-03-01T18:46:45Z",
+        "predicted_class": "bug",
+        "bic": [
+            "c7310e35d274541031907cccbf61a8817ac87ec0"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24043,
+        "issue_title": "[Bug] Getting UnsupportedOperationException while setting subscription level dispatch rate policy",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\nPulsar Version: 3.0.7\n\n\n### Minimal reproduce step\n\nNote: The issue is coming intermittently \n1. Create a topic and subscription or use an existing topic/subscription\n2. Set dispatch rate policy at subscription level using below command\n3.`bin\\pulsar-admin topicPolicies set-subscription-dispatch-rate  -bd 34323 -s <<subname>> <<topicfqn>>`\n\n\n### What did you expect to see?\n\nThe subscription dispatch rate should get set with 200 response. \n\n### What did you see instead?\n\nGetting below exception\n\n```\nMessage: null\n\nStacktrace:\n\n**java.lang.UnsupportedOperationException**\n        at java.base/java.util.Collections$EmptyMap.**computeIfAbsent**(Collections.java:4764)\n        at org.apache.pulsar.broker.admin.impl.PersistentTopicsBase.lambda$**internalSetSubscriptionLevelDispatchRate**$487(PersistentTopicsBase.java:4960)\n        at java.base/java.util.concurrent.CompletableFuture$UniCompose.tryFire(CompletableFuture.java:1150)\n        at java.base/java.util.concurrent.CompletableFuture.postComplete(CompletableFuture.java:510)\n        at java.base/java.util.concurrent.CompletableFuture.complete(CompletableFuture.java:2147)\n        at org.apache.pulsar.client.util.RetryUtil.lambda$executeWithRetry$2(RetryUtil.java:62)\n        at java.base/java.util.concurrent.CompletableFuture.uniWhenComplete(CompletableFuture.java:863)\n        at java.base/java.util.concurrent.CompletableFuture.uniWhenCompleteStage(CompletableFuture.java:887)\n        at java.base/java.util.concurrent.CompletableFuture.whenComplete(CompletableFuture.java:2325)\n        at org.apache.pulsar.client.util.RetryUtil.executeWithRetry(RetryUtil.java:48)\n        at org.apache.pulsar.client.util.RetryUtil.lambda$retryAsynchronously$0(RetryUtil.java:42)\n        at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)\n        at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)\n        at java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:304)\n        at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)\n        at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)\n        at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)\n        at java.base/java.lang.Thread.run(Thread.java:840)\n```\n\n\n### Anything else?\n\nThe error is coming when  `subscriptionPolicies` is null; it's returning `Collections.emptyMap()` which is immutable, and `internalSetSubscriptionLevelDispatchRate` is trying to add the element in that map.\nFix would be instead of returning an immutable map, it should be a mutable map. \nRef: https://github.com/apache/pulsar/blob/master/pulsar-broker/src/main/java/org/apache/pulsar/broker/admin/impl/PersistentTopicsBase.java#L4778\n\n### Are you willing to submit a PR?\n\n- [x] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/24043",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2025-03-17T07:07:11.000Z",
+        "fix_commit_hash": "9f38a5c9c2335c0d30d070b587ead57618aa1f78",
+        "commit_type": "pr",
+        "commit_message": "[fix][broker] Fix UnsupportedOperationException while setting subscription level dispatch rate policy (#24048)",
+        "closer_url": "https://github.com/apache/pulsar/pull/24048",
+        "earliest_issue_date": "2025-03-03T12:35:45Z",
+        "predicted_class": "bug",
+        "bic": [
+            "d37d31f64413b896a051e6d9fa0acf07201e02a3"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24053,
+        "issue_title": "[Bug] message eventtime is reset to 0 on reconsumeLater",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\nOS - macOS Sequoia 15.3.1\nJava - 21\nPulsar client - 4.0.2\nPulsar broker - 4.0.2\n\n\n### Minimal reproduce step\n\npublish a message to a topic with eventTime set to some value, e.g., current epoch seconds. \nOn consumption, call reconsumeLater method. \nOn reconsumption, log message.getEventTime.\n\n### What did you expect to see?\n\nmessage.getEventTime should return the original eventTime set during publish\n\n### What did you see instead?\n\n0\n\n### Anything else?\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [x] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/24053",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2025-03-05T19:26:17.000Z",
+        "fix_commit_hash": "8303b96c4d44681f81279c87495b95ee50e32013",
+        "commit_type": "pr",
+        "commit_message": "[fix][client] Copy eventTime to retry letter topic and DLQ messages (#24059)",
+        "closer_url": "https://github.com/apache/pulsar/pull/24059",
+        "earliest_issue_date": "2025-03-04T16:47:01Z",
+        "predicted_class": "bug",
+        "bic": [
+            "0f2f478c1ffc4028d7fd271a1bc523b3342a07af"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24093,
+        "issue_title": "[Doc] Typo in PulsarAdminBuilder",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### What issue do you find in Pulsar docs?\n\nhttps://github.com/apache/pulsar/blob/3e6f7deb0afec2675aac74750f7526557f43c9e7/pulsar-client-admin-api/src/main/java/org/apache/pulsar/client/admin/PulsarAdminBuilder.java#L47 \n\nit gives the example of using \"serviceHttpUrl\" as a key, however the correct key should be `serviceUrl` since PulsarAdminBuilder uses [ClientConfigurationData](https://github.com/apache/pulsar/blob/master/pulsar-client/src/main/java/org/apache/pulsar/client/impl/conf/ClientConfigurationData.java) class. \n\n### What is your suggestion?\n\nUpdate the comment to use the correct key as it is confusing for developers.\n\n### Any reference?\n\nhttps://github.com/apache/pulsar/blob/3e6f7deb0afec2675aac74750f7526557f43c9e7/pulsar-client-admin-api/src/main/java/org/apache/pulsar/client/admin/PulsarAdminBuilder.java#L47 \n\n### Are you willing to submit a PR?\n\n- [x] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/24093",
+        "assignees": [],
+        "labels": [
+            "doc-required",
+            "good first issue"
+        ],
+        "issue_closed_at": "2026-04-21T18:45:22.000Z",
+        "fix_commit_hash": "93d13e2fdb1a2032e51ff2601c5c929b8a0fb418",
+        "commit_type": "pr",
+        "commit_message": "[fix][doc] Correct loadConf example key in PulsarAdminBuilder (#25556)",
+        "closer_url": "https://github.com/apache/pulsar/pull/25556",
+        "earliest_issue_date": "2025-03-18T20:39:19Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24129,
+        "issue_title": "[Bug] KinesisSink with jsonFlatten doesn't handle SchemaType.BYTES correctly",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\nHEAD\n\n### Minimal reproduce step\n\nRun the following test\n```java\n    @Test\n    public void testSerializeRecordToJsonExpandingValue() throws Exception {\n        SchemaType schemaType = SchemaType.AVRO;\n        RecordSchemaBuilder valueSchemaBuilder = org.apache.pulsar.client.api.schema.SchemaBuilder.record(\"value\");\n        valueSchemaBuilder.field(\"a\").type(SchemaType.BYTES).optional().defaultValue(null);\n        GenericSchema<GenericRecord> valueSchema = Schema.generic(valueSchemaBuilder.build(schemaType));\n\n        GenericRecord valueGenericRecord = valueSchema.newRecordBuilder()\n                .set(\"a\", \"10\".getBytes(StandardCharsets.UTF_8))\n                .build();\n\n        Record<GenericObject> genericObjectRecord = new Record<>() {\n\n            @Override\n            public org.apache.pulsar.client.api.Schema getSchema() {\n                return valueSchema;\n            }\n\n            @Override\n            public GenericObject getValue() {\n                return valueGenericRecord;\n            }\n        };\n\n        ObjectMapper objectMapper = new ObjectMapper().setSerializationInclusion(JsonInclude.Include.NON_NULL);\n        String json = Utils.serializeRecordToJsonExpandingValue(objectMapper, genericObjectRecord, true);\n\n        assertEquals(json, \"{\\\"payload.a\\\":\\\"MTA=\\\"}\");\n    }\n```\n\n### What did you expect to see?\n\nThe test should pass.\n\n### What did you see instead?\n\nThe test fails because `payload.a` is `null`.\n```sh\njava.lang.AssertionError:\nExpected :{\"payload.a\":\"MTA=\"}\nActual   :{\"payload.a\":null}\n```\n\n### Anything else?\n\nThe problem is in the flattening library `json-flattener` which doesn't handle Jackson's BinaryNode.\nIn `JsonJacksonValue`, `isString` should also return `true` when the underlying `JsonNode` `isBinary` is `true`.\n\n### Are you willing to submit a PR?\n\n- [x] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/24129",
+        "assignees": [
+            "cbornet"
+        ],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2025-03-28T09:59:27.000Z",
+        "fix_commit_hash": "925267502fcb6c2d446a6aa0e73e02ccc8b7a762",
+        "commit_type": "pr",
+        "commit_message": "[fix][io] Fix KinesisSink json flattening for AVRO's SchemaType.BYTES (#24132)",
+        "closer_url": "https://github.com/apache/pulsar/pull/24132",
+        "earliest_issue_date": "2025-03-26T09:03:49Z",
+        "predicted_class": "bug",
+        "bic": [
+            "8c21c005b5369fa0dbfd7232898b6a47fdddd177"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24152,
+        "issue_title": "Flaky-test: OneWayReplicatorUsingGlobalPartitionedTest.testRemoveCluster",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Example failure\n\nhttps://github.com/kontotto/pulsar/actions/runs/14297883089/job/40076070951#step:11:1759\n\n### Exception stacktrace\n\n```\n  Error:  Tests run: 5, Failures: 1, Errors: 0, Skipped: 1, Time elapsed: 215.439 s <<< FAILURE! - in org.apache.pulsar.broker.service.OneWayReplicatorUsingGlobalPartitionedTest\n  Error:  org.apache.pulsar.broker.service.OneWayReplicatorUsingGlobalPartitionedTest.testRemoveCluster  Time elapsed: 60.008 s  <<< FAILURE!\n  org.testng.internal.thread.ThreadTimeoutException: Method org.apache.pulsar.broker.service.OneWayReplicatorUsingGlobalPartitionedTest.testRemoveCluster() didn't finish within the time-out 60000\n  \tat java.base/java.lang.Thread.sleep0(Native Method)\n  \tat java.base/java.lang.Thread.sleep(Thread.java:558)\n  \tat java.base/java.util.concurrent.TimeUnit.sleep(TimeUnit.java:446)\n  \tat org.awaitility.core.Uninterruptibles.sleepUninterruptibly(Uninterruptibles.java:35)\n  \tat org.awaitility.core.ConditionAwaiter.await(ConditionAwaiter.java:117)\n  \tat org.awaitility.core.AssertionCondition.await(AssertionCondition.java:119)\n  \tat org.awaitility.core.AssertionCondition.await(AssertionCondition.java:31)\n  \tat org.awaitility.core.ConditionFactory.until(ConditionFactory.java:985)\n  \tat org.awaitility.core.ConditionFactory.untilAsserted(ConditionFactory.java:769)\n  \tat org.apache.pulsar.broker.service.OneWayReplicatorUsingGlobalPartitionedTest.testRemoveCluster(OneWayReplicatorUsingGlobalPartitionedTest.java:191)\n  \tat java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)\n  \tat java.base/java.lang.reflect.Method.invoke(Method.java:580)\n  \tat org.testng.internal.invokers.MethodInvocationHelper.invokeMethod(MethodInvocationHelper.java:139)\n  \tat org.testng.internal.invokers.InvokeMethodRunnable.runOne(InvokeMethodRunnable.java:47)\n  \tat org.testng.internal.invokers.InvokeMethodRunnable.call(InvokeMethodRunnable.java:76)\n  \tat org.testng.internal.invokers.InvokeMethodRunnable.call(InvokeMethodRunnable.java:11)\n  \tat java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)\n  \tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)\n  \tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)\n  \tat java.base/java.lang.Thread.run(Thread.java:1583)\n```\n\n\n### Are you willing to submit a PR?\n\n- [ ] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/24152",
+        "assignees": [
+            "nodece"
+        ],
+        "labels": [
+            "area/test",
+            "type/flaky-tests"
+        ],
+        "issue_closed_at": "2025-04-08T09:53:30.000Z",
+        "fix_commit_hash": "0d6c6f4b9e88a4cd10df50e6f1a9422772ca0779",
+        "commit_type": "pr",
+        "commit_message": "[fix][broker] Directly query single topic existence when the topic is partitioned (#24154)\n\nSigned-off-by: Zixuan Liu <nodeces@gmail.com>",
+        "closer_url": "https://github.com/apache/pulsar/pull/24154",
+        "earliest_issue_date": "2025-04-07T06:03:26Z",
+        "predicted_class": "bug",
+        "bic": [
+            "7f0429c1cd81fbde6e0213a84e42f1ea55b5f7d2"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24160,
+        "issue_title": "Flaky-test: BrokerServiceChaosTest.testFetchPartitionedTopicMetadataWithCacheRefresh",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Example failure\n\nhttps://github.com/apache/pulsar/actions/runs/14332259126/job/40171224624?pr=24158#step:11:1874\n\n### Exception stacktrace\n\n<!-- copy-paste the stack trace in the code block below -->\n```\n  Error:  Failures: \n  Error:  org.apache.pulsar.broker.service.BrokerServiceChaosTest.testFetchPartitionedTopicMetadataWithCacheRefresh\n  [INFO]   Run 1: PASS\n  Error:    Run 2: BrokerServiceChaosTest.testFetchPartitionedTopicMetadataWithCacheRefresh:100 \u00bb ServerSideError \n   --- An unexpected error occurred in the server ---\n  \n  Message: org.apache.zookeeper.KeeperException$ConnectionLossException: KeeperErrorCode = ConnectionLoss for /managed-ledgers/public/ns_8470299b52574235a3e0afa8bb25ea70/persistent/__change_events-partition-0\n  \n  Stacktrace:\n  \n  org.apache.pulsar.metadata.api.MetadataStoreException: org.apache.zookeeper.KeeperException$ConnectionLossException: KeeperErrorCode = ConnectionLoss for /managed-ledgers/public/ns_8470299b52574235a3e0afa8bb25ea70/persistent/__change_events-partition-0\n  \tat org.apache.pulsar.metadata.impl.ZKMetadataStore.getException(ZKMetadataStore.java:501)\n  \tat org.apache.pulsar.metadata.impl.ZKMetadataStore.lambda$existsFromStore$13(ZKMetadataStore.java:378)\n  \tat java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:572)\n  \tat java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)\n  \tat java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:304)\n  \tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)\n  \tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)\n  \tat io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)\n  \tat java.base/java.lang.Thread.run(Thread.java:1583)\n  Caused by: org.apache.zookeeper.KeeperException$ConnectionLossException: KeeperErrorCode = ConnectionLoss for /managed-ledgers/public/ns_8470299b52574235a3e0afa8bb25ea70/persistent/__change_events-partition-0\n  \tat org.apache.zookeeper.KeeperException.create(KeeperException.java:101)\n  \tat org.apache.zookeeper.KeeperException.create(KeeperException.java:53)\n  \tat org.apache.pulsar.metadata.impl.ZKMetadataStore.getException(ZKMetadataStore.java:491)\n  \t... 8 more\n```\n\n\n### Are you willing to submit a PR?\n\n- [ ] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/24160",
+        "assignees": [],
+        "labels": [
+            "area/test",
+            "type/flaky-tests"
+        ],
+        "issue_closed_at": "2025-04-08T17:38:37.000Z",
+        "fix_commit_hash": "d59664ca9ca7300a8a7bc3faa1869f623eaac8ae",
+        "commit_type": "pr",
+        "commit_message": "[fix][test] Fix flaky BrokerServiceChaosTest (#24162)",
+        "closer_url": "https://github.com/apache/pulsar/pull/24162",
+        "earliest_issue_date": "2025-04-08T12:01:45Z",
+        "predicted_class": "bug",
+        "bic": [
+            "d099ac4fa2f217b9c5f0a5e660c83048e829c5d7"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24169,
+        "issue_title": "Flaky-test: org.apache.pulsar.broker.intercept.ManagedLedgerInterceptorImplTest.testManagedLedgerPayloadInputProcessorFailure",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Example failure\n\nhttps://github.com/apache/pulsar/actions/runs/14378361661/job/40332050279?pr=24168\n\n### Exception stacktrace\n\n<!-- copy-paste the stack trace in the code block below -->\n```\nError:  Failures: \n  Error:  org.apache.pulsar.broker.intercept.ManagedLedgerInterceptorImplTest.testManagedLedgerPayloadInputProcessorFailure\n  [INFO]   Run 1: PASS\n  Error:    Run 2: ManagedLedgerInterceptorImplTest.testManagedLedgerPayloadInputProcessorFailure:495 expected [5] but found [4]\n```\n\n\n### Are you willing to submit a PR?\n\n- [ ] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/24169",
+        "assignees": [],
+        "labels": [
+            "area/test",
+            "type/flaky-tests"
+        ],
+        "issue_closed_at": "2025-04-11T05:24:44.000Z",
+        "fix_commit_hash": "acc9336267905dc2bc41c44bc0aa2f7b648c5599",
+        "commit_type": "pr",
+        "commit_message": "[fix][test]flaky-test:ManagedLedgerInterceptorImplTest.testManagedLedgerPayloadInputProcessorFailure (#24170)",
+        "closer_url": "https://github.com/apache/pulsar/pull/24170",
+        "earliest_issue_date": "2025-04-10T15:40:26Z",
+        "predicted_class": "bug",
+        "bic": [
+            "c6a1875db2f7a9e5cab187dc98e90487cf08a805"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24182,
+        "issue_title": "[Bug] watch topic not support url encode char",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\npulsar: 3.3.6\n\n### Minimal reproduce step\n\nbin/pulsar-client consume -s test --regex test/test/t1:.*\n\nbin/pulsar-client produce test/test/t1:t1 -m=\"{}\"\n\n### What did you expect to see?\n\nI expected to see the consumer successfully subscribe to the new topic `t1:t1`\n\n### What did you see instead?\n\ncurrently the client watch list isn't receiving any response\n\n### Anything else?\n\nThe issue appears to occur during topic creation where the internal processing fails to perform URL decode operations on certain URL-encoded characters.\n\nbroker log:\n2025-04-16T08:27:10,898+0000 [configuration-metadata-store-13-1] INFO  org.apache.pulsar.broker.service.BrokerService - partitioned metadata successfully created for persistent://test/test/t1:t1\n2025-04-16T08:27:11,353+0000 [pulsar-2-2] INFO  org.apache.bookkeeper.mledger.impl.ManagedLedgerImpl - Opening managed ledger test/test/persistent/t1%3At1-partition-0\n2025-04-16T08:27:11,357+0000 [bookkeeper-ml-scheduler-OrderedScheduler-0-0] INFO  org.apache.bookkeeper.mledger.impl.MetaStoreImpl - Creating '/managed-ledgers/test/test/persistent/t1%3At1-partition-0'\n2025-04-16T08:27:11,381+0000 [BookKeeperClientWorker-OrderedExecutor-0-0] INFO  org.apache.bookkeeper.mledger.impl.ManagedLedgerImpl - [test/test/persistent/t1%3At1-partition-0] Created ledger 38943 after closed null\n2025-04-16T08:27:11,387+0000 [bookkeeper-ml-scheduler-OrderedScheduler-0-0] INFO  org.apache.bookkeeper.mledger.impl.ManagedLedgerFactoryImpl - [test/test/persistent/t1%3At1-partition-0] Successfully initialize managed ledger\n2025-04-16T08:27:11,388+0000 [broker-topic-workers-OrderedExecutor-0-0] INFO  org.apache.pulsar.broker.service.BrokerService - Created topic persistent://test/test/t1:t1-partition-0 - dedup is disabled\n2025-04-16T08:27:11,392+0000 [broker-topic-workers-OrderedExecutor-0-0] INFO  org.apache.pulsar.broker.service.ServerCnx - [/10.80.0.222:33450] Created new producer: Producer{topic=PersistentTopic{topic=persistent://test/test/t1:t1-partition-0}, client=[id: 0x89d36a52, L:/10.80.2.17:6650 - R:/10.80.0.222:33450] [SR:10.80.0.222, state:Connected], producerName=pulsar-8-38, producerId=0}\n2025-04-16T08:27:11,483+0000 [pulsar-io-3-1] INFO  org.apache.pulsar.broker.service.ServerCnx - [PersistentTopic{topic=persistent://test/test/t1:t1-partition-0}][pulsar-8-38] Closing producer on cnx /10.80.0.222:33450. producerId=0\n2025-04-16T08:27:11,483+0000 [pulsar-io-3-1] INFO  org.apache.pulsar.broker.service.ServerCnx - [PersistentTopic{topic=persistent://test/test/t1:t1-partition-0}][pulsar-8-38] Closed producer on cnx /10.80.0.222:33450. producerId=0\n2025-04-16T08:27:26,108+0000 [configuration-metadata-store-13-1] INFO  org.eclipse.jetty.server.RequestLog - 10.80.1.217 - - [16/Apr/2025:08:27:26 +0000] \"GET /admin/v2/persistent/test/test/t1%3At1/partitions HTTP/1.1\" 200 32 \"-\" \"Pulsar-Java-v2.7.0\" 4\n2025-04-16T08:27:26,177+0000 [pulsar-web-38-6] INFO  org.eclipse.jetty.server.RequestLog - 10.80.1.217 - - [16/Apr/2025:08:27:26 +0000] \"GET /admin/v2/persistent/test/test/t1%3At1/partitions HTTP/1.1\" 200 32 \"-\" \"Pulsar-Java-v2.7.0\" 1\n2025-04-16T08:27:26,506+0000 [pulsar-web-38-5] INFO  org.eclipse.jetty.server.RequestLog - 10.80.1.217 - - [16/Apr/2025:08:27:26 +0000] \"GET /admin/v2/persistent/test/test/t1%3At1/partitions HTTP/1.1\" 200 32 \"-\" \"Pulsar-Java-v2.7.0\" 1\n2025-04-16T08:27:30,148+0000 [pulsar-web-38-4] INFO  org.eclipse.jetty.server.RequestLog - 10.80.0.222 - - [16/Apr/2025:08:27:30 +0000] \"GET /admin/v2/persistent/test/test/t1%3At1-partition-0/stats?getPreciseBacklog=false&subscriptionBacklogSize=true&getEarliestTimeInBacklog=false&excludePublishers=false&excludeConsumers=false HTTP/1.1\" 307 0 \"-\" \"Pulsar-Java-v3.3.6\" 2\n2025-04-16T08:27:30,157+0000 [pulsar-web-38-6] INFO  org.eclipse.jetty.server.RequestLog - 10.80.0.222 - - [16/Apr/2025:08:27:30 +0000] \"GET /admin/v2/persistent/test/test/t1%3At1-partition-0/stats?excludePublishers=false&getPreciseBacklog=false&authoritative=true&subscriptionBacklogSize=true&getEarliestTimeInBacklog=false&excludeConsumers=false HTTP/1.1\" 200 492 \"-\" \"Pulsar-Java-v3.3.6\" 1\n\n### Are you willing to submit a PR?\n\n- [ ] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/24182",
+        "assignees": [
+            "lhotari"
+        ],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2025-07-22T16:56:12.000Z",
+        "fix_commit_hash": "de53c29528e6c8caca7c432098a1b7eec074ae45",
+        "commit_type": "pr",
+        "commit_message": "[fix][broker] Fix matching of topicsPattern for topic names which contain non-ascii characters (#24543)",
+        "closer_url": "https://github.com/apache/pulsar/pull/24543",
+        "earliest_issue_date": "2025-04-16T09:13:56Z",
+        "predicted_class": "bug",
+        "bic": [
+            "87267e19000a31705f10b5e908cdd032c2f35189"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24193,
+        "issue_title": "Flaky-test: NamespacesTest.testNamespacesApiRedirects",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Example failure\n\nhttps://github.com/apache/pulsar/actions/runs/14587816306/job/40916776610#step:11:1196\n\n### Exception stacktrace\n\n<!-- copy-paste the stack trace in the code block below -->\n```\n  Error:  Tests run: 47, Failures: 1, Errors: 0, Skipped: 1, Time elapsed: 125.249 s <<< FAILURE! - in org.apache.pulsar.broker.admin.NamespacesTest\n  Error:  org.apache.pulsar.broker.admin.NamespacesTest.testNamespacesApiRedirects  Time elapsed: 0.015 s  <<< FAILURE!\n  java.lang.AssertionError: expected [http://127.0.0.3:8083/admin/namespace/my-tenant/usc/test-other-namespace-1/unload] but found [http://127.0.0.3:8083/admin/namespace/my-tenant/usc/test-other-namespace-1]\n  \tat org.testng.Assert.fail(Assert.java:110)\n  \tat org.testng.Assert.failNotEquals(Assert.java:1577)\n  \tat org.testng.Assert.assertEqualsImpl(Assert.java:149)\n  \tat org.testng.Assert.assertEquals(Assert.java:131)\n  \tat org.testng.Assert.assertEquals(Assert.java:655)\n  \tat org.testng.Assert.assertEquals(Assert.java:665)\n  \tat org.apache.pulsar.broker.admin.NamespacesTest.testNamespacesApiRedirects(NamespacesTest.java:729)\n  \tat java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n  \tat java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)\n  \tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\n  \tat java.base/java.lang.reflect.Method.invoke(Method.java:569)\n  \tat org.testng.internal.invokers.MethodInvocationHelper.invokeMethod(MethodInvocationHelper.java:139)\n  \tat org.testng.internal.invokers.InvokeMethodRunnable.runOne(InvokeMethodRunnable.java:47)\n  \tat org.testng.internal.invokers.InvokeMethodRunnable.call(InvokeMethodRunnable.java:76)\n  \tat org.testng.internal.invokers.InvokeMethodRunnable.call(InvokeMethodRunnable.java:11)\n  \tat java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)\n  \tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)\n  \tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)\n  \tat java.base/java.lang.Thread.run(Thread.java:840)\n```\n\n\n### Are you willing to submit a PR?\n\n- [x] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/24193",
+        "assignees": [],
+        "labels": [
+            "area/test",
+            "type/flaky-tests"
+        ],
+        "issue_closed_at": "2025-04-23T04:26:07.000Z",
+        "fix_commit_hash": "c3d71abcd7e1580fa5c21f2905452997236607db",
+        "commit_type": "pr",
+        "commit_message": "[fix][test] Fix flaky NamespacesTest.testNamespacesApiRedirects (#24194)",
+        "closer_url": "https://github.com/apache/pulsar/pull/24194",
+        "earliest_issue_date": "2025-04-22T12:37:04Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24215,
+        "issue_title": "[Bug] Deadlock in HealthChecker",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\nmaster, issue was introduced by #24210\n\n### Minimal reproduce step\n\nExtensibleLoadManagerImplBaseTest.cleanup reproduces this in certain cases\n\n### What did you expect to see?\n\nNo deadlocks\n\n### What did you see instead?\n\nDeadlocks caused by HealthChecker\n\n```\nbroker-topic-workers-OrderedExecutor-0-0 waiting to acquire [ 0x0000100008c5b118 ]\nat org.apache.pulsar.broker.service.HealthChecker.removeFromPending(HealthChecker.java)\nat org.apache.pulsar.broker.service.HealthChecker.lambda$checkHealth$1(HealthChecker.java:152)\nat org.apache.pulsar.broker.service.HealthChecker$$Lambda$3296/0x00007fd8ecf1cd00.accept(Unknown Source)\nat java.util.concurrent.CompletableFuture.uniWhenComplete(java.base@17.0.15/CompletableFuture.java:863)\nat java.util.concurrent.CompletableFuture$UniWhenComplete.tryFire(java.base@17.0.15/CompletableFuture.java:841)\nat java.util.concurrent.CompletableFuture.postComplete(java.base@17.0.15/CompletableFuture.java:510)\nat java.util.concurrent.CompletableFuture.completeExceptionally(java.base@17.0.15/CompletableFuture.java:2162)\nat org.apache.pulsar.broker.service.HealthChecker.lambda$doHealthCheck$12(HealthChecker.java:220)\nat org.apache.pulsar.broker.service.HealthChecker$$Lambda$3300/0x00007fd8ecf1d600.apply(Unknown Source)\nat java.util.concurrent.CompletableFuture.uniExceptionally(java.base@17.0.15/CompletableFuture.java:990)\nat java.util.concurrent.CompletableFuture.uniExceptionallyStage(java.base@17.0.15/CompletableFuture.java:1008)\nat java.util.concurrent.CompletableFuture.exceptionally(java.base@17.0.15/CompletableFuture.java:2364)\nat org.apache.pulsar.broker.service.HealthChecker.doHealthCheck(HealthChecker.java:219)\nat org.apache.pulsar.broker.service.HealthChecker.lambda$checkHealth$2(HealthChecker.java:163)\nat org.apache.pulsar.broker.service.HealthChecker$$Lambda$3297/0x00007fd8ecf1cf38.apply(Unknown Source)\nat java.util.concurrent.CompletableFuture$UniCompose.tryFire(java.base@17.0.15/CompletableFuture.java:1150)\nat java.util.concurrent.CompletableFuture.postComplete(java.base@17.0.15/CompletableFuture.java:510)\nat java.util.concurrent.CompletableFuture.complete(java.base@17.0.15/CompletableFuture.java:2147)\nat org.apache.pulsar.broker.service.BrokerService$2.lambda$openLedgerComplete$5(BrokerService.java:1860)\nat org.apache.pulsar.broker.service.BrokerService$2$$Lambda$1444/0x00007fd8ecaa5db0.run(Unknown Source)\nat java.util.concurrent.CompletableFuture$UniRun.tryFire(java.base@17.0.15/CompletableFuture.java:787)\nat java.util.concurrent.CompletableFuture.postComplete(java.base@17.0.15/CompletableFuture.java:510)\nat java.util.concurrent.CompletableFuture.postFire(java.base@17.0.15/CompletableFuture.java:614)\nat java.util.concurrent.CompletableFuture$UniAccept.tryFire(java.base@17.0.15/CompletableFuture.java:726)\nat java.util.concurrent.CompletableFuture$Completion.run(java.base@17.0.15/CompletableFuture.java:482)\nat org.apache.bookkeeper.common.util.SingleThreadExecutor.safeRunTask(SingleThreadExecutor.java:137)\nat org.apache.bookkeeper.common.util.SingleThreadExecutor.run(SingleThreadExecutor.java:107)\nat io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)\nat java.lang.Thread.run(java.base@17.0.15/Thread.java:840)\n```\n\n\n```\nmain awaiting notification on [ 0x0000100008d2e7f8 ] , holding [ 0x0000100008c5b118 0x00001005138bf640 ]\nat jdk.internal.misc.Unsafe.park(java.base@17.0.15/Native Method)\nat java.util.concurrent.locks.LockSupport.park(java.base@17.0.15/LockSupport.java:211)\nat java.util.concurrent.CompletableFuture$Signaller.block(java.base@17.0.15/CompletableFuture.java:1864)\nat java.util.concurrent.ForkJoinPool.unmanagedBlock(java.base@17.0.15/ForkJoinPool.java:3465)\nat java.util.concurrent.ForkJoinPool.managedBlock(java.base@17.0.15/ForkJoinPool.java:3436)\nat java.util.concurrent.CompletableFuture.waitingGet(java.base@17.0.15/CompletableFuture.java:1898)\nat java.util.concurrent.CompletableFuture.get(java.base@17.0.15/CompletableFuture.java:2072)\nat org.apache.pulsar.broker.service.HealthChecker.deleteTopic(HealthChecker.java:295)\nat org.apache.pulsar.broker.service.HealthChecker.deleteHeartbeatTopics(HealthChecker.java:289)\nat org.apache.pulsar.broker.service.HealthChecker.close(HealthChecker.java:328)\nat org.apache.pulsar.broker.PulsarService.closeAsync(PulsarService.java:501)\nat java.lang.invoke.DirectMethodHandle$Holder.invokeVirtual(java.base@17.0.15/DirectMethodHandle$Holder)\nat java.lang.invoke.LambdaForm$MH/0x00007fd8ec41c000.invoke(java.base@17.0.15/LambdaForm$MH)\nat java.lang.invoke.LambdaForm$MH/0x00007fd8ec41c400.invoke(java.base@17.0.15/LambdaForm$MH)\nat java.lang.invoke.LambdaForm$MH/0x00007fd8ec41c800.invokeExact_MT(java.base@17.0.15/LambdaForm$MH)\nat java.lang.invoke.MethodHandle.invokeWithArguments(java.base@17.0.15/MethodHandle.java:732)\nat org.mockito.internal.util.reflection.InstrumentationMemberAccessor$Dispatcher$ByteBuddy$A9pqxcoc.invokeWithArguments(Unknown Source)\nat org.mockito.internal.util.reflection.InstrumentationMemberAccessor.invoke(InstrumentationMemberAccessor.java:251)\nat org.mockito.internal.util.reflection.ModuleMemberAccessor.invoke(ModuleMemberAccessor.java:55)\nat org.mockito.internal.creation.bytebuddy.MockMethodAdvice.tryInvoke(MockMethodAdvice.java:314)\nat org.mockito.internal.creation.bytebuddy.MockMethodAdvice$RealMethodCall.invoke(MockMethodAdvice.java:234)\nat org.mockito.internal.invocation.InterceptedInvocation.callRealMethod(InterceptedInvocation.java:142)\nat org.mockito.internal.stubbing.answers.CallsRealMethods.answer(CallsRealMethods.java:45)\nat org.mockito.Answers.answer(Answers.java:90)\nat org.mockito.internal.handler.MockHandlerImpl.handle(MockHandlerImpl.java:111)\nat org.mockito.internal.handler.NullResultGuardian.handle(NullResultGuardian.java:29)\nat org.mockito.internal.handler.InvocationNotifierHandler.handle(InvocationNotifierHandler.java:34)\nat org.mockito.internal.creation.bytebuddy.MockMethodInterceptor.doIntercept(MockMethodInterceptor.java:82)\nat org.mockito.internal.creation.bytebuddy.MockMethodAdvice.handle(MockMethodAdvice.java:134)\nat org.apache.pulsar.broker.PulsarService.closeAsync(PulsarService.java:479)\nat org.apache.pulsar.broker.loadbalance.extensions.ExtensibleLoadManagerImplBaseTest.cleanup(ExtensibleLoadManagerImplBaseTest.java:165)\n```\n\nfull thread dump: https://gist.github.com/lhotari/6edbec6d1144bab00e77ddcfb3c28ff9\nin jstack.review: https://jstack.review/?https://gist.github.com/lhotari/6edbec6d1144bab00e77ddcfb3c28ff9#tda_1_thread_0x00007fd85c9aedd0\nextracted from https://github.com/apache/pulsar/actions/runs/14660106271/job/41142485455?pr=24187\n\n### Anything else?\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [x] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/24215",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2025-04-25T15:00:57.000Z",
+        "fix_commit_hash": "279e33d9531ab2ec4a53732670110e93a93e18b1",
+        "commit_type": "pr",
+        "commit_message": "[fix][broker] Fix HealthChecker deadlock in shutdown (#24216)",
+        "closer_url": "https://github.com/apache/pulsar/pull/24216",
+        "earliest_issue_date": "2025-04-25T12:25:00Z",
+        "predicted_class": "bug",
+        "bic": [
+            "12961caf4967b03634bb443d4718eb30a2a1f0ae"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24227,
+        "issue_title": "[Bug] Producer publishing via REST API triggers DirectMemoryOOM",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that unsupported versions don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### Version\n\npulsar-broker-0:/pulsar$ uname -a\nLinux pulsar-broker-0 6.10.14-linuxkit #1 SMP Thu Oct 24 19:28:55 UTC 2024 aarch64 GNU/Linux\npulsar-broker-0:/pulsar$ bin/pulsar-admin --version\nCurrent version of pulsar admin client is: 4.0.3\npulsar-broker-0:/pulsar$ java --version\nopenjdk 21.0.6 2025-01-21 LTS\nOpenJDK Runtime Environment Corretto-21.0.6.7.1 (build 21.0.6+7-LTS)\nOpenJDK 64-Bit Server VM Corretto-21.0.6.7.1 (build 21.0.6+7-LTS, mixed mode)\n\nClients:\nAny HTTP Client seems to trigger. For my reproduction I used:\nhttps://pkg.go.dev/net/http from Go 1.22.5\n\n\n### Minimal reproduce step\n\nCreate a topic (I'm using a 300s TTL) and publish messages to it using the REST API.\n\n### What did you expect to see?\n\nI expected the broker service to run without issue, similar to the behavior seen with the native language pulsar clients.\n\n### What did you see instead?\n\nAfter some time, the broker process crashes with a DirectMemory OOM.\n\n### Anything else?\n\nAttached is the netty leakdetection trace and the stack traces from the OOM. I did filter the output to remove a pile of spam when capturing:\n`kubectl logs pod/pulsar-broker-0 -f | grep -v RestMessage | grep -v RequestLog`\n\nIf you'd like me to remove those filters I can certainly do so and re-upload.\n\n[broker.service-DirectMemoryOOM-v4.0.3.log](https://github.com/user-attachments/files/19947544/broker.service-DirectMemoryOOM-v4.0.3.log)\n[Netty_leakDetection_traces-v4.0.3.log](https://github.com/user-attachments/files/19947543/Netty_leakDetection_traces-v4.0.3.log)\n\nAttached is a screenshot of the helm-chart builtin Grafana dashboard for the JVM. broker-0 was the brokerLeader for the topic.  Frequency of the OOM depends on the number of messages published.\n![Image](https://github.com/user-attachments/assets/e2019886-ef5d-419e-83e4-9797fd555743)\n\n### Are you willing to submit a PR?\n\n- [ ] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/24227",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2025-04-29T15:19:36.000Z",
+        "fix_commit_hash": "0c8e88cf983a8793a117f05a14c37c755464ca89",
+        "commit_type": "pr",
+        "commit_message": "[fix][broker] Fix ByteBuf memory leak in REST API for publishing messages (#24228)",
+        "closer_url": "https://github.com/apache/pulsar/pull/24228",
+        "earliest_issue_date": "2025-04-28T19:42:13Z",
+        "predicted_class": "bug",
+        "bic": [
+            "b2678be0a97580d69da0b543a499efb3d9adbd5e"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24262,
+        "issue_title": "Flaky-test: SchemaTest.testPendingQueueSizeIfIncompatible",
+        "issue_body": "### Search before asking\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Example failure\n\nhttps://github.com/apache/pulsar/actions/runs/14875735514/job/41772909879?pr=24261#step:11:1736\n\n### Exception stacktrace\n\n<!-- copy-paste the stack trace in the code block below -->\n```\n  Error:  Tests run: 49, Failures: 1, Errors: 0, Skipped: 25, Time elapsed: 160.862 s <<< FAILURE! - in org.apache.pulsar.schema.SchemaTest\n  Error:  org.apache.pulsar.schema.SchemaTest.testPendingQueueSizeIfIncompatible  Time elapsed: 10.205 s  <<< FAILURE!\n  org.awaitility.core.ConditionTimeoutException: Assertion condition expected [0] but found [48] within 10 seconds.\n  \tat org.awaitility.core.ConditionAwaiter.await(ConditionAwaiter.java:167)\n  \tat org.awaitility.core.AssertionCondition.await(AssertionCondition.java:119)\n  \tat org.awaitility.core.AssertionCondition.await(AssertionCondition.java:31)\n  \tat org.awaitility.core.ConditionFactory.until(ConditionFactory.java:985)\n  \tat org.awaitility.core.ConditionFactory.untilAsserted(ConditionFactory.java:769)\n  \tat org.apache.pulsar.schema.SchemaTest.testPendingQueueSizeIfIncompatible(SchemaTest.java:1546)\n  \tat java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)\n  \tat java.base/java.lang.reflect.Method.invoke(Method.java:580)\n  \tat org.testng.internal.invokers.MethodInvocationHelper.invokeMethod(MethodInvocationHelper.java:139)\n  \tat org.testng.internal.invokers.InvokeMethodRunnable.runOne(InvokeMethodRunnable.java:47)\n  \tat org.testng.internal.invokers.InvokeMethodRunnable.call(InvokeMethodRunnable.java:76)\n  \tat org.testng.internal.invokers.InvokeMethodRunnable.call(InvokeMethodRunnable.java:11)\n  \tat java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)\n  \tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)\n  \tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)\n  \tat java.base/java.lang.Thread.run(Thread.java:1583)\n  Caused by: java.lang.AssertionError: expected [0] but found [48]\n  \tat org.testng.Assert.fail(Assert.java:110)\n  \tat org.testng.Assert.failNotEquals(Assert.java:1577)\n  \tat org.testng.Assert.assertEqualsImpl(Assert.java:149)\n  \tat org.testng.Assert.assertEquals(Assert.java:131)\n  \tat org.testng.Assert.assertEquals(Assert.java:1418)\n  \tat org.testng.Assert.assertEquals(Assert.java:1382)\n  \tat org.testng.Assert.assertEquals(Assert.java:1428)\n  \tat org.apache.pulsar.schema.SchemaTest.lambda$testPendingQueueSizeIfIncompatible$10(SchemaTest.java:1548)\n  \tat org.awaitility.core.AssertionCondition.lambda$new$0(AssertionCondition.java:53)\n  \tat org.awaitility.core.ConditionAwaiter$ConditionPoller.call(ConditionAwaiter.java:248)\n  \tat org.awaitility.core.ConditionAwaiter$ConditionPoller.call(ConditionAwaiter.java:235)\n  \t... 4 more\n```\n\n\n### Are you willing to submit a PR?\n\n- [ ] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/24262",
+        "assignees": [],
+        "labels": [
+            "area/test",
+            "type/flaky-tests"
+        ],
+        "issue_closed_at": "2025-05-12T11:15:26.000Z",
+        "fix_commit_hash": "df2c619b14d277d8df82ce9a0ab1ab146cf51b7f",
+        "commit_type": "pr",
+        "commit_message": "[fix][client] Fix producer publishing getting stuck after message with incompatible schema is discarded (#24282)\n\nFixes #24262\n\nMain Issue: #24262\n\n### Motivation\n\nThe issue is a regression of https://github.com/apache/pulsar/pull/24178. The flow of the issue occurring is as follows\n\n- Publish msg 1, which has an incompatible schema\n- Publish msg 2, which has an incompatible schema\n- The first message's schema failed to register because it is incompatible\n  - The message was discarded.\n  - Issue: it did not trigger a schema registration of the following messages \n\n### Modifications\n\nFix the issue",
+        "closer_url": "https://github.com/apache/pulsar/pull/24282",
+        "earliest_issue_date": "2025-05-07T05:49:56Z",
+        "predicted_class": "bug",
+        "bic": [
+            "82e1d2090fb7ace50d7dee2830e09ceeb3d0ffb5"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24295,
+        "issue_title": "[Bug] Pulsar Python Function logs SyntaxWarning: invalid escape sequence '\\d'",
+        "issue_body": "### Search before reporting\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that [unsupported versions](https://pulsar.apache.org/contribute/release-policy/#supported-versions) don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### User environment\n\nBroker: 4.0.4\nUsing Docker image apachepulsar/pulsar:4.0.4\n\n\n### Issue Description\n\nThere's a SyntaxWarning that gets printed to logs\n\n\n### Error messages\n\n```text\n2025-05-13T12:36:07,251+0000 [function-timer-thread-116-1] INFO  org.apache.pulsar.functions.runtime.process.ProcessRuntime - Started process successfully\n/pulsar/instances/python-instance/contextimpl.py:213: SyntaxWarning: invalid escape sequence '\\d'\n  m = re.search('(.+)-partition-(\\d+)', topic)\n```\n\n### Reproducing the issue\n\nStart Pulsar standalone\n\n```shell\ndocker run --rm -it -p 8080:8080 -p 6650:6650 apachepulsar/pulsar:latest /pulsar/bin/pulsar standalone\n```\n\nThen register a Pulsar Python Function. The error will appear in logs.\n\n\n### Additional information\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [x] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/24295",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2025-05-13T16:33:31.000Z",
+        "fix_commit_hash": "272acfb483f3554155a121cafdbb6c4321539f9a",
+        "commit_type": "pr",
+        "commit_message": "[fix][io] Fix SyntaxWarning in Pulsar Python functions (#24297)",
+        "closer_url": "https://github.com/apache/pulsar/pull/24297",
+        "earliest_issue_date": "2025-05-13T12:40:23Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24319,
+        "issue_title": "[Bug] pulsar-shell cannot produce message with quota and space",
+        "issue_body": "### Search before reporting\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Read release policy\n\n- [x] I understand that [unsupported versions](https://pulsar.apache.org/contribute/release-policy/#supported-versions) don't get bug fixes. I will attempt to reproduce the issue on a supported version of Pulsar client and Pulsar broker.\n\n\n### User environment\n\nBroker version (4.0.4)\n\n### Issue Description\n\nGot error when I run command\n\n ```\n./bin/pulsar-shell\nclient produce apache/pulsar/test-topic  -m \"hello pulsar\"\n```\n\n I believe it's a bug of pulsar-client-tools module after debug the source code.\n\n### Error messages\n\n```text\nUnmatched argument at index 5: 'pulsar'\nUsage: <main class> client produce [-chv] [-db] [-dr] [-ekn=<encKeyName>]\n                                   [-ekv=<encKeyValue>] [-k=<key>]\n                                   [-ks=<keySchema>]\n                                   [-kvet=<keyValueEncodingType>]\n                                   [-kvk=<keyValueKey>]\n                                   [-kvkf=<keyValueKeyFile>]\n                                   [-n=<numTimesProduce>] [-r=<publishRate>]\n                                   [-s=<separator>] [-vs=<valueSchema>]\n                                   [-f=<messageFileNames>]...\n                                   [-m=<messages>]... [-p=<properties>]...\n                                   <topic>\nProduce messages to a specified topic\n      <topic>                TopicName\n  -c, --chunking             Should split the message and publish in chunks if\n                               message size is larger than allowed max size\n      -db, --disable-batching\n                             Disable batch sending of messages\n      -dr, --disable-replication\n                             Disable geo-replication for messages.\n      -ekn, --encryption-key-name=<encKeyName>\n                             The public key name to encrypt payload\n      -ekv, --encryption-key-value=<encKeyValue>\n                             The URI of public key to encrypt payload, for\n                               example file:///path/to/public.key or data:\n                               application/x-pem-file;base64,*****\n  -f, --files=<messageFileNames>\n                             Comma separated file paths to send, either -m or\n                               -f must be specified.\n  -h, --help                 Show this help message and exit.\n  -k, --key=<key>            Partitioning key to add to each message\n      -ks, --key-schema=<keySchema>\n                             Schema type (can be bytes,avro,json,string...)\n      -kvet, --key-value-encoding-type=<keyValueEncodingType>\n                             Key Value Encoding Type (it can be separated or\n                               inline)\n      -kvk, --key-value-key=<keyValueKey>\n                             Value to add as message key in KeyValue schema\n      -kvkf, --key-value-key-file=<keyValueKeyFile>\n                             Path to file containing the value to add as\n                               message key in KeyValue schema. JSON and AVRO\n                               files are supported.\n  -m, --messages=<messages>  Messages to send, either -m or -f must be\n                               specified. Specify -m for each message.\n  -n, --num-produce=<numTimesProduce>\n                             Number of times to send message(s), the count of\n                               messages/files * num-produce should below than\n                               1000.\n  -p, --properties=<properties>\n                             Properties to add, Comma separated key=value\n                               string, like k1=v1,k2=v2.\n  -r, --rate=<publishRate>   Rate (in msg/sec) at which to produce, value 0\n                               means to produce messages as fast as possible.\n  -s, --separator=<separator>\n                             Character to split messages string on default is\n                               comma\n  -v, --version              Print version information and exit.\n      -vs, --value-schema=<valueSchema>\n                             Schema type (can be bytes,avro,json,string...)\n```\n\n### Reproducing the issue\n\nThere is two way to reproduce.\n\n**1. Reproduce by shell**\n```\n./bin/pulsar-shell\nclient produce apache/pulsar/test-topic  -m \"hello pulsar\"\n```\n\n**2. Reproduce by change unit test**\n\n1. just change the unit test [line](https://github.com/apache/pulsar/blob/v4.0.4/pulsar-client-tools/src/test/java/org/apache/pulsar/shell/PulsarShellTest.java#L151) to\n```\nlinereader.addCmd(\"client produce -m \\\"hello pulsar\\\" my-topic\");\n```\n2. run the unit test **testInteractiveMode**\n3. The ut will fail\n\n### Additional information\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [x] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/24319",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2025-05-21T11:25:15.000Z",
+        "fix_commit_hash": "6b2ed7e9078180b70d020414bc07bdcaa192d802",
+        "commit_type": "pr",
+        "commit_message": "[fix][cli] Fix pulsar-shell cannot produce message with quotes and space (#24320)",
+        "closer_url": "https://github.com/apache/pulsar/pull/24320",
+        "earliest_issue_date": "2025-05-20T11:07:07Z",
+        "predicted_class": "bug",
+        "bic": [
+            "de56ac07c14b3f80093caaef05b3bb92c5ffa161"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24329,
+        "issue_title": "Flaky-test: ManagedLedgerTest.testDoNotGetOffloadPoliciesMultipleTimesWhenTrimLedgers",
+        "issue_body": "### Search before reporting\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Example failure\n\nhttps://github.com/apache/pulsar/actions/runs/15161846788/job/42630332032#step:11:10816\n\n### Exception stacktrace\n\n```text\nError:  Tests run: 126, Failures: 1, Errors: 0, Skipped: 1, Time elapsed: 103.667 s <<< FAILURE! - in org.apache.bookkeeper.mledger.impl.ManagedLedgerTest\n  Error:  org.apache.bookkeeper.mledger.impl.ManagedLedgerTest.testDoNotGetOffloadPoliciesMultipleTimesWhenTrimLedgers  Time elapsed: 0.052 s  <<< FAILURE!\n  java.lang.AssertionError: expected [10] but found [11]\n  \tat org.testng.Assert.fail(Assert.java:110)\n  \tat org.testng.Assert.failNotEquals(Assert.java:1577)\n  \tat org.testng.Assert.assertEqualsImpl(Assert.java:149)\n  \tat org.testng.Assert.assertEquals(Assert.java:131)\n  \tat org.testng.Assert.assertEquals(Assert.java:1418)\n  \tat org.testng.Assert.assertEquals(Assert.java:1382)\n  \tat org.testng.Assert.assertEquals(Assert.java:1428)\n  \tat org.apache.bookkeeper.mledger.impl.ManagedLedgerTest.testDoNotGetOffloadPoliciesMultipleTimesWhenTrimLedgers(ManagedLedgerTest.java:3872)\n  \tat java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)\n  \tat java.base/java.lang.reflect.Method.invoke(Method.java:580)\n  \tat org.testng.internal.invokers.MethodInvocationHelper.invokeMethod(MethodInvocationHelper.java:139)\n  \tat org.testng.internal.invokers.InvokeMethodRunnable.runOne(InvokeMethodRunnable.java:47)\n  \tat org.testng.internal.invokers.InvokeMethodRunnable.call(InvokeMethodRunnable.java:76)\n  \tat org.testng.internal.invokers.InvokeMethodRunnable.call(InvokeMethodRunnable.java:11)\n  \tat java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)\n  \tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)\n  \tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)\n  \tat java.base/java.lang.Thread.run(Thread.java:1583)\n```\n\n### Are you willing to submit a PR?\n\n- [x] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/24329",
+        "assignees": [],
+        "labels": [
+            "area/test",
+            "type/flaky-tests"
+        ],
+        "issue_closed_at": "2025-05-22T04:29:06.000Z",
+        "fix_commit_hash": "9ffaeea0f9071651bbeb33b9a214ceddb67d0f84",
+        "commit_type": "pr",
+        "commit_message": "[fix][test] Fix flaky ManagedLedgerTest.testDoNotGetOffloadPoliciesMultipleTimesWhenTrimLedgers (#24330)",
+        "closer_url": "https://github.com/apache/pulsar/pull/24330",
+        "earliest_issue_date": "2025-05-21T16:29:17Z",
+        "predicted_class": "bug",
+        "bic": [
+            "af9b800e3a5fda2c3dfc76f930ddb146e443a141"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24353,
+        "issue_title": "[Bug] Pulsar IO RabbitMQ source connector might loose messages since it acks to RabbitMQ before message has been handled",
+        "issue_body": "\n### Discussed in https://github.com/apache/pulsar/discussions/23677\n\n<div type='discussions-op-text'>\n\n<sup>Originally posted by **fabrizziocht** December  4, 2024</sup>\nI was exploring the rabbitMQ source connector (https://github.com/apache/pulsar/blob/v4.0.1/pulsar-io/rabbitmq/src/main/java/org/apache/pulsar/io/rabbitmq/RabbitMQSource.java) that implements the class PushSource (it extends AbstractPushSource class), \r\n\r\nI can see that each time a message is collected by the RabbitMQConsumer class using the handleDelivery method it invokes the RabbitMQSource consume:\r\nhttps://github.com/apache/pulsar/blob/v4.0.1/pulsar-io/rabbitmq/src/main/java/org/apache/pulsar/io/rabbitmq/RabbitMQSource.java#L99\r\n\r\nThen it  stores only in memory in a LinkedBlockingQueue and the ack is sent to RabbitMQ:\r\nhttps://github.com/apache/pulsar/blob/master/pulsar-io/core/src/main/java/org/apache/pulsar/io/core/AbstractPushSource.java#L76\r\n\r\nWhat happens if the pulsar IO service is restarted? I can see that the data stored in the LinkedBlockingQueue will be lost, because the message was already acked and removed in rabbitMQ and also was not still written in the pulsar topic. Is it a limitation of the rabbitmq source connector? or all connectors that implements the PushSource has the problem? Exists another interface/class that can guarantee that the message was written first in the pulsar topic before send the ack to rabbitMQ?</div>",
+        "issue_url": "https://github.com/apache/pulsar/issues/24353",
+        "assignees": [
+            "lhotari"
+        ],
+        "labels": [],
+        "issue_closed_at": "2025-05-28T15:12:42.000Z",
+        "fix_commit_hash": "76c6f6a043018c4278c741f77410ef4938ba6489",
+        "commit_type": "pr",
+        "commit_message": "[fix][io] Acknowledge RabbitMQ message after processing the message successfully (#24354)",
+        "closer_url": "https://github.com/apache/pulsar/pull/24354",
+        "earliest_issue_date": "2025-05-27T17:05:02Z",
+        "predicted_class": "bug",
+        "bic": [
+            "205a79bf27050f36d74360ca1f1ca770f9769d6e"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24362,
+        "issue_title": "[Doc] Client configuration docs changes",
+        "issue_body": "### Search before reporting\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### What issue do you find in Pulsar docs?\n\nThe docs page for the [Node client](https://pulsar.apache.org/docs/4.0.x/client-libraries-node-configs/#client-configuration) does not seem to document:\n - `useTLS`: boolean\n - `logLevel`: 0, 1, 2, 3 (0 correlates to debug, 1=info, 2=warn, 3=error)\n\nThese are, however, captured in the TS types: https://github.com/apache/pulsar-client-node/blob/master/index.d.ts#L21\n\nFurther, these defaults are not captured anywhere as far as I can tell:\n- Default `tlsTrustCertsFilePath` is `${__dirname}/cert.pem` per the default applied in the JS Client constructor: https://github.com/apache/pulsar-client-node/blob/master/src/Client.js#L24\n- Default log level is `info` per the C header file: https://github.com/apache/pulsar-client-node/blob/master/src/Client.h#L56\n\n### What is your suggestion?\n\nI think documenting these things is enough. If there are other places where configurations are inferred or defaulted but not documented, it would be nice to find those and include them, too, but these are the ones I've come across so far.\n\n### Any reference?\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [ ] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/24362",
+        "assignees": [],
+        "labels": [
+            "doc-required"
+        ],
+        "issue_closed_at": "2026-04-24T13:22:34.000Z",
+        "fix_commit_hash": "775c3dee47369b5a73f92d3fc27276ddc9eddbff",
+        "commit_type": "commit_ref_pr",
+        "commit_message": "Delete prometheus-dcos dockerfile (#13387)\n\n### Motivation\r\n\r\nClean up our `docker` directory in the `pulsar` project.\r\n\r\nWe have unmaintained files for a custom prometheus docker image that adds a small `prometheus.yaml` file to the `prometheus` docker image. The prometheus version in the dockerfile is `v1.8.2`. The latest version is `v2.32.0`. We haven't modified this section of the code for 3 years since its initial commit in PR #1127. Since this is unmaintained, I'd like to propose removing it from our repo.\r\n\r\nNote, we were not building or publishing the docker image created by this dockerfile.\r\n\r\n### Modifications\r\n\r\n* Delete the `docker/prometheus-dcos` directory.\r\n\r\n### Verifying this change\r\n\r\nWe don't currently build/publish this docker image. It is possible that some users are interested in the `prometheus.yaml` file. I will send a note to the mailing list to discuss this feature's removal to make sure it is not being used.\r\n\r\n### Does this pull request potentially affect one of the following parts:\r\n\r\nThis is a deprecation of a feature that likely hasn't been used very much.\r\n\r\n### Documentation\r\n  \r\n- [x] `no-need-doc` \r\n  \r\nAs far as I can tell, there are no docs related to this feature.",
+        "closer_url": "https://github.com/apache/pulsar-site/pull/1127",
+        "earliest_issue_date": "2025-05-29T16:01:22Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 24389,
+        "issue_title": "Potential resource leak in LoadSimulationController",
+        "issue_body": "### Search before reporting\n\n- [x] I searched in the [issues](https://github.com/apache/pulsar/issues) and found nothing similar.\n\n\n### Motivation\n\n`org.apache.pulsar.testclient.LoadSimulationController#read`  BufferedReader scriptReader\n\n![Image](https://github.com/user-attachments/assets/1fd31562-a628-4432-9119-1bde6c28ffc9)\n\nIf any exception is thrown from within the while loop, ` scriptReader.close(); `statement will be skipped\n\n### Solution\n\nuse  `try-with-resources` statement\n\n### Alternatives\n\n_No response_\n\n### Anything else?\n\n_No response_\n\n### Are you willing to submit a PR?\n\n- [x] I'm willing to submit a PR!",
+        "issue_url": "https://github.com/apache/pulsar/issues/24389",
+        "assignees": [],
+        "labels": [
+            "type/enhancement"
+        ],
+        "issue_closed_at": "2025-06-10T16:50:13.000Z",
+        "fix_commit_hash": "bfee7a68f84611b679a2d0e8942045462328f10a",
+        "commit_type": "pr",
+        "commit_message": "[fix][client] Fix some potential resource leak (#24402)\n\nFix resource leak using try-catch stmt method in #24389, and close other leaks in this project I've found later",
+        "closer_url": "https://github.com/apache/pulsar/pull/24402",
+        "earliest_issue_date": "2025-06-06T08:24:43Z",
+        "predicted_class": "bug",
+        "bic": [
+            "dda81afe45fea2d8dd16eaaa5d1f729e50ac79a4"
+        ],
+        "method_type": "rszz"
+    }
+]
