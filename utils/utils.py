@@ -7,6 +7,7 @@ from pydriller import Git, Repository
 from datetime import timedelta
 from bisect import bisect_right
 from utils.queries import COMMIT_REFERENCES_PR, COMMIT_REFERENCES_ISSUE
+from utils.logger_config import log_message
 
 ACTIVITY_BUCKETS = ["0", "1-5", "6-20", "21-100", "100+"]
 
@@ -25,15 +26,16 @@ def get_commit_that_references_issue(repo_path, issue_number, headers):
     try:
         response = requests.post(graphql_url, json=query, headers=headers)
         data = response.json()
-    except Exception:
-        return None
+    except Exception as e:
+        log_message(f"Error occurred while fetching commit data for issue {issue_number}: {e}", "error")
+        return None, None
 
     nodes = data.get('data', {}).get('repository', {}).get('issue', {}).get('timelineItems', {}).get('nodes') or []
     if not nodes:
-        return None
+        return None, None
 
     commit = nodes[0].get('commit') or {}
-    return commit.get('oid')
+    return commit.get('oid'), commit.get('message')
 
 
 def get_commit_that_references_pr(repo_path, pr_number, headers):
@@ -49,17 +51,20 @@ def get_commit_that_references_pr(repo_path, pr_number, headers):
         }
     }
 
-    response = requests.post(graphql_url, json=query, headers=headers)
-    data = response.json()
+    try:
+        response = requests.post(graphql_url, json=query, headers=headers)
+        data = response.json()
+    except Exception as e:
+        log_message(f"Error occurred while fetching commit data for PR {pr_number}: {e}", "error")
+        return None, None
 
     if 'errors' in data:
-        return None
+        return None, None
     if 'data' in data and data['data']['repository']['pullRequest']['timelineItems']['nodes'] != []:
         commit_node = data['data']['repository']['pullRequest']['timelineItems']['nodes'][0]['commit']
         if commit_node:
-            return commit_node['oid']
-        # return data['data']['repository']['pullRequest']['timelineItems']['nodes'][0]['commit']['oid']
-    return None
+            return commit_node['oid'], commit_node.get('message')
+    return None, None
 
 def remove_duplicates(data):
     tam = len(data)
