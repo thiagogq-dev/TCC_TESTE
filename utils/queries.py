@@ -1,46 +1,8 @@
-COMMIT_REFERENCES_PR = """
-query ($owner: String!, $name: String!, $prNumber: Int!) {
-  repository(owner: $owner, name: $name) {
-    pullRequest(number: $prNumber) {
-      timelineItems(itemTypes: REFERENCED_EVENT, last: 1) {
-        nodes {
-          ... on ReferencedEvent {
-            commit {
-              oid
-              message
-            }
-          }
-        }
-      }
-    }
-  }
-}
-"""
-
-COMMIT_REFERENCES_ISSUE = """
-query ($owner: String!, $name: String!, $issueNumber: Int!) {
-  repository(owner: $owner, name: $name) {
-    issue(number: $issueNumber) {
-      timelineItems(itemTypes: REFERENCED_EVENT, last: 1) {
-        nodes {
-          ... on ReferencedEvent {
-            commit {
-              oid
-              message
-            }
-          }
-        }
-      }
-    }
-  }
-}
-"""
-
 REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY = """
 query ($owner: String!, $name: String!, $after: String) {
   repository(owner: $owner, name: $name) {
     createdAt
-    issues(first:20, after:$after, states:CLOSED) {
+    issues(first:100, after:$after, states:CLOSED) {
       totalCount
       pageInfo {
         hasNextPage
@@ -64,7 +26,7 @@ query ($owner: String!, $name: String!, $after: String) {
         }
         createdAt
         closedAt
-        timelineItems(itemTypes: CLOSED_EVENT, last: 1) {
+        closedEvents: timelineItems(itemTypes: CLOSED_EVENT, last: 1) {
           nodes {
             ... on ClosedEvent {
               createdAt
@@ -76,7 +38,6 @@ query ($owner: String!, $name: String!, $after: String) {
                   title
                   createdAt
                   mergedAt
-                  url
                   commits(last: 1) {
                     nodes {
                       commit {
@@ -91,6 +52,16 @@ query ($owner: String!, $name: String!, $after: String) {
                   author {
                     login
                   }
+                  referencedCommit: timelineItems(itemTypes: REFERENCED_EVENT, last: 1) {
+                    nodes {
+                      ... on ReferencedEvent {
+                        commit {
+                          oid
+                          message
+                        }
+                      }
+                    }
+                  }
                 }
                 ... on Commit {
                   oid
@@ -104,6 +75,16 @@ query ($owner: String!, $name: String!, $after: String) {
                     }
                   }
                 }
+              }
+            }
+          }
+        }
+        referencedEvents: timelineItems(itemTypes: REFERENCED_EVENT, last: 1) {
+          nodes {
+            ... on ReferencedEvent {
+              commit {
+                oid
+                message
               }
             }
           }

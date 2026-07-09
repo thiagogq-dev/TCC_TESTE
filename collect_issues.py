@@ -10,7 +10,7 @@ from urllib3.util.retry import Retry
 
 from utils.queries import REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY
 from utils.logger_config import setup_loggers, log_message
-from utils.utils import is_commit_valid, get_commit_that_references_pr, get_commit_that_references_issue
+from utils.utils import is_commit_valid
 
 dotenv.load_dotenv()
 
@@ -98,53 +98,61 @@ def execute_query(query, headers):
     log_message("Máximo de tentativas atingido ao executar a query.", "error")
     return {"errors": [{"message": "Max retries exceeded"}]}
 
+def _first_referenced_commit(events_field):
+    """Extrai (oid, message) do primeiro nó de um bloco timelineItems(REFERENCED_EVENT) já
+    presente na resposta da query principal. Retorna (None, None) se não houver nada."""
+    nodes = events_field.get("nodes", []) if events_field else []
+    if not nodes:
+        return None, None
+    commit = nodes[0].get("commit") or {}
+    return commit.get("oid"), commit.get("message")
+
+
 def resolve_fix_commit(issue, repo_owner, repo_name):
-    nodes = issue.get("timelineItems", {}).get("nodes", [])
+    # Fallback "commit que referencia a issue" já veio embutido na query principal,
+    # não precisa de nenhuma requisição adicional.
+    issue_ref_commit, issue_ref_message = _first_referenced_commit(issue.get("referencedEvents"))
+
+    nodes = issue.get("closedEvents", {}).get("nodes", [])
     node = nodes[0].get("closer") if nodes else None
     if node:
         closer_type = node.get("__typename", "")
 
         if closer_type == "PullRequest":
-            pr_number = node.get("number")
             merge_commit = node.get("mergeCommit", {}).get("oid") if node.get("mergeCommit") else None
             if merge_commit:
                 valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", merge_commit)
                 if valid:
                     return merge_commit, "pr", node.get("mergeCommit", {}).get("message") if node.get("mergeCommit") else None
-                
-            fix_commit, commit_message = get_commit_that_references_pr(f"{repo_owner}/{repo_name}", pr_number, get_headers())
-            if fix_commit:
-                valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
-                if valid:
-                    return fix_commit, "commit_ref_pr", commit_message
 
-            issue_number = issue.get("number")
-            fix_commit, commit_message = get_commit_that_references_issue(f"{repo_owner}/{repo_name}", issue_number, get_headers())
-            if fix_commit:
-                valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
+            # Fallback "commit que referencia a PR" também já veio embutido, dentro do
+            # próprio fragmento da PullRequest retornada como closer.
+            pr_ref_commit, pr_ref_message = _first_referenced_commit(node.get("referencedCommit"))
+            if pr_ref_commit:
+                valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", pr_ref_commit)
                 if valid:
-                    return fix_commit, "commit_ref_issue", commit_message
+                    return pr_ref_commit, "commit_ref_pr", pr_ref_message
+
+            if issue_ref_commit:
+                valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", issue_ref_commit)
+                if valid:
+                    return issue_ref_commit, "commit_ref_issue", issue_ref_message
         else:
             fix_commit = node.get("oid", None)
             if fix_commit:
                 valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
                 if valid:
                     return fix_commit, "commit", node.get("message", None)
-                
-            issue_number = issue.get("number")
-            fix_commit, commit_message = get_commit_that_references_issue(f"{repo_owner}/{repo_name}", issue_number, get_headers())
 
-            if fix_commit:
-                valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
+            if issue_ref_commit:
+                valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", issue_ref_commit)
                 if valid:
-                    return fix_commit, "commit_ref_issue", commit_message
+                    return issue_ref_commit, "commit_ref_issue", issue_ref_message
     else:
-        issue_number = issue.get("number")
-        fix_commit, commit_message = get_commit_that_references_issue(f"{repo_owner}/{repo_name}", issue_number, get_headers())
-        if fix_commit:
-            valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
+        if issue_ref_commit:
+            valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", issue_ref_commit)
             if valid:
-                return fix_commit, "commit_ref_issue_no_event", commit_message
+                return issue_ref_commit, "commit_ref_issue_no_event", issue_ref_message
 
     return None, None, None
 
@@ -253,7 +261,7 @@ def get_data():
                     "fix_commit_hash": final_fix_commit,
                     "commit_type": commit_type,
                     "commit_message": commit_message,
-                    "closer_url": issue["timelineItems"]["nodes"][0]["closer"].get("url") if issue["timelineItems"]["nodes"][0]["closer"] else None,
+                    "closer_url": issue["closedEvents"]["nodes"][0]["closer"].get("url") if issue["closedEvents"]["nodes"] and issue["closedEvents"]["nodes"][0]["closer"] else None,
                     "earliest_issue_date": issue.get("createdAt"),
                 }
 

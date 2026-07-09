@@ -6,88 +6,9 @@ import glob
 from pydriller import Git, Repository
 from datetime import time, timedelta
 from bisect import bisect_right
-from utils.queries import COMMIT_REFERENCES_PR, COMMIT_REFERENCES_ISSUE
 from utils.logger_config import log_message
 
 ACTIVITY_BUCKETS = ["0", "1-5", "6-20", "21-100", "100+"]
-
-def get_commit_that_references_issue(repo_path, issue_number, headers, max_attempts=5):
-    owner, name = repo_path.split("/")
-    graphql_url = 'https://api.github.com/graphql'
-
-    query = {
-        "query": COMMIT_REFERENCES_ISSUE,
-        "variables": {
-            "owner": owner,
-            "name": name,
-            "issueNumber": issue_number
-        }
-    }
-    
-    data = {}
-    for attempt in range(1, max_attempts + 1):
-        try:
-            response = requests.post(graphql_url, json=query, headers=headers, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            break # Sucesso, sai do loop de retries
-            
-        except Exception as e:
-            # Só loga o erro e retorna None se for a última tentativa possível
-            if attempt == max_attempts:
-                log_message(f"Error occurred while fetching commit data for issue {issue_number}: {e}", "error")
-                return None, None
-            
-            # Continua tentando silenciosamente com backoff exponencial[cite: 1]
-            sleep_time = min(60, 2 ** attempt)
-            time.sleep(sleep_time)
-
-    nodes = data.get('data', {}).get('repository', {}).get('issue', {}).get('timelineItems', {}).get('nodes') or []
-    if not nodes:
-        return None, None
-
-    commit = nodes[0].get('commit') or {}
-    return commit.get('oid'), commit.get('message')
-
-
-def get_commit_that_references_pr(repo_path, pr_number, headers, max_attempts=5):
-    owner, name = repo_path.split("/")
-    graphql_url = 'https://api.github.com/graphql'
-
-    query = {
-        "query": COMMIT_REFERENCES_PR,
-        "variables": {
-            "owner": owner,
-            "name": name,
-            "prNumber": pr_number
-        }
-    }
-
-    data = {}
-    for attempt in range(1, max_attempts + 1):
-        try:
-            response = requests.post(graphql_url, json=query, headers=headers, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            break # Sucesso, sai do loop de retries
-            
-        except Exception as e:
-            # Só loga o erro e retorna None se for a última tentativa possível
-            if attempt == max_attempts:
-                log_message(f"Error occurred while fetching commit data for PR {pr_number}: {e}", "error")
-                return None, None
-            
-            # Continua tentando silenciosamente com backoff exponencial[cite: 1]
-            sleep_time = min(60, 2 ** attempt)
-            time.sleep(sleep_time)
-
-    if 'errors' in data:
-        return None, None
-    if 'data' in data and data['data']['repository']['pullRequest']['timelineItems']['nodes'] != []:
-        commit_node = data['data']['repository']['pullRequest']['timelineItems']['nodes'][0]['commit']
-        if commit_node:
-            return commit_node['oid'], commit_node.get('message')
-    return None, None
 
 def remove_duplicates(data):
     tam = len(data)
