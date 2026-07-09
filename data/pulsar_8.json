@@ -1,0 +1,979 @@
+[
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5585,
+        "issue_title": "Non-persistent topic's replication has a deadlock",
+        "issue_body": "NonPersistentReplicator disable batching. If there is batch message,producer will acquire one,but release num in message's meta when process ack.\r\n\r\n```\r\n                    // When publishing during replication, we need to set the correct number of message in batch\r\n                    // This is only used in tracking the publish rate stats\r\n                    int numMessages = msg.getMessageBuilder().hasNumMessagesInBatch()\r\n                            ? msg.getMessageBuilder().getNumMessagesInBatch()\r\n                            : 1;\r\n                    ByteBufPair cmd = sendMessage(producerId, sequenceId, numMessages, msgMetadata, encryptedPayload);\r\n                    msgMetadataBuilder.recycle();\r\n                    msgMetadata.recycle();\r\n\r\n                    final OpSendMsg op = OpSendMsg.create(msg, cmd, sequenceId, callback);\r\n                    op.setNumMessagesInBatch(numMessages);\r\n                    op.setBatchSizeByte(encryptedPayload.readableBytes());\r\n                    pendingMessages.put(op);\r\n                    lastSendFuture = callback.getFuture();\r\n\r\n\r\n```\r\nSo the ProducerImpl's semaphore  no longer has any effect,  the ProducerImpl's sendAsync method maybe  blocked in pendingMessages's put method .\r\n\r\nThere may be a deadlock between ackReceived  and sendAsync .\r\n\r\nThe deadlock  is   between  pulsar-io-22-8  and pulsar-io-22-12 in jstack log.\r\n\r\n[broker jstack log](https://github.com/apache/pulsar/files/3818922/broker.txt)\r\n\r\n\r\n\r\n\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5585",
+        "assignees": [
+            "weishuisheng"
+        ],
+        "labels": [
+            "type/bug",
+            "area/client"
+        ],
+        "issue_closed_at": "2019-11-11T05:43:46.000Z",
+        "fix_commit_hash": "f2f801af9c4b16e4142078a556166e16317b2dd3",
+        "commit_type": "pr",
+        "commit_message": "[Issue 5585][pulsar-client] Fix producer Semaphore release error  (#5587)\n\n### Motivation\r\n\r\nFixes #5585 \r\n\r\nThis PR is try to fix the dead lock issue which mentioned in #5585. The core problem is the semaphore release count calculation in replicate scenario.\r\n\r\nReplicator send a batch message(from the original producer) without batcher, so that the batch message acquire 1 each batch message but release it by number of messages in the batch. This PR will handle the semaphore release in replicate scenario.\r\n\r\n### Modifications\r\n\r\nRelease only one semaphore in replicate scenario.",
+        "closer_url": "https://github.com/apache/pulsar/pull/5587",
+        "earliest_issue_date": "2019-11-07T10:00:34Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5588,
+        "issue_title": "java.lang.IllegalArgumentException: ledgerId doesn't match with acked ledgerId",
+        "issue_body": "**Describe the bug**\r\n\r\nBroker throws IllegalArgumentException on write failures.\r\n\r\n```\r\njava.lang.IllegalArgumentException: ledgerId 40 doesn't match with acked ledgerId 39\r\n        at com.google.common.base.Preconditions.checkArgument(Preconditions.java:323) ~[com.google.guava-guava-21.0.jar:?]\r\n        at org.apache.bookkeeper.mledger.impl.OpAddEntry.addComplete(OpAddEntry.java:116) ~[org.apache.pulsar-managed-ledger-original-2.4.1.jar:2.4.1]\r\n        at org.apache.bookkeeper.client.AsyncCallback$AddCallback.addCompleteWithLatency(AsyncCallback.java:91) ~[org.apache.bookkeeper-bookkeeper-server-4.9.2.jar:4.9.2]\r\n        at org.apache.bookkeeper.client.PendingAddOp.submitCallback(PendingAddOp.java:390) ~[org.apache.bookkeeper-bookkeeper-server-4.9.2.jar:4.9.2]\r\n        at org.apache.bookkeeper.client.LedgerHandle.errorOutPendingAdds(LedgerHandle.java:1772) ~[org.apache.bookkeeper-bookkeeper-server-4.9.2.jar:4.9.2]\r\n        at org.apache.bookkeeper.client.LedgerHandle$5.safeRun(LedgerHandle.java:572) ~[org.apache.bookkeeper-bookkeeper-server-4.9.2.jar:4.9.2]\r\n        at org.apache.bookkeeper.common.util.SafeRunnable.run(SafeRunnable.java:36) [org.apache.bookkeeper-bookkeeper-common-4.9.2.jar:4.9.2]\r\n        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149) [?:1.8.0_222]\r\n        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624) [?:1.8.0_222]\r\n        at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n        at java.lang.Thread.run(Thread.java:748) [?:1.8.0_222]\r\n```\r\n\r\n**To Reproduce**\r\n\r\nHas seen this behavior on several stress tests.\r\n\r\n**Expected behavior**\r\n\r\nNo exception throw during stress tests.\r\n\r\n**Additional context**\r\n\r\nThe problem was introduced because we reuse OpAddEntry between two different ledgers. \r\n\r\n1) when a ledger fails to write an entry, the ledger is closed. but we didn't clear `pendingAddEntries` in managed ledger.  (https://github.com/apache/pulsar/blob/master/managed-ledger/src/main/java/org/apache/bookkeeper/mledger/impl/OpAddEntry.java#L228\uff09\r\n2) when a new ledger is opened, the `pendingAddEntries` will be re-sent by setting to the new ledger handle. (https://github.com/apache/pulsar/blob/master/managed-ledger/src/main/java/org/apache/bookkeeper/mledger/impl/ManagedLedgerImpl.java#L1299)\r\n\r\nIf the callback of an `OpAddEntry` is triggered after the op is already re-sent to the new ledger, it will check if the ledger id in the callback is same as the ledger id in the `OpAddEntry` is same. If the ledger doesn't match, it will throw IllegalArgumentException (https://github.com/apache/pulsar/blob/master/managed-ledger/src/main/java/org/apache/bookkeeper/mledger/impl/OpAddEntry.java#L179)\r\n\r\nSince we are using recycler for managing OpAddEntry, we should avoid using same ops between different ledger handles.\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5588",
+        "assignees": [
+            "sijie"
+        ],
+        "labels": [
+            "type/bug",
+            "area/broker",
+            "release/2.5.1"
+        ],
+        "issue_closed_at": "2020-01-09T06:18:02.000Z",
+        "fix_commit_hash": "7ec17b2e74f99c353f66433226952fbf4596d7b0",
+        "commit_type": "pr",
+        "commit_message": "Avoid using same OpAddEntry between different ledger handles (#5942)\n\n### Motivation\r\n\r\nAvoid using same OpAddEntry between different ledger handles.\r\n\r\n### Modifications\r\n\r\nAdd state for OpAddEntry, if op handled by new ledger handle, the op will set to CLOSED state, after the legacy callback happens will check the op state, only INITIATED can be processed.\r\n\r\nWhen ledger rollover happens, pendingAddEntries will be processed. when process pendingAddEntries, will create a new OpAddEntry by the old OpAddEntry to avoid different ledger handles use same OpAddEntry.",
+        "closer_url": "https://github.com/apache/pulsar/pull/5942",
+        "earliest_issue_date": "2019-11-07T13:11:15Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5589,
+        "issue_title": "Memory leak of pulsar-function-go library",
+        "issue_body": "**Describe the bug**\r\nIt seems that there is a memory leak in the `pulsar-function-go` library.\r\n\r\nI implemented a simple pulsar function worker that just write logs using `pulsar-function-go/logutil` for sending logs to log topic. I tried to long-term test by sending request messages consecutively to the input topic to check the feasibility.\r\n\r\nAt the first time, I set `--log-topic` for the function worker, but I faced a `ProducerQueueIsFull` error after a few seconds later.\r\n\r\nAfter that I didn't set `--log-topic` option to find out the reason. From the second test, there was no more `ProducerQueueIsFull` error, but the memory of the pulsar function worker process had grown indefinitely.\r\n\r\nI used `pprof` to pinpoint the root cause of the problem. Please refer to the result below.\r\n```\r\n$ go tool pprof -top http://localhost:6060/debug/pprof/heap\r\nFetching profile over HTTP from http://localhost:6060/debug/pprof/heap\r\nFile: simple-worker\r\nBuild ID: bbb7d25540b7a482661b05e4c0da0a5ba2ef7bae\r\nType: inuse_space\r\nTime: Nov 8, 2019 at 3:44pm (KST)\r\nShowing nodes accounting for 12.51MB, 100% of 12.51MB total\r\n      flat  flat%   sum%        cum   cum%\r\n   12.51MB   100%   100%    12.51MB   100%  github.com/sirupsen/logrus.(*Entry).String\r\n         0     0%   100%    12.51MB   100%  github.com/apache/pulsar/pulsar-function-go/logutil.(*contextHook).Fire\r\n         0     0%   100%        1MB  7.99%  github.com/apache/pulsar/pulsar-function-go/logutil.Error\r\n         0     0%   100%    11.51MB 92.01%  github.com/apache/pulsar/pulsar-function-go/logutil.Infof\r\n         0     0%   100%        1MB  7.99%  github.com/apache/pulsar/pulsar-function-go/pf.(*goInstance).addLogTopicHandler\r\n         0     0%   100%    11.51MB 92.01%  github.com/apache/pulsar/pulsar-function-go/pf.(*goInstance).handlerMsg\r\n         0     0%   100%    12.51MB   100%  github.com/apache/pulsar/pulsar-function-go/pf.(*goInstance).startFunction\r\n         0     0%   100%    12.51MB   100%  github.com/apache/pulsar/pulsar-function-go/pf.Start\r\n         0     0%   100%    11.51MB 92.01%  github.com/apache/pulsar/pulsar-function-go/pf.newFunction.func1\r\n         0     0%   100%    11.51MB 92.01%  github.com/apache/pulsar/pulsar-function-go/pf.pulsarFunction.process\r\n         0     0%   100%    12.51MB   100%  github.com/sirupsen/logrus.(*Entry).Log\r\n         0     0%   100%    11.51MB 92.01%  github.com/sirupsen/logrus.(*Entry).Logf\r\n\r\n...\r\n...\r\n```\r\n\r\nAs you could see, a string object for logging had grown during the test.\r\n\r\nIt seems that `ProducerQueueIsFull` error with `--log-topic` option, and the memory leak without `--log-topic` option is caused by the same reason. So I modified `pulsar-go-function` codes to fix it. Fortunately, It seems has been fixed now. So I will send a pull request for that.\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. Prepare a pulsar cluster with standalone mode.\r\n2. Prepare a simple pulsar function worker. Refer to the codes below.\r\n```\r\n$ cat simple-worker.go \r\npackage main\r\n\r\nimport (\r\n        \"context\"\r\n        \"fmt\"\r\n        \"net/http\"\r\n        _ \"net/http/pprof\"\r\n\r\n        log \"github.com/apache/pulsar/pulsar-function-go/logutil\"\r\n        \"github.com/apache/pulsar/pulsar-function-go/pf\"\r\n)\r\n\r\nfunc main() {\r\n        // go routine for pprof\r\n        go func() {\r\n                fmt.Println(\"%+v\", http.ListenAndServe(\"localhost:6060\", nil))\r\n        }()\r\n\r\n        pf.Start(testFunction)\r\n}\r\n\r\nfunc testFunction(ctx context.Context) {\r\n        for i := 0; i < 10; i++ {\r\n                log.Infof(\"This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function. This is test of pulsar function.\\n\")\r\n        }\r\n}\r\n```\r\n3. Prepare a conf.yaml file for the function worker.\r\n```\r\n---\r\npulsarServiceURL: \"pulsar://sunkwan-devpc:6650\"\r\ninstanceID: 0\r\nfuncID: \"ed5f48f4-8e76-4d30-8b88-6eea1ff3cbf3\"\r\nfuncVersion: \"12f361a0-67e5-4404-8177-8c328a33e3db\"\r\nmaxBufTuples: 1024\r\nport: 0\r\nclusterName: \"standalone\"\r\nkillAfterIdleMs: 0\r\ntenant: \"public\"\r\nnameSpace: \"default\"\r\nname: \"func-concat\"\r\nclassName: ''\r\n#logTopic: 'persistent://public/default/func-concat-logs'\r\nlogTopic: ''\r\nprocessingGuarantees: 0\r\nsecretsMap: ''\r\nruntime: 0\r\nautoAck: true\r\nparallelism: 3\r\nsubscriptionType: 0\r\ntimeoutMs: 0\r\nsubscriptionName: ''\r\ncleanupSubscription: true\r\nsourceSpecsTopic: \"persistent://public/default/func-concat\"\r\nsourceSchemaType: ''\r\nreceiverQueueSize: 1\r\n#sinkSpecsTopic: \"persistent://public/default/func-concat-output\"\r\n#sinkSpecsTopic: \"\"\r\n#sinkSchemaType: ''\r\n#cpu: 1\r\n#ram: 1073741824\r\n#disk: 10737418240\r\n#maxMessageRetries: 0\r\n#deadLetterTopic: ''\r\n#regexPatternSubscription: false\r\n```\r\n4. Execute the simple pulsar function worker by command line below.\r\n```\r\n./simple-worker --instance-conf-path ./conf.yaml\r\n```\r\n5. Send messages to the input topic consecutively.\r\n6. Check the memory usage and heap status using pprof.\r\n```\r\n$ go tool pprof -top http://localhost:6060/debug/pprof/heap\r\nFetching profile over HTTP from http://localhost:6060/debug/pprof/heap\r\nSaved profile in /root/pprof/pprof.simple-worker.alloc_objects.alloc_space.inuse_objects.inuse_space.120.pb.gz\r\nFile: simple-worker\r\nBuild ID: bbb7d25540b7a482661b05e4c0da0a5ba2ef7bae\r\nType: inuse_space\r\nTime: Nov 8, 2019 at 3:48pm (KST)\r\nShowing nodes accounting for 30080.51kB, 100% of 30080.51kB total\r\n      flat  flat%   sum%        cum   cum%\r\n29211.22kB 97.11% 97.11% 29211.22kB 97.11%  github.com/sirupsen/logrus.(*Entry).String\r\n  869.29kB  2.89%   100% 30080.51kB   100%  github.com/apache/pulsar/pulsar-function-go/logutil.(*contextHook).Fire\r\n         0     0%   100%  1536.21kB  5.11%  github.com/apache/pulsar/pulsar-function-go/logutil.Error\r\n         0     0%   100% 28544.30kB 94.89%  github.com/apache/pulsar/pulsar-function-go/logutil.Infof\r\n         0     0%   100%  1536.21kB  5.11%  github.com/apache/pulsar/pulsar-function-go/pf.(*goInstance).addLogTopicHandler\r\n         0     0%   100% 28544.30kB 94.89%  github.com/apache/pulsar/pulsar-function-go/pf.(*goInstance).handlerMsg\r\n....\r\n\r\n```\r\n\r\n**Expected behavior**\r\n- `ProducerQueueIsFull` error shouldn't be occurred.\r\n- Memory usage of pulsar worker process shouldn't be grown indefinitely.\r\n\r\n**Screenshots**\r\nN/A\r\n\r\n**Desktop (please complete the following information):**\r\n - OS: Ubuntu 18.04\r\n\r\n**Additional context**\r\nN/A",
+        "issue_url": "https://github.com/apache/pulsar/issues/5589",
+        "assignees": [
+            "Sunkwan-Kwon"
+        ],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2019-12-03T17:37:40.000Z",
+        "fix_commit_hash": "387e29079ef13a20c66ad77b97bede0a6d9814a2",
+        "commit_type": "pr",
+        "commit_message": "[Issue 5589][pulsar-function-go] Fix a memory leak of pulsar-function-go library (#5592)\n\nStrEntry variable should be cleared after finish addLogTopicHandler()\r\nfunction regardless the log messages are appended to logger or not. If\r\nit is not cleared, it causes memory leak because StrEntry has grown\r\nindefinitely. Moreover, if the function set --log-topic, then the topic\r\ncould get accumulated huge messages that cause ProducerQueueIsFull\r\nerror.",
+        "closer_url": "https://github.com/apache/pulsar/pull/5592",
+        "earliest_issue_date": "2019-11-08T06:57:34Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5600,
+        "issue_title": "[Kubernetes] Fix zookeeper yaml prometheus pull metrics port",
+        "issue_body": "Zookeeper expose 8000 for prometheus pull metrics, however kubernetes yaml file is 8080.",
+        "issue_url": "https://github.com/apache/pulsar/issues/5600",
+        "assignees": [
+            "sky-big"
+        ],
+        "labels": [
+            "type/bug",
+            "help wanted"
+        ],
+        "issue_closed_at": "2019-11-11T03:13:03.000Z",
+        "fix_commit_hash": "3195848d97990c92e548f18b4b2302b65ebd3734",
+        "commit_type": "pr",
+        "commit_message": "fix zookeeper kubernetes annotations for prometheus pull metrics from port 8000 (#5601)",
+        "closer_url": "https://github.com/apache/pulsar/pull/5601",
+        "earliest_issue_date": "2019-11-09T05:44:06Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5614,
+        "issue_title": "Deprecate `brokerDeleteInactiveTopicsFrequencySeconds` or `brokerServicePurgeInactiveFrequencyInSeconds`",
+        "issue_body": "**Describe the bug**\r\nThere are two similar parameters: `brokerDeleteInactiveTopicsFrequencySeconds` and `brokerServicePurgeInactiveFrequencyInSeconds`. \r\nIn documentation, `brokerDeleteInactiveTopicsFrequencySeconds` is recommended. However, `brokerServicePurgeInactiveFrequencyInSeconds` is implemented in code. \r\n\r\n![image](https://user-images.githubusercontent.com/47805623/68581697-ea03dc00-04b3-11ea-87a3-376178d9701d.png)\r\n\r\n**Additional context**\r\nWe need deprecate one of them, make it consistent in code and documentation.\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5614",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2019-11-28T13:33:56.000Z",
+        "fix_commit_hash": "da80606a62a225bad7862a73ba6ecac96b1c1360",
+        "commit_type": "pr",
+        "commit_message": "[Issue 5614] Deprecate brokerServicePurgeInactiveFrequencyInSeconds (#5632)\n\n* Fix Issue 5614, Deprecate brokerServicePurgeInactiveFrequencyInSeconds\r\n\r\n* [Issue 5614] Deprecate brokerServicePurgeInactiveFrequencyInSeconds",
+        "closer_url": "https://github.com/apache/pulsar/pull/5632",
+        "earliest_issue_date": "2019-11-11T10:51:33Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5618,
+        "issue_title": "[Docs]The document of python function example is incorrect",
+        "issue_body": "**Describe the bug**\r\nThere was an error in the example of using [python function](http://pulsar.apache.org/docs/en/functions-develop/#example) that causes the following exception to be thrown:\r\n\r\n```\r\n2019-11-11 09:48:43 +0000] [ERROR] log.py: Traceback (most recent call last):\r\n[2019-11-11 09:48:43 +0000] [ERROR] log.py:   File \"/pulsar/instances/python-instance/python_instance_main.py\", line 211, in <module>\r\n[2019-11-11 09:48:43 +0000] [ERROR] log.py: main()\r\n[2019-11-11 09:48:43 +0000] [ERROR] log.py:   File \"/pulsar/instances/python-[instance/python_instance_main.py\", line 192, in main\r\n[2019-11-11 09:48:43 +0000] [ERROR] log.py: pyinstance.run()\r\n[2019-11-11 09:48:43 +0000] [ERROR] log.py:   File \"/pulsar/instances/python-instance/python_instance.py\", line 186, in run\r\n[2019-11-11 09:48:43 +0000] [ERROR] log.py: self.input_serdes[topic] = serde_kclass()\r\n[2019-11-11 09:48:43 +0000] [ERROR] log.py: TypeError\r\n[2019-11-11 09:48:43 +0000] [ERROR] log.py: :\r\n[2019-11-11 09:48:43 +0000] [ERROR] log.py: __init__() takes exactly 2 arguments (1 given)\r\n```\r\n\r\nParameters should not appear in the initialization function of class TweetSerDe, messages should come from the topic and should not be assigned during initialization. the document example is wrong, and the correct example should be:\r\n\r\n```\r\nclass Tweet(object):\r\n    def __init__(self, username, tweet_content):\r\n        self.username = username\r\n        self.tweet_content = tweet_content\r\n\r\n\r\nfrom pulsar import SerDe\r\n\r\nclass TweetSerDe(SerDe):\r\n    def __init__(self):\r\n        pass\r\n\r\n    def serialize(self, input):\r\n        return bytes(\"{0}|{1}\".format(input.username, input.tweet_content))\r\n\r\n    def deserialize(self, input_bytes):\r\n        tweet_components = str(input_bytes).split('|')\r\n        return Tweet(tweet_components[0], tweet_componentsp[1])\r\n```\r\n\r\nReference: https://github.com/apache/pulsar/blob/master/pulsar-functions/python-examples/custom_object_function.py\r\n\r\n\r\n**Expected behavior**\r\nFix document\r\n\r\n\r\n**Additional context**\r\nUse the correct example on the document\r\n\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5618",
+        "assignees": [
+            "Jennifer88huang-zz"
+        ],
+        "labels": [
+            "type/bug",
+            "help wanted",
+            "doc"
+        ],
+        "issue_closed_at": "2019-11-13T00:33:25.000Z",
+        "fix_commit_hash": "9b9bff4959b5fc7a425bd7d501a51e937329a069",
+        "commit_type": "pr",
+        "commit_message": "[Issue 5618] [docs]Correct python example (#5625)\n\n* correct python example\r\n\r\n* update two link issues\r\n\r\n* remove the default constructor\r\n\r\n* update content in version 2.4.1",
+        "closer_url": "https://github.com/apache/pulsar/pull/5625",
+        "earliest_issue_date": "2019-11-11T13:34:10Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5626,
+        "issue_title": "Memory leak of pulsar-function-go library regarding time.NewTimer()",
+        "issue_body": "**Describe the bug**\r\nThere is a memory leak in the pulsar-function-go library.\r\nI reported an issue regarding the package(#5589), but this report is another one.\r\n\r\nIt is related to KillAfterIdleMs configuration value. If I set the value to 0, time.NewTimer() function has occupied more memory indefinitely. Refer to `pprof ` result of that below.\r\n```\r\n# go tool pprof -top http://localhost:6060/debug/pprof/heap\r\nFetching profile over HTTP from http://localhost:6060/debug/pprof/heap\r\nSaved profile in /root/pprof/pprof.simple-worker.alloc_objects.alloc_space.inuse_objects.inuse_space.713.pb.gz\r\nFile: simple-worker\r\nBuild ID: 2a730ff40dbea9318c3ce868f33ecc2e69304de8\r\nType: inuse_space\r\nTime: Nov 12, 2019 at 12:27pm (KST)\r\nShowing nodes accounting for 31.29MB, 100% of 31.29MB total\r\n      flat  flat%   sum%        cum   cum%\r\n      30MB 95.88% 95.88%    31.29MB   100%  time.NewTimer\r\n    1.29MB  4.12%   100%     1.29MB  4.12%  time.startTimer\r\n         0     0%   100%    31.29MB   100%  github.com/apache/pulsar/pulsar-function-go/pf.(*goInstance).startFunction\r\n         0     0%   100%    31.29MB   100%  github.com/apache/pulsar/pulsar-function-go/pf.Start\r\n         0     0%   100%    31.29MB   100%  main.main\r\n         0     0%   100%    31.29MB   100%  runtime.main\r\n         0     0%   100%    31.29MB   100%  time.After\r\n```\r\nIf I set `KillAfterIdleMs` value higher than 0, the memory leak didn't appear.\r\n\r\nIn order to fix this issue, I investigated the source code and I could find the code that caused the problem. Fortunately, It seems has been fixed now. So I will send a pull request for that.\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. Prepare a pulsar cluster with standalone mode.\r\n2. Prepare a simple pulsar function worker. Refer to the codes below.\r\n```\r\n$ cat simple-worker.go \r\npackage main\r\n\r\nimport (\r\n        \"context\"\r\n        \"fmt\"\r\n        \"net/http\"\r\n        _ \"net/http/pprof\"\r\n\r\n        \"github.com/apache/pulsar/pulsar-function-go/pf\"\r\n)\r\n\r\nfunc main() {\r\n        // go routine for pprof\r\n        go func() {\r\n                fmt.Println(\"%+v\", http.ListenAndServe(\"localhost:6060\", nil))\r\n        }()\r\n\r\n        pf.Start(testFunction)\r\n}\r\n\r\nfunc testFunction(ctx context.Context) {\r\n        fmt.Printf(\"Hello\\n\")\r\n}\r\n```\r\n3. Prepare a conf.yaml file for the function worker.\r\n```\r\n---\r\npulsarServiceURL: \"pulsar://sunkwan-devpc:6650\"\r\ninstanceID: 0\r\nfuncID: \"ed5f48f4-8e76-4d30-8b88-6eea1ff3cbf3\"\r\nfuncVersion: \"12f361a0-67e5-4404-8177-8c328a33e3db\"\r\nmaxBufTuples: 1024\r\nport: 0\r\nclusterName: \"standalone\"\r\nkillAfterIdleMs: 0\r\ntenant: \"public\"\r\nnameSpace: \"default\"\r\nname: \"func-concat\"\r\nclassName: ''\r\n#logTopic: 'persistent://public/default/func-concat-logs'\r\nlogTopic: ''\r\nprocessingGuarantees: 0\r\nsecretsMap: ''\r\nruntime: 0\r\nautoAck: true\r\nparallelism: 3\r\nsubscriptionType: 0\r\ntimeoutMs: 0\r\nsubscriptionName: ''\r\ncleanupSubscription: true\r\nsourceSpecsTopic: \"persistent://public/default/func-concat\"\r\nsourceSchemaType: ''\r\nreceiverQueueSize: 1\r\n#sinkSpecsTopic: \"persistent://public/default/func-concat-output\"\r\n#sinkSpecsTopic: \"\"\r\n#sinkSchemaType: ''\r\n#cpu: 1\r\n#ram: 1073741824\r\n#disk: 10737418240\r\n#maxMessageRetries: 0\r\n#deadLetterTopic: ''\r\n#regexPatternSubscription: false\r\n```\r\n4. Execute the simple pulsar function worker by command line below.\r\n```\r\n./simple-worker --instance-conf-path ./conf.yaml\r\n```\r\n5. Send messages to the input topic consecutively.\r\n6. Check the memory usage and heap status using pprof.\r\n```\r\n# go tool pprof -top http://localhost:6060/debug/pprof/heap\r\nFetching profile over HTTP from http://localhost:6060/debug/pprof/heap\r\nSaved profile in /root/pprof/pprof.simple-worker.alloc_objects.alloc_space.inuse_objects.inuse_space.713.pb.gz\r\nFile: simple-worker\r\nBuild ID: 2a730ff40dbea9318c3ce868f33ecc2e69304de8\r\nType: inuse_space\r\nTime: Nov 12, 2019 at 12:27pm (KST)\r\nShowing nodes accounting for 31.29MB, 100% of 31.29MB total\r\n      flat  flat%   sum%        cum   cum%\r\n      30MB 95.88% 95.88%    31.29MB   100%  time.NewTimer\r\n    1.29MB  4.12%   100%     1.29MB  4.12%  time.startTimer\r\n         0     0%   100%    31.29MB   100%  github.com/apache/pulsar/pulsar-function-go/pf.(*goInstance).startFunction\r\n         0     0%   100%    31.29MB   100%  github.com/apache/pulsar/pulsar-function-go/pf.Start\r\n         0     0%   100%    31.29MB   100%  main.main\r\n         0     0%   100%    31.29MB   100%  runtime.main\r\n         0     0%   100%    31.29MB   100%  time.After\r\n```\r\n\r\n**Expected behavior**\r\n- Memory usage of pulsar worker process shouldn't be grown indefinitely.\r\n\r\n**Screenshots**\r\nN/A\r\n\r\n**Desktop (please complete the following information):**\r\n - OS: Ubuntu 18.04\r\n\r\n**Additional context**\r\nN/A\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5626",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "area/function"
+        ],
+        "issue_closed_at": "2019-12-02T07:09:07.000Z",
+        "fix_commit_hash": "f310ab0db4322de5f91a52560f33eafb531a5764",
+        "commit_type": "commit",
+        "commit_message": "Fixes #5626 (#5627)\n\nIf `killAfterIdleMs` is 0, time.After() function call makes memory leak.\r\nRefer to https://golang.org/pkg/time/#After. According to the document,\r\nthe underlying Timer object is not recovered by the garbage collector if\r\nthe timer is not fired. And It seems that if the duration is 0, it will\r\nnot be released. Therefore, use one Timer object for idle time checking\r\nexplicitly instead of the time.After() function.",
+        "closer_url": "https://github.com/apache/pulsar/commit/f310ab0db4322de5f91a52560f33eafb531a5764",
+        "earliest_issue_date": "2019-11-12T06:22:09Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5633,
+        "issue_title": "Support Avro schema from Debezium source connector",
+        "issue_body": "**Describe the bug**\r\nCurrently the Debezium postgres source produces KeyValueSchema to the topics. Support is required for Avro schema type.\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. The connector configuration I used for the debezium source connector is:\r\n\r\n> tenant: \"public\"\r\nnamespace: \"default\"\r\nname: \"debezium-postgres-source\"\r\ntopicName: \"debezium-postgres-topic\"\r\narchive: \"connectors/pulsar-io-debezium-postgres-2.5.0-SNAPSHOT.nar\"\r\nschemaType: \"avro\"\r\nparallelism: 1\r\nconfigs:\r\n      database.hostname: \"localhost\"\r\n      database.port: \"5432\"\r\n      database.user: \"hq_gosecure\"\r\n      database.password: \"postgres\"\r\n      database.dbname: \"hq_gosecure\"\r\n      database.server.name: \"dbserver1\"\r\n      plugin.name: \"wal2json\"\r\n      pulsar.service.url: \"pulsar://127.0.0.1:6650\"\r\n\r\n\r\n2. Start the connector using the command :\r\n`bin/pulsar-admin sources localrun --source-config-file conf/debezium-postgres-source-config.yaml`\r\n3. See error\r\n\r\n**Expected behavior**\r\nThe connector should start producing messages in avro schema. But I'm getting the following error:\r\n`19:15:12.353 [main] INFO  org.apache.pulsar.functions.LocalRunner - RuntimeSpawner quit because of\r\norg.apache.avro.AvroRuntimeException: avro.shaded.com.google.common.util.concurrent.UncheckedExecutionException: org.apache.avro.AvroTypeException: Unknown type: K\r\n\tat org.apache.avro.specific.SpecificData.getSchema(SpecificData.java:227) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\tat org.apache.pulsar.client.impl.schema.StructSchema.createAvroSchema(StructSchema.java:136) ~[pulsar-client-original-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat org.apache.pulsar.client.impl.schema.StructSchema.parseSchemaInfo(StructSchema.java:149) ~[pulsar-client-original-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat org.apache.pulsar.client.impl.schema.AvroSchema.of(AvroSchema.java:90) ~[pulsar-client-original-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat org.apache.pulsar.functions.source.TopicSchema.newSchemaInstance(TopicSchema.java:144) ~[pulsar-functions-instance-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat org.apache.pulsar.functions.source.TopicSchema.newSchemaInstance(TopicSchema.java:189) ~[pulsar-functions-instance-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat org.apache.pulsar.functions.source.TopicSchema.newSchemaInstance(TopicSchema.java:209) ~[pulsar-functions-instance-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat org.apache.pulsar.functions.source.TopicSchema.lambda$getSchema$0(TopicSchema.java:65) ~[pulsar-functions-instance-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat java.util.HashMap.computeIfAbsent(HashMap.java:1127) ~[?:1.8.0_201]\r\n\tat org.apache.pulsar.functions.source.TopicSchema.getSchema(TopicSchema.java:65) ~[pulsar-functions-instance-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat org.apache.pulsar.functions.sink.PulsarSink.initializeSchema(PulsarSink.java:327) ~[pulsar-functions-instance-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat org.apache.pulsar.functions.sink.PulsarSink.open(PulsarSink.java:255) ~[pulsar-functions-instance-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat org.apache.pulsar.functions.instance.JavaInstanceRunnable.setupOutput(JavaInstanceRunnable.java:787) ~[pulsar-functions-instance-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat org.apache.pulsar.functions.instance.JavaInstanceRunnable.setupJavaInstance(JavaInstanceRunnable.java:213) ~[pulsar-functions-instance-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat org.apache.pulsar.functions.instance.JavaInstanceRunnable.run(JavaInstanceRunnable.java:244) ~[pulsar-functions-instance-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat java.lang.Thread.run(Thread.java:748) ~[?:1.8.0_201]\r\nCaused by: avro.shaded.com.google.common.util.concurrent.UncheckedExecutionException: org.apache.avro.AvroTypeException: Unknown type: K\r\n\tat avro.shaded.com.google.common.cache.LocalCache$Segment.get(LocalCache.java:2234) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\tat avro.shaded.com.google.common.cache.LocalCache.get(LocalCache.java:3965) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\tat avro.shaded.com.google.common.cache.LocalCache.getOrLoad(LocalCache.java:3969) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\tat avro.shaded.com.google.common.cache.LocalCache$LocalManualCache.get(LocalCache.java:4829) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\tat org.apache.avro.specific.SpecificData.getSchema(SpecificData.java:225) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\t... 15 more\r\nCaused by: org.apache.avro.AvroTypeException: Unknown type: K\r\n\tat org.apache.avro.specific.SpecificData.createSchema(SpecificData.java:292) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\tat org.apache.avro.reflect.ReflectData.createSchema(ReflectData.java:646) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\tat org.apache.avro.reflect.ReflectData.createFieldSchema(ReflectData.java:740) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\tat org.apache.avro.reflect.ReflectData$AllowNull.createFieldSchema(ReflectData.java:81) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\tat org.apache.avro.reflect.ReflectData.createSchema(ReflectData.java:604) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\tat org.apache.avro.specific.SpecificData$2.load(SpecificData.java:218) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\tat org.apache.avro.specific.SpecificData$2.load(SpecificData.java:215) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\tat avro.shaded.com.google.common.cache.LocalCache$LoadingValueReference.loadFuture(LocalCache.java:3568) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\tat avro.shaded.com.google.common.cache.LocalCache$Segment.loadSync(LocalCache.java:2350) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\tat avro.shaded.com.google.common.cache.LocalCache$Segment.lockedGetOrLoad(LocalCache.java:2313) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\tat avro.shaded.com.google.common.cache.LocalCache$Segment.get(LocalCache.java:2228) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\tat avro.shaded.com.google.common.cache.LocalCache.get(LocalCache.java:3965) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\tat avro.shaded.com.google.common.cache.LocalCache.getOrLoad(LocalCache.java:3969) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\tat avro.shaded.com.google.common.cache.LocalCache$LocalManualCache.get(LocalCache.java:4829) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\tat org.apache.avro.specific.SpecificData.getSchema(SpecificData.java:225) ~[org.apache.avro-avro-1.8.2.jar:1.8.2]\r\n\t... 15 more\r\n`\r\n\r\n\r\n**Desktop (please complete the following information):**\r\n - OS: Ubuntu 18.04\r\n\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5633",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "doc"
+        ],
+        "issue_closed_at": "2020-04-30T13:29:06.000Z",
+        "fix_commit_hash": "e08be96d98c7730a01be296aae38e39020ff485e",
+        "commit_type": "pr",
+        "commit_message": "[Pulsar IO][Issue 5633]Support avro schema for debezium connector (#6034)\n\nFixes #5633 \r\n\r\n\r\n### Motivation\r\n\r\nCurrently, some users want to support Avro schema in debezium, so this pr supports this feature.\r\nFor Kafka's Avro schema, it depends on the Avro 1.8 version, but Avro version has just been upgraded to 1.9 in pulsar, so shade is needed to avoid finding `addProp` function\r\n\r\n### Modifications\r\n\r\n* Add a package `kafka-connect-avro-converter-shaded`\r\n* Add class KafkaSchema to converter Kafka's Avro schema to pulsar's schema\r\n\r\n### Verifying this change \r\n\r\nUnit test and integration tests",
+        "closer_url": "https://github.com/apache/pulsar/pull/6034",
+        "earliest_issue_date": "2019-11-12T13:46:20Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5634,
+        "issue_title": "Python consumer does not accept receiver_queue_size=0",
+        "issue_body": "**Describe the bug**\r\nPython client does not accept receiver queue size equal to 0, but according to [documentation](https://pulsar.apache.org/docs/v2.0.1-incubating/cookbooks/message-queue#client-configuration-changes):\r\n> If you\u2019d like to have tight control over message dispatching across consumers, set the consumers\u2019 receiver queue size very low (potentially even to 0 if necessary).\r\nwhile other clients (e.g. C++ and Java clients) accept receiver queue size equal to 0 and work according to documentation.\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. Run the following Python code:\r\n\r\n```python\r\n#!/usr/bin/env python3\r\nimport sys\r\nimport pulsar\r\n\r\nclient = pulsar.Client('pulsar://localhost:6650')\r\nconsumer = client.subscribe('abcd', subscription_name='xyz',\r\n    consumer_type=pulsar.ConsumerType.Shared,\r\n    receiver_queue_size=0)\r\n\r\nmsg = consumer.receive()\r\nprint(\"Received message: %s\" % msg.data(), flush=True)\r\n\r\nconsumer.acknowledge(msg)\r\nclient.close()\r\n\r\n```\r\n\r\n2. See error\r\n\r\n**Expected behavior**\r\nPython client consumer API (` client.subscribe`) should accept parameter `receiver_queue_size=0` as described in [documentation](https://pulsar.apache.org/docs/v2.0.1-incubating/cookbooks/message-queue#client-configuration-changes) and as function correctly for other clients (C++, Java).\r\n\r\n**Screenshots**\r\n\r\n```console\r\n2019-11-12 15:11:57.331 INFO  Client:88 | Subscribing on Topic :abcd\r\n2019-11-12 15:11:57.331 INFO  ConnectionPool:72 | Created connection for pulsar://localhost:6650\r\n2019-11-12 15:11:57.333 INFO  ClientConnection:324 | [[::1]:51100 -> [::1]:6650] Connected to broker\r\n2019-11-12 15:11:57.398 INFO  HandlerBase:52 | [persistent://public/default/abcd, xyz, 0] Getting connection from pool\r\n2019-11-12 15:11:57.423 INFO  ConnectionPool:72 | Created connection for pulsar://cfc0ca6995fc:6650\r\n2019-11-12 15:11:57.424 INFO  ClientConnection:326 | [[::1]:51101 -> [::1]:6650] Connected to broker through proxy. Logical broker: pulsar://cfc0ca6995fc:6650\r\n2019-11-12 15:11:57.684 INFO  ConsumerImpl:170 | [persistent://public/default/abcd, xyz, 0] Created consumer on broker [[::1]:51101 -> [::1]:6650]\r\n2019-11-12 15:11:57.684 WARN  ConsumerImpl:631 | [persistent://public/default/abcd, xyz, 0] Can't use this function if the queue size is 0\r\nTraceback (most recent call last):\r\n  File \"tst.py\", line 10, in <module>\r\n    msg = consumer.receive()\r\n  File \"/python3.7/site-packages/pulsar/__init__.py\", line 930, in receive\r\n    msg = self._consumer.receive()\r\nException: Pulsar error: InvalidConfiguration\r\n```\r\n\r\n**Desktop (please complete the following information):**\r\n - OS: macOS Catalina (v: 10.15.1)\r\n\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5634",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2019-11-21T06:41:39.000Z",
+        "fix_commit_hash": "fa029700d3edbc398356f6b74cad1120649d2494",
+        "commit_type": "pr",
+        "commit_message": "Fix consumer of python queue size is zero (#5706)\n\nFixes https://github.com/apache/pulsar/issues/5634\r\n\r\n\r\nMaster Issue: https://github.com/apache/pulsar/issues/5634\r\n\r\n### Motivation\r\n\r\nIn java clients, when we call the `receive`, we will block it until a message arrives. in python clients, when we call the `receive` function, we add a delay parameter of 100ms. when the queue size is 0, the `receive` will have a strict check on the queue size, causing the following exception to be thrown\r\n\r\n```\r\nTraceback (most recent call last):\r\n  File \"tst.py\", line 10, in <module>\r\n    msg = consumer.receive()\r\n  File \"/python3.7/site-packages/pulsar/__init__.py\", line 930, in receive\r\n    msg = self._consumer.receive()\r\nException: Pulsar error: InvalidConfiguration\r\n```\r\n### Modifications\r\n\r\n* Removing timeout parameter in synchronous `receive`\r\n* Add test for queue size is 0\r\n\r\n### Verifying this change\r\n\r\nAdd Test",
+        "closer_url": "https://github.com/apache/pulsar/pull/5706",
+        "earliest_issue_date": "2019-11-12T14:26:55Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5658,
+        "issue_title": "Prometheus in kubernetes need all namespace access control",
+        "issue_body": "**Describe the bug**\r\nPrometheus in kubernetes need all namespace access control, but now access control not enough.\r\n\r\n**Expected behavior**\r\nPrometheus access metrics data success.\r\n\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5658",
+        "assignees": [
+            "sky-big"
+        ],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2019-11-21T19:37:01.000Z",
+        "fix_commit_hash": "0565c78069323a348f71e06b82c902eccdc5a558",
+        "commit_type": "pr",
+        "commit_message": "fix prometheus need kubernetes all namespace access control bug (#5659)\n\nFixes #5658 \r\n\r\n### Motivation\r\nFix prometheus access control not enough in kubernetes\r\n\r\n### Modifications\r\nAdd service account for pulsar cluster prometheus, service account binding cluster role, cluster role have  access control.",
+        "closer_url": "https://github.com/apache/pulsar/pull/5659",
+        "earliest_issue_date": "2019-11-14T03:10:50Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5661,
+        "issue_title": "typo error",
+        "issue_body": "**Describe the bug**\r\nA typo error of this website of pulsar\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. Go to http://pulsar.apache.org/docs/en/standalone\r\n2. Click on 'Deployment > bare-metal-multi-cluster '\r\n3. Scroll down to 'Provisioning new tenants'\r\n4. See error\r\n```\r\n$ bin/pulsar-admin tenants create test-tentant \\\r\n  --allowed-clusters us-west \\\r\n  --admin-roles test-admin-role\r\n```\r\nthe test-tentant maybe typo test-tenant.  if we can't fix it\uff0cit can run normal .\r\n\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5661",
+        "assignees": [
+            "huangdx0726"
+        ],
+        "labels": [
+            "type/bug",
+            "help wanted"
+        ],
+        "issue_closed_at": "2019-11-15T07:06:46.000Z",
+        "fix_commit_hash": "69cd6eb660afc421828a525d2c8be677d7eebc6f",
+        "commit_type": "pr",
+        "commit_message": "fix typo error (#5663)\n\nfix typo error of website\r\n \r\nFixes #5661 \r\n\r\n \r\n\r\n### Motivation\r\nfix typo error of website\r\n\r\n### Modifications\r\nchanged test-tentant to test-tenant",
+        "closer_url": "https://github.com/apache/pulsar/pull/5663",
+        "earliest_issue_date": "2019-11-14T07:47:31Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5669,
+        "issue_title": "Pulsar Broker restart fail owing to create functions/assignments topic fail",
+        "issue_body": "**Describe the bug**\r\nrestart pulsar broker\uff0cthrows nullponitexception at create functions/assignments topic\r\n\r\nerror log\uff1a\r\n\r\n```\r\n13:46:52.437 [pulsar-ordered-OrderedExecutor-4-0-EventThread] INFO  org.apache.bookkeeper.client.LedgerCreateOp - Ensemble: [xxxx:3181, xxxxx:3181] for ledger: 276\r\n13:46:52.438 [bookkeeper-ml-workers-OrderedExecutor-6-0] INFO  org.apache.bookkeeper.mledger.impl.ManagedLedgerImpl - [public/functions/persistent/coordinate] Created ledger 276\r\n13:46:52.437 [bookkeeper-ml-workers-OrderedExecutor-0-0] ERROR org.apache.pulsar.broker.service.ServerCnx - [/xxxxxxx:28514] Failed to create topic persistent://public/functions/assignments\r\njava.util.concurrent.CompletionException: java.lang.NullPointerException\r\n        at java.util.concurrent.CompletableFuture.encodeThrowable(CompletableFuture.java:273) ~[?:1.8.0_161]\r\n        at java.util.concurrent.CompletableFuture.uniComposeStage(CompletableFuture.java:991) ~[?:1.8.0_161]\r\n        at java.util.concurrent.CompletableFuture.thenCompose(CompletableFuture.java:2124) ~[?:1.8.0_161]\r\n        at org.apache.pulsar.broker.service.persistent.MessageDeduplication.checkStatus(MessageDeduplication.java:178) ~[org.apache.pulsar-pulsar-broker-2.4.1.jar:2.4.1]\r\n        at org.apache.pulsar.broker.service.persistent.PersistentTopic.checkDeduplicationStatus(PersistentTopic.java:899) ~[org.apache.pulsar-pulsar-broker-2.4.1.jar:2.4.1]\r\n        at org.apache.pulsar.broker.service.BrokerService$2.lambda$openLedgerComplete$0(BrokerService.java:660) ~[org.apache.pulsar-pulsar-broker-2.4.1.jar:2.4.1]\r\n        at java.util.concurrent.CompletableFuture.uniComposeStage(CompletableFuture.java:981) ~[?:1.8.0_161]\r\n        at java.util.concurrent.CompletableFuture.thenCompose(CompletableFuture.java:2124) ~[?:1.8.0_161]\r\n        at org.apache.pulsar.broker.service.BrokerService$2.openLedgerComplete(BrokerService.java:658) ~[org.apache.pulsar-pulsar-broker-2.4.1.jar:2.4.1]\r\n        at org.apache.bookkeeper.mledger.impl.ManagedLedgerFactoryImpl.lambda$asyncOpen$7(ManagedLedgerFactoryImpl.java:328) ~[org.apache.pulsar-managed-ledger-original-2.4.1.jar:2.4.1]\r\n        at java.util.concurrent.CompletableFuture.uniAccept(CompletableFuture.java:656) ~[?:1.8.0_161]\r\n        at java.util.concurrent.CompletableFuture$UniAccept.tryFire(CompletableFuture.java:632) ~[?:1.8.0_161]\r\n        at java.util.concurrent.CompletableFuture.postComplete(CompletableFuture.java:474) ~[?:1.8.0_161]\r\n        at java.util.concurrent.CompletableFuture.complete(CompletableFuture.java:1962) ~[?:1.8.0_161]\r\n        at org.apache.bookkeeper.mledger.impl.ManagedLedgerFactoryImpl$2.initializeComplete(ManagedLedgerFactoryImpl.java:316) ~[org.apache.pulsar-managed-ledger-original-2.4.1.jar:2.4.1]\r\n        at org.apache.bookkeeper.mledger.impl.ManagedLedgerImpl$3$1.operationComplete(ManagedLedgerImpl.java:467) ~[org.apache.pulsar-managed-ledger-original-2.4.1.jar:2.4.1]\r\n        at org.apache.bookkeeper.mledger.impl.ManagedCursorImpl$1.operationComplete(ManagedCursorImpl.java:271) ~[org.apache.pulsar-managed-ledger-original-2.4.1.jar:2.4.1]\r\n        at org.apache.bookkeeper.mledger.impl.ManagedCursorImpl$1.operationComplete(ManagedCursorImpl.java:244) ~[org.apache.pulsar-managed-ledger-original-2.4.1.jar:2.4.1]\r\n        at org.apache.bookkeeper.mledger.impl.MetaStoreImplZookeeper.lambda$null$7(MetaStoreImplZookeeper.java:241) ~[org.apache.pulsar-managed-ledger-original-2.4.1.jar:2.4.1]\r\n        at org.apache.bookkeeper.mledger.util.SafeRun$1.safeRun(SafeRun.java:32) [org.apache.pulsar-managed-ledger-original-2.4.1.jar:2.4.1]\r\n        at org.apache.bookkeeper.common.util.SafeRunnable.run(SafeRunnable.java:36) [org.apache.bookkeeper-bookkeeper-common-4.9.2.jar:4.9.2]\r\n        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149) [?:1.8.0_161]\r\n        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624) [?:1.8.0_161]\r\n        at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n        at java.lang.Thread.run(Thread.java:748) [?:1.8.0_161]\r\nCaused by: java.lang.NullPointerException\r\n        at org.apache.bookkeeper.mledger.impl.ManagedLedgerImpl.startReadOperationOnLedger(ManagedLedgerImpl.java:1781) ~[org.apache.pulsar-managed-ledger-original-2.4.1.jar:2.4.1]\r\n        at org.apache.bookkeeper.mledger.impl.OpReadEntry.create(OpReadEntry.java:52) ~[org.apache.pulsar-managed-ledger-original-2.4.1.jar:2.4.1]\r\n        at org.apache.bookkeeper.mledger.impl.ManagedCursorImpl.asyncReadEntries(ManagedCursorImpl.java:475) ~[org.apache.pulsar-managed-ledger-original-2.4.1.jar:2.4.1]\r\n        at org.apache.pulsar.broker.service.persistent.MessageDeduplication.replayCursor(MessageDeduplication.java:136) ~[org.apache.pulsar-pulsar-broker-2.4.1.jar:2.4.1]\r\n        at org.apache.pulsar.broker.service.persistent.MessageDeduplication.recoverSequenceIdsMap(MessageDeduplication.java:124) ~[org.apache.pulsar-pulsar-broker-2.4.1.jar:2.4.1]\r\n        at org.apache.pulsar.broker.service.persistent.MessageDeduplication.access$800(MessageDeduplication.java:55) ~[org.apache.pulsar-pulsar-broker-2.4.1.jar:2.4.1]\r\n        at org.apache.pulsar.broker.service.persistent.MessageDeduplication$3.openCursorComplete(MessageDeduplication.java:223) ~[org.apache.pulsar-pulsar-broker-2.4.1.jar:2.4.1]\r\n        at org.apache.bookkeeper.mledger.impl.ManagedLedgerImpl.asyncOpenCursor(ManagedLedgerImpl.java:711) ~[org.apache.pulsar-managed-ledger-original-2.4.1.jar:2.4.1]\r\n        at org.apache.bookkeeper.mledger.impl.ManagedLedgerImpl.asyncOpenCursor(ManagedLedgerImpl.java:683) ~[org.apache.pulsar-managed-ledger-original-2.4.1.jar:2.4.1]\r\n        at org.apache.bookkeeper.mledger.impl.ManagedLedgerImpl.asyncOpenCursor(ManagedLedgerImpl.java:677) ~[org.apache.pulsar-managed-ledger-original-2.4.1.jar:2.4.1]\r\n        at org.apache.pulsar.broker.service.persistent.MessageDeduplication.lambda$checkStatus$1(MessageDeduplication.java:216) ~[org.apache.pulsar-pulsar-broker-2.4.1.jar:2.4.1]\r\n        at java.util.concurrent.CompletableFuture.uniComposeStage(CompletableFuture.java:981) ~[?:1.8.0_161]\r\n        ... 23 more\r\n13:46:52.446 [bookkeeper-ml-workers-OrderedExecutor-6-0] INFO  org.apache.bookkeeper.mledger.impl.ManagedCursorImpl - [public/functions/persistent/coordinate] Recovering from bookkeeper ledger cursor: pulsar.dedup\r\n\r\n```",
+        "issue_url": "https://github.com/apache/pulsar/issues/5669",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "area/function"
+        ],
+        "issue_closed_at": "2019-12-23T12:54:17.000Z",
+        "fix_commit_hash": "c635d08a448f7b2a4868bb6aefc13dd5f17000a1",
+        "commit_type": "pr",
+        "commit_message": "[Issue:5669] Fix the ledgerID not found cause NPE (#5809)\n\n## Motivation\r\nwhen ledgers.ceilingKey return a NULL value, we need to process the ledgerId is NUll case.\r\n\r\n## Modifications\r\nchange long ledgerId to Long ledgerId and check if ledgerId is NULL.",
+        "closer_url": "https://github.com/apache/pulsar/pull/5809",
+        "earliest_issue_date": "2019-11-15T07:33:14Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5681,
+        "issue_title": "Documentation java client example error",
+        "issue_body": "**Describe the bug**\r\njava client example error\r\nversion:2.4.1\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. Go to 'http://pulsar.apache.org/docs/en/client-libraries-java/'\r\n2. Scroll down to 'Subscription modes'\r\n\r\ncopy the example code \r\n```\r\nProducer<String> producer = client.newProducer(Schema.STRING)\r\n        .topic(\"my-topic\")\r\n        .enableBatch(false)\r\n        .create();\r\n// 3 messages with \"key-1\", 3 messages with \"key-2\", 2 messages with \"key-3\" and 2 messages with \"key-4\"\r\nproducer.newMessage().key(\"key-1\").value(\"message-1-1\").send();\r\nproducer.newMessage().key(\"key-1\").value(\"message-1-2\").send();\r\nproducer.newMessage().key(\"key-1\").value(\"message-1-3\").send();\r\nproducer.newMessage().key(\"key-2\").value(\"message-2-1\").send();\r\nproducer.newMessage().key(\"key-2\").value(\"message-2-2\").send();\r\nproducer.newMessage().key(\"key-2\").value(\"message-2-3\").send();\r\nproducer.newMessage().key(\"key-3\").value(\"message-3-1\").send();\r\nproducer.newMessage().key(\"key-3\").value(\"message-3-2\").send();\r\nproducer.newMessage().key(\"key-4\").value(\"message-4-1\").send();\r\nproducer.newMessage().key(\"key-4\").value(\"message-4-2\").send();\r\n```\r\n\r\ndisplay Cannot resolve method 'enableBatch(boolean)'.Maybe the methodName is enableBatching.\r\n\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5681",
+        "assignees": [
+            "huangdx0726"
+        ],
+        "labels": [
+            "type/bug",
+            "doc",
+            "area/cli"
+        ],
+        "issue_closed_at": "2019-11-19T07:27:55.000Z",
+        "fix_commit_hash": "dd9e669a179dd67b55b7d62f81a21e437a8656bb",
+        "commit_type": "pr",
+        "commit_message": "fix example code of java client (#5691)",
+        "closer_url": "https://github.com/apache/pulsar/pull/5691",
+        "earliest_issue_date": "2019-11-18T10:17:30Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5687,
+        "issue_title": "Failed to enable State API in K8s installation",
+        "issue_body": "**Describe the bug**\r\nCan't enable State API in a minikube-based installation of Pulsar, despite adding the appropriate property `extraServerComponents` to the values-mini.yaml in the bookkeeper.configData section.\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. Add the following line to values-mini.yaml under the bookkeeper.configData section:\r\n```yaml\r\nextraServerComponents: \"org.apache.bookkeeper.stream.server.StreamStorageLifecycleComponent\"\r\n```\r\n2. Launch pulsar cluster via helm (this is using the helm templates found in this repo):\r\n```\r\nhelm install . --values values-mini.yaml helm -n pulsar\r\n```\r\n3. When the K8s cluster is ready, check the configuration of the bookkeeper nodes and confirm that the `extraServerComponents` property in `conf/bookkeeper.conf` is not defined with the specified value.\r\n\r\n**Expected behavior**\r\nThat following the steps to reproduce the bookkeeper nodes would have this property defined.\r\n\r\n**Desktop (please complete the following information):**\r\n - OS: Ubuntu 18.04\r\n - Minikube (v1.4.0) deployment\r\n - Pulsar version v2.4.1\r\n\r\n**Additional context**\r\nI believe this issue is due to https://github.com/apache/pulsar/commits/master/docker/pulsar/scripts/apply-config-from-env.py which ignores commented lines, as such to fix this issue, the extraServerComponents property should not be commented but defined with a default empty value. \r\n\r\nThis issue is not limited to the aforementioned property only but to all properties that are commented out, as the setup/procedure to enable such features are not working for K8s deployments.\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5687",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "help wanted"
+        ],
+        "issue_closed_at": "2019-12-06T10:07:09.000Z",
+        "fix_commit_hash": "d74c1acb0227939279696704b14e078d4942407f",
+        "commit_type": "pr",
+        "commit_message": "[Issue:5687] Add prefix for new keys from Env (#5790)\n\nSigned-off-by: xiaolong.ran <rxl@apache.org>\r\n\r\nFixes #5687 \r\n\r\n### Motivation\r\n\r\nWhen the user wants to add new keys for Env, adding fails if no prefix is added. \r\n\r\nCurrently, add new keys for Env use the script of [apply-config-from-env.py](https://github.com/apache/pulsar/commits/master/docker/pulsar/scripts/apply-config-from-env.py), to ensure that the env set by the user can take effect, add the prefix(**PULSAR_PREFIX_**) for all keys.\r\n\r\n### Modifications\r\n\r\n- Add prefix for new keys from Env",
+        "closer_url": "https://github.com/apache/pulsar/pull/5790",
+        "earliest_issue_date": "2019-11-18T15:53:43Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5688,
+        "issue_title": "[Pulsar dashboard] dashboard docker image installs incorrect version of postgres",
+        "issue_body": "**Describe the bug**\r\nDocker image install postgres 11 instead of 9.6. This results in\r\n```\r\nStarting Pulsar dasboard\r\n+ /pulsar/init-postgres.sh\r\n+ rm -rf '/data/*'\r\n+ chown -R postgres: /data\r\n+ chmod 700 /data\r\n+ sudo -u postgres /usr/lib/postgresql/9.6/bin/initdb /data/\r\nsudo: /usr/lib/postgresql/9.6/bin/initdb: command not found\r\n```\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. Build dashboard docker image from master\r\n1. Run image\r\n\r\n**Expected behavior**\r\nDashboard running\r\n\r\n**Screenshots**\r\nIf applicable, add screenshots to help explain your problem.\r\n\r\n**Desktop (please complete the following information):**\r\n - OS: Docker\r\n\r\n**Additional context**\r\nAdd any other context about the problem here.\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5688",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2019-11-19T06:15:14.000Z",
+        "fix_commit_hash": "5d6b78ded1e2be0266af6e1e8e2885f90cce245e",
+        "commit_type": "pr",
+        "commit_message": "pin debian release (#5689)",
+        "closer_url": "https://github.com/apache/pulsar/pull/5689",
+        "earliest_issue_date": "2019-11-18T20:09:42Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5690,
+        "issue_title": "Elasticsearch 5.x Sink connector incompatible",
+        "issue_body": "**Describe the bug**\r\nWorks with ES 7.x version\r\nFails with ES 5.x version\r\n\r\nDidn't try other versions.\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. Configure and run ES Sink\r\n2. See error\r\n\r\n{\"error\":{\"root_cause\":[{\"type\":\"invalid_type_name_exception\",\"reason\":\"Document mapping type name can't start with '_', found: [_doc]\"}],\"type\":\"invalid_type_name_exception\",\"reason\":\"Document mapping type name can't start with '_', found: [_doc]\"},\"status\":400}\r\n                at org.elasticsearch.client.RestClient$SyncResponseListener.get(RestClient.java:705) ~[?:?]\r\n                at org.elasticsearch.client.RestClient.performRequest(RestClient.java:235) ~[?:?]\r\n                at org.elasticsearch.client.RestClient.performRequest(RestClient.java:198) ~[?:?]\r\n                at org.elasticsearch.client.RestHighLevelClient.performRequest(RestHighLevelClient.java:522) ~[?:?]\r\n                at org.elasticsearch.client.RestHighLevelClient.performRequestAndParseEntity(RestHighLevelClient.java:508) ~[?:?]\r\n                at org.elasticsearch.client.RestHighLevelClient.index(RestHighLevelClient.java:348) ~[?:?]\r\n                at org.apache.pulsar.io.elasticsearch.ElasticSearchSink.write(ElasticSearchSink.java:91) ~[?:?]\r\n                at org.apache.pulsar.functions.instance.JavaInstanceRunnable.sendOutputMessage(JavaInstanceRunnable.java:435) ~[org.apache.pulsar-pulsar-functions-instance-2.4.1.jar:?]\r\n                at org.apache.pulsar.functions.instance.JavaInstanceRunnable.processResult(JavaInstanceRunnable.java:418) ~[org.apache.pulsar-pulsar-functions-instance-2.4.1.jar:?]\r\n                at org.apache.pulsar.functions.instance.JavaInstanceRunnable.run(JavaInstanceRunnable.java:272) [org.apache.pulsar-pulsar-functions-instance-2.4.1.jar:?]\r\n                at java.lang.Thread.run(Thread.java:748) [?:1.8.0_212]\r\n        Caused by: org.elasticsearch.client.ResponseException: method [POST], host [http://135.91.35.218:9200], URI [/eventslist/_doc?timeout=1m], status line [HTTP/1.1 400 Bad Request]\r\n{\"error\":{\"root_cause\":[{\"type\":\"invalid_type_name_exception\",\"reason\":\"Document mapping type name can't start with '_', found: [_doc]\"}],\"type\":\"invalid_type_name_exception\",\"reason\":\"Document mapping type name can't start with '_', found: [_doc]\"},\"status\":400}\r\n\r\n\r\n**Expected behavior**\r\n\r\n**Screenshots**\r\n\r\n**Desktop (please complete the following information):**\r\n - OS: Ubuntu 16\r\n\r\n**Additional context**\r\n\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5690",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "help wanted",
+            "area/connector"
+        ],
+        "issue_closed_at": "2020-01-23T08:30:25.000Z",
+        "fix_commit_hash": "e23c6a8b2657d0db611c9c2bfd715a79aeb734b9",
+        "commit_type": "pr",
+        "commit_message": "[Issue 5690][pulsar-io] Make type name of Elasticsearch sink connector configurable. (#6028)\n\nFixes https://github.com/apache/pulsar/issues/5690\r\n\r\n### Motivation\r\n\r\nThe default type name cannot be compatible with Elasticsearch versions both before 6.2 and after 7.0, so this change makes it configurable.\r\n\r\n### Modifications\r\n\r\nMake type name configurable, and set the default value to \"_doc\" to make it compatible with Elasticsearch versions after 6.2 by default.\r\n\r\n### Verifying this change\r\n\r\nAdded unit tests and local integration tests.",
+        "closer_url": "https://github.com/apache/pulsar/pull/6028",
+        "earliest_issue_date": "2019-11-18T22:22:21Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5698,
+        "issue_title": "Geo replicator has ProducerBusyException",
+        "issue_body": "**Describe the bug**\r\nWe  replicate messages from Cluster A to Cluster B. The replicator failed when has exception.\r\n\r\n[2019-11-19 18:00:13]10.1.2.79\r\ncontent: 18:00:12.456 [pulsar-io-22-4] WARN org.apache.pulsar.broker.service.AbstractReplicator - [non-persistent://pxx/xx/ttt][pulsar-a -> pulsar-b] Failed to create remote producer (org.apache.pulsar.client.api.PulsarClientException$ProducerBusyException: Producer with name 'pulsar.repl.pulsar-a' is already connected to topic), retrying in 57.992 s\r\n\r\n\r\nwe use 2.4.1 .\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5698",
+        "assignees": [
+            "weishuisheng"
+        ],
+        "labels": [
+            "type/bug",
+            "release/2.4.3"
+        ],
+        "issue_closed_at": "2019-11-21T02:43:40.000Z",
+        "fix_commit_hash": "39f37c96bc2446440c66f35f197533f3eaa4a0cf",
+        "commit_type": "pr",
+        "commit_message": "[issues 5698]Handle replicator producer as generated name producer (#5701)\n\nFixes #5698\r\n\r\nMotivation\r\nSince #5571 handle the generated producer name, the replicator producer was created by broker, only one producer for a replicated topic.\r\n\r\nSo, we can handle it simple by considered replicator producer as generated name producer.",
+        "closer_url": "https://github.com/apache/pulsar/pull/5701",
+        "earliest_issue_date": "2019-11-19T10:26:06Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5708,
+        "issue_title": "[docs] Fix persistent and non-persistent docs",
+        "issue_body": "**Describe the bug**\r\nSome information in persistent and non-persistent topics duplicate, and some info are not correct. For example, wrong info at https://pulsar.apache.org/docs/en/admin-api-persistent-topics/#get-stats\r\n\r\n**Expected behavior**\r\nThe information should be consistent, clear and correct.\r\n\r\n**Screenshots**\r\n![image](https://user-images.githubusercontent.com/47805623/69232148-6dfd4880-0bc5-11ea-8adf-00f348d0e8fe.png)",
+        "issue_url": "https://github.com/apache/pulsar/issues/5708",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "help wanted",
+            "doc",
+            "area/admin"
+        ],
+        "issue_closed_at": "2019-12-12T05:48:57.000Z",
+        "fix_commit_hash": "c4a709181121334dc4a9f88716622211bb4b04e9",
+        "commit_type": "pr",
+        "commit_message": "[Issue 5708][docs] correct some wrong info about persistent topics (#5789)\n\n* [docs] Fix persistent topics\r\n\r\n* Update site2/docs/admin-api-persistent-topics.md\r\n\r\nCo-Authored-By: Anonymitaet <50226895+Anonymitaet@users.noreply.github.com>\r\n\r\n* Update site2/docs/admin-api-persistent-topics.md\r\n\r\nCo-Authored-By: Anonymitaet <50226895+Anonymitaet@users.noreply.github.com>\r\n\r\n* Update site2/docs/admin-api-persistent-topics.md\r\n\r\nCo-Authored-By: Anonymitaet <50226895+Anonymitaet@users.noreply.github.com>\r\n\r\n* Update site2/docs/admin-api-persistent-topics.md\r\n\r\nCo-Authored-By: Anonymitaet <50226895+Anonymitaet@users.noreply.github.com>\r\n\r\n* Update site2/docs/admin-api-persistent-topics.md\r\n\r\nCo-Authored-By: Anonymitaet <50226895+Anonymitaet@users.noreply.github.com>\r\n\r\n* Update site2/docs/admin-api-persistent-topics.md\r\n\r\nCo-Authored-By: Anonymitaet <50226895+Anonymitaet@users.noreply.github.com>",
+        "closer_url": "https://github.com/apache/pulsar/pull/5789",
+        "earliest_issue_date": "2019-11-20T10:43:07Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5726,
+        "issue_title": "Unhandled NoClassDefFoundError in SourceConfigUtils.java (and friends)",
+        "issue_body": "**Describe the bug**\r\n\r\nI am running a custom LocalRunner under the control of Gradle.\r\nThere is a problem in SourceConfigUtils::validate()\r\nWhen the jarClassLoader is used a ClassNotFoundException is caught.\r\nThe catch results in using the narClassLoader which would succeed. \r\nBut instead a  NoClassDefFoundError is produced for which there is no catch and consequently the narClassLoader is not used.\r\n\r\n**To Reproduce**\r\n\r\nIt is not entirely clear to me why NoClassDefFoundError is sometimes the thrown exception.\r\nThe issue is that it is not an unreasonable exception to expect when a classloader is\r\nunable to find a particular class.\r\n\r\n**Expected behavior**\r\n\r\nThe nar file does not have its sub-dependancies in the top level but in the bundled-dependencies.\r\nI expect it to not find the PushSource when read as a jar file and then process the file as a NAR.\r\nThe fact that the class is not found is as expected.\r\n\r\n**Operating Environment:**\r\n\r\n - run a variant of LocalRunner in a gradle task\r\n\r\n**Additional context**\r\n\r\nI have done some noodling around and have found that the narClassLoader would have succeeded had it been used.\r\nhttps://github.com/apache/pulsar/blob/413aa74ed68557284d6f4502456b3bef2dbd9618/pulsar-functions/utils/src/main/java/org/apache/pulsar/functions/utils/SourceConfigUtils.java#L282-L299\r\nThe following is a trivial (but repetitive) fix that has worked for  me.\r\n\r\n                try {\r\n                    typeArg = getSourceType(sourceClassName, jarClassLoader);\r\n                    classLoader = jarClassLoader;\r\n                } \r\n                catch (ClassNotFoundException e) {\r\n                    // class not found in JAR try loading as a NAR and searching for the class\r\n                    if (narClassLoader != null) {\r\n                        try {\r\n                            typeArg = getSourceType(sourceClassName, narClassLoader);\r\n                            classLoader = narClassLoader;\r\n                        } catch (ClassNotFoundException e1) {\r\n                            throw new IllegalArgumentException(\r\n                                    String.format(\"Source class %s must be in class path\", sourceClassName), e1);\r\n                        }\r\n                    } else {\r\n                        throw new IllegalArgumentException(\r\n                                String.format(\"Source class %s must be in class path\", sourceClassName), e);\r\n                    }\r\n               } \r\n               catch (NoClassDefFoundError e) {\r\n                    // class not found in JAR try loading as a NAR and searching for the class\r\n                    if (narClassLoader != null) {\r\n                        try {\r\n                            typeArg = getSourceType(sourceClassName, narClassLoader);\r\n                            classLoader = narClassLoader;\r\n                        } catch (ClassNotFoundException e1) {\r\n                            throw new IllegalArgumentException(\r\n                                    String.format(\"Source class %s must be in class path\", sourceClassName), e1);\r\n                        }\r\n                    } else {\r\n                        throw new IllegalArgumentException(\r\n                                String.format(\"Source class %s must be in class path\", sourceClassName), e);\r\n                    }\r\n                }\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5726",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "help wanted"
+        ],
+        "issue_closed_at": "2019-12-20T05:28:50.000Z",
+        "fix_commit_hash": "17e22d1eb19e763b2e89dfd5bdf0b7479653a3d9",
+        "commit_type": "pr",
+        "commit_message": "Added catch for NoClassDefFoundError wherever there was a ClassNotFoundException (#5870)\n\nFixes #5726 \r\n\r\n### Motivation\r\n\r\nWhen running pulsar-io connectors and functions from the Intellij IDE some actions fail\r\ndue to uncaught class-not-found throwables.\r\nThe expectation being that the class is being dynamically loaded and only the ClassNotFoundException will occur if the class is not found.\r\nWhen the function is created or run with https://pulsar.apache.org/docs/en/functions-deploying/#local-run-mode this is indeed the case.\r\nWhen running under the control https://pulsar.apache.org/docs/en/functions-debug/#debug-with-localrun-mode as a gradle plugin the class may already be known and throw a NoClassDefFoundError.\r\nIt seems to me that any time ClassNotFoundException is handled then NoClassDefFoundError should also be caught.\r\n\r\n### Modifications\r\n\r\nWherever there was a `catch (ClassNotFoundException ` I replaced it with \r\n`catch (ClassNotFoundException | NoClassDefFoundError ` .\r\nThere were multiple cases where the ClassNotFoundException were handled e.g. the jar loader failed so the nar loader was used to handle the jar loader's failure.",
+        "closer_url": "https://github.com/apache/pulsar/pull/5870",
+        "earliest_issue_date": "2019-11-22T22:46:29Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5728,
+        "issue_title": "[doc] Missing right Parentheses",
+        "issue_body": "**Describe the bug**\r\nMissing right Parentheses \r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. Go to 'http://pulsar.apache.org/docs/en/concepts-messaging/'\r\n2. Click on 'Messaging'\r\n3. Scroll down to 'Producers>Send modes'\r\n4. See error\r\n![\u56fe\u7247](https://user-images.githubusercontent.com/29513837/69471843-f571d400-0dde-11ea-932b-cefdd98d2f91.png)\r\n\r\n\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5728",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "doc"
+        ],
+        "issue_closed_at": "2019-11-26T07:08:10.000Z",
+        "fix_commit_hash": "de2ff6b121de740635d89360e03899a99b41e34f",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Add right parenthesis for \"(max size configurable\" (#5744)\n\nResolved issue #5728",
+        "closer_url": null,
+        "earliest_issue_date": "2019-11-23T02:50:14Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5729,
+        "issue_title": "[doc] Picture and text are not match ",
+        "issue_body": "**Describe the bug**\r\nPicture and text are not match.\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. Go to 'http://pulsar.apache.org/docs/en/concepts-messaging/'\r\n2. Click on 'Messaging'\r\n3. Scroll down to 'Subscription modes > Exclusive'\r\n4. See error\r\n\r\n**Expected behavior**\r\n\r\nMay be the Consumer-A  should be Consumer A-0.\r\n\r\n**Screenshots**\r\n![\u56fe\u7247](https://user-images.githubusercontent.com/29513837/69472688-40441980-0de8-11ea-8d0c-0a8d98de4d36.png)\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5729",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "doc"
+        ],
+        "issue_closed_at": "2019-11-27T18:38:40.000Z",
+        "fix_commit_hash": "531aab0cd297cc91c613d0fd53a8820cfe60d6da",
+        "commit_type": "pr",
+        "commit_message": "[Issue 5729]Picture and text are not match (#5737)\n\n\r\nFixes #5729 \r\n\r\n### Motivation\r\n\r\nPicture and text are not match.\r\n\r\n### Modifications\r\nchanged the ```Consumer-A``` to ```Consumer A-0```",
+        "closer_url": "https://github.com/apache/pulsar/pull/5737",
+        "earliest_issue_date": "2019-11-23T03:58:17Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5746,
+        "issue_title": "NPE occur when send an over size message.",
+        "issue_body": "**Describe the bug**\r\nHere is the error log:\r\n```\r\n16:19:13.850 [main:org.apache.pulsar.client.impl.ProducerImpl@1439] WARN  org.apache.pulsar.client.impl.ProducerImpl - [persistent://prop/ns-abc/testSendOverSizeMessage-623833fc-d9f7-4b28-aead-27955928fae9] [test-0-0] error while create opSendMsg by batch message container\r\njava.lang.NullPointerException: null\r\n\tat org.apache.pulsar.client.impl.ProducerImpl.releaseSemaphoreForSendOp(ProducerImpl.java:858) ~[classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerImpl.processOpSendMsg(ProducerImpl.java:1477) ~[classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerImpl.batchMessageAndSend(ProducerImpl.java:1432) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerImpl.triggerFlush(ProducerImpl.java:1411) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerBase.send(ProducerBase.java:112) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.TypedMessageBuilderImpl.send(TypedMessageBuilderImpl.java:89) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerBase.send(ProducerBase.java:63) [classes/:?]\r\n\tat org.apache.pulsar.broker.service.BatchMessageTest.testSendOverSizeMessage(BatchMessageTest.java:875) [test-classes/:?]\r\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method) ~[?:1.8.0_201]\r\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62) ~[?:1.8.0_201]\r\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43) ~[?:1.8.0_201]\r\n\tat java.lang.reflect.Method.invoke(Method.java:498) ~[?:1.8.0_201]\r\n\tat org.testng.internal.MethodInvocationHelper.invokeMethod(MethodInvocationHelper.java:124) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.Invoker.invokeMethod(Invoker.java:583) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.Invoker.invokeTestMethod(Invoker.java:719) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.Invoker.invokeTestMethods(Invoker.java:989) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.TestMethodWorker.invokeTestMethods(TestMethodWorker.java:125) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.TestMethodWorker.run(TestMethodWorker.java:109) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestRunner.privateRun(TestRunner.java:648) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestRunner.run(TestRunner.java:505) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.runTest(SuiteRunner.java:455) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.runSequentially(SuiteRunner.java:450) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.privateRun(SuiteRunner.java:415) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.run(SuiteRunner.java:364) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunnerWorker.runSuite(SuiteRunnerWorker.java:52) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunnerWorker.run(SuiteRunnerWorker.java:84) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.runSuitesSequentially(TestNG.java:1208) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.runSuitesLocally(TestNG.java:1137) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.runSuites(TestNG.java:1049) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.run(TestNG.java:1017) [testng-6.14.3.jar:?]\r\n\tat org.testng.IDEARemoteTestNG.run(IDEARemoteTestNG.java:73) [testng-plugin.jar:?]\r\n\tat org.testng.RemoteTestNGStarter.main(RemoteTestNGStarter.java:123) [testng-plugin.jar:?]\r\n```\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. Send a message which over than 5MB\r\n2. check the client log\r\n3. See error\r\n\r\n**Expected behavior**\r\nAdd check not null when process send message op\r\n\r\n**Additional context**\r\nHappens in master branch\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5746",
+        "assignees": [
+            "codelipenghui"
+        ],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2019-11-28T22:38:24.000Z",
+        "fix_commit_hash": "ecf779210c31d1051f9cd2c823a1a7d078cdfd75",
+        "commit_type": "pr",
+        "commit_message": "Fix NPE when send a large message and don't release batchedMessageMetadataAndPayload when discard in batch message container. (#5748)\n\nFixes #5746 #5747\r\n\r\n### Motivation\r\n\r\nFix NPE and release an already released ByteBuf when publish an oversize message.\r\n\r\nHere is error log:\r\n```\r\nio.netty.util.IllegalReferenceCountException: refCnt: 0, decrement: 1\r\n\tat io.netty.util.internal.ReferenceCountUpdater.toLiveRealRefCnt(ReferenceCountUpdater.java:74) ~[netty-common-4.1.43.Final.jar:4.1.43.Final]\r\n\tat io.netty.util.internal.ReferenceCountUpdater.release(ReferenceCountUpdater.java:138) ~[netty-common-4.1.43.Final.jar:4.1.43.Final]\r\n\tat io.netty.buffer.AbstractReferenceCountedByteBuf.release(AbstractReferenceCountedByteBuf.java:100) ~[netty-buffer-4.1.43.Final.jar:4.1.43.Final]\r\n\tat io.netty.util.ReferenceCountUtil.release(ReferenceCountUtil.java:88) ~[netty-common-4.1.43.Final.jar:4.1.43.Final]\r\n\tat io.netty.util.ReferenceCountUtil.safeRelease(ReferenceCountUtil.java:113) [netty-common-4.1.43.Final.jar:4.1.43.Final]\r\n\tat org.apache.pulsar.client.impl.BatchMessageKeyBasedContainer$KeyedBatch.discard(BatchMessageKeyBasedContainer.java:244) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.BatchMessageKeyBasedContainer.createOpSendMsg(BatchMessageKeyBasedContainer.java:125) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.BatchMessageKeyBasedContainer.createOpSendMsgs(BatchMessageKeyBasedContainer.java:145) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerImpl.batchMessageAndSend(ProducerImpl.java:1426) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerImpl.triggerFlush(ProducerImpl.java:1411) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerBase.send(ProducerBase.java:112) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.TypedMessageBuilderImpl.send(TypedMessageBuilderImpl.java:89) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerBase.send(ProducerBase.java:63) [classes/:?]\r\n\tat org.apache.pulsar.broker.service.BatchMessageTest.testSendOverSizeMessage(BatchMessageTest.java:875) [test-classes/:?]\r\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method) ~[?:1.8.0_201]\r\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62) ~[?:1.8.0_201]\r\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43) ~[?:1.8.0_201]\r\n\tat java.lang.reflect.Method.invoke(Method.java:498) ~[?:1.8.0_201]\r\n\tat org.testng.internal.MethodInvocationHelper.invokeMethod(MethodInvocationHelper.java:124) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.Invoker.invokeMethod(Invoker.java:583) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.Invoker.invokeTestMethod(Invoker.java:719) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.Invoker.invokeTestMethods(Invoker.java:989) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.TestMethodWorker.invokeTestMethods(TestMethodWorker.java:125) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.TestMethodWorker.run(TestMethodWorker.java:109) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestRunner.privateRun(TestRunner.java:648) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestRunner.run(TestRunner.java:505) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.runTest(SuiteRunner.java:455) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.runSequentially(SuiteRunner.java:450) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.privateRun(SuiteRunner.java:415) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.run(SuiteRunner.java:364) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunnerWorker.runSuite(SuiteRunnerWorker.java:52) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunnerWorker.run(SuiteRunnerWorker.java:84) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.runSuitesSequentially(TestNG.java:1208) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.runSuitesLocally(TestNG.java:1137) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.runSuites(TestNG.java:1049) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.run(TestNG.java:1017) [testng-6.14.3.jar:?]\r\n\tat org.testng.IDEARemoteTestNG.run(IDEARemoteTestNG.java:73) [testng-plugin.jar:?]\r\n\tat org.testng.RemoteTestNGStarter.main(RemoteTestNGStarter.java:123) [testng-plugin.jar:?]\r\n\r\n\r\n\r\n16:19:13.850 [main:org.apache.pulsar.client.impl.ProducerImpl@1439] WARN  org.apache.pulsar.client.impl.ProducerImpl - [persistent://prop/ns-abc/testSendOverSizeMessage-623833fc-d9f7-4b28-aead-27955928fae9] [test-0-0] error while create opSendMsg by batch message container\r\njava.lang.NullPointerException: null\r\n\tat org.apache.pulsar.client.impl.ProducerImpl.releaseSemaphoreForSendOp(ProducerImpl.java:858) ~[classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerImpl.processOpSendMsg(ProducerImpl.java:1477) ~[classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerImpl.batchMessageAndSend(ProducerImpl.java:1432) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerImpl.triggerFlush(ProducerImpl.java:1411) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerBase.send(ProducerBase.java:112) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.TypedMessageBuilderImpl.send(TypedMessageBuilderImpl.java:89) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerBase.send(ProducerBase.java:63) [classes/:?]\r\n\tat org.apache.pulsar.broker.service.BatchMessageTest.testSendOverSizeMessage(BatchMessageTest.java:875) [test-classes/:?]\r\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method) ~[?:1.8.0_201]\r\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62) ~[?:1.8.0_201]\r\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43) ~[?:1.8.0_201]\r\n\tat java.lang.reflect.Method.invoke(Method.java:498) ~[?:1.8.0_201]\r\n\tat org.testng.internal.MethodInvocationHelper.invokeMethod(MethodInvocationHelper.java:124) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.Invoker.invokeMethod(Invoker.java:583) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.Invoker.invokeTestMethod(Invoker.java:719) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.Invoker.invokeTestMethods(Invoker.java:989) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.TestMethodWorker.invokeTestMethods(TestMethodWorker.java:125) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.TestMethodWorker.run(TestMethodWorker.java:109) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestRunner.privateRun(TestRunner.java:648) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestRunner.run(TestRunner.java:505) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.runTest(SuiteRunner.java:455) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.runSequentially(SuiteRunner.java:450) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.privateRun(SuiteRunner.java:415) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.run(SuiteRunner.java:364) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunnerWorker.runSuite(SuiteRunnerWorker.java:52) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunnerWorker.run(SuiteRunnerWorker.java:84) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.runSuitesSequentially(TestNG.java:1208) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.runSuitesLocally(TestNG.java:1137) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.runSuites(TestNG.java:1049) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.run(TestNG.java:1017) [testng-6.14.3.jar:?]\r\n\tat org.testng.IDEARemoteTestNG.run(IDEARemoteTestNG.java:73) [testng-plugin.jar:?]\r\n\tat org.testng.RemoteTestNGStarter.main(RemoteTestNGStarter.java:123) [testng-plugin.jar:?]\r\n```\r\n\r\n### Modifications\r\n\r\nAdd check for processOpSendMsg, if the op is null, just return.\r\nDon't release the batchedMessageMetadataAndPayload since it is already released in getCompressedBatchMetadataAndPayload() method.",
+        "closer_url": "https://github.com/apache/pulsar/pull/5748",
+        "earliest_issue_date": "2019-11-26T08:48:46Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5747,
+        "issue_title": "Release ByteBuf failed when send a over size message in message batch container",
+        "issue_body": "**Describe the bug**\r\nHere is the error log when publish a over size message:\r\n```\r\nio.netty.util.IllegalReferenceCountException: refCnt: 0, decrement: 1\r\n\tat io.netty.util.internal.ReferenceCountUpdater.toLiveRealRefCnt(ReferenceCountUpdater.java:74) ~[netty-common-4.1.43.Final.jar:4.1.43.Final]\r\n\tat io.netty.util.internal.ReferenceCountUpdater.release(ReferenceCountUpdater.java:138) ~[netty-common-4.1.43.Final.jar:4.1.43.Final]\r\n\tat io.netty.buffer.AbstractReferenceCountedByteBuf.release(AbstractReferenceCountedByteBuf.java:100) ~[netty-buffer-4.1.43.Final.jar:4.1.43.Final]\r\n\tat io.netty.util.ReferenceCountUtil.release(ReferenceCountUtil.java:88) ~[netty-common-4.1.43.Final.jar:4.1.43.Final]\r\n\tat io.netty.util.ReferenceCountUtil.safeRelease(ReferenceCountUtil.java:113) [netty-common-4.1.43.Final.jar:4.1.43.Final]\r\n\tat org.apache.pulsar.client.impl.BatchMessageKeyBasedContainer$KeyedBatch.discard(BatchMessageKeyBasedContainer.java:244) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.BatchMessageKeyBasedContainer.createOpSendMsg(BatchMessageKeyBasedContainer.java:125) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.BatchMessageKeyBasedContainer.createOpSendMsgs(BatchMessageKeyBasedContainer.java:145) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerImpl.batchMessageAndSend(ProducerImpl.java:1426) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerImpl.triggerFlush(ProducerImpl.java:1411) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerBase.send(ProducerBase.java:112) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.TypedMessageBuilderImpl.send(TypedMessageBuilderImpl.java:89) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerBase.send(ProducerBase.java:63) [classes/:?]\r\n\tat org.apache.pulsar.broker.service.BatchMessageTest.testSendOverSizeMessage(BatchMessageTest.java:875) [test-classes/:?]\r\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method) ~[?:1.8.0_201]\r\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62) ~[?:1.8.0_201]\r\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43) ~[?:1.8.0_201]\r\n\tat java.lang.reflect.Method.invoke(Method.java:498) ~[?:1.8.0_201]\r\n\tat org.testng.internal.MethodInvocationHelper.invokeMethod(MethodInvocationHelper.java:124) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.Invoker.invokeMethod(Invoker.java:583) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.Invoker.invokeTestMethod(Invoker.java:719) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.Invoker.invokeTestMethods(Invoker.java:989) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.TestMethodWorker.invokeTestMethods(TestMethodWorker.java:125) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.TestMethodWorker.run(TestMethodWorker.java:109) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestRunner.privateRun(TestRunner.java:648) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestRunner.run(TestRunner.java:505) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.runTest(SuiteRunner.java:455) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.runSequentially(SuiteRunner.java:450) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.privateRun(SuiteRunner.java:415) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.run(SuiteRunner.java:364) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunnerWorker.runSuite(SuiteRunnerWorker.java:52) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunnerWorker.run(SuiteRunnerWorker.java:84) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.runSuitesSequentially(TestNG.java:1208) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.runSuitesLocally(TestNG.java:1137) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.runSuites(TestNG.java:1049) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.run(TestNG.java:1017) [testng-6.14.3.jar:?]\r\n\tat org.testng.IDEARemoteTestNG.run(IDEARemoteTestNG.java:73) [testng-plugin.jar:?]\r\n\tat org.testng.RemoteTestNGStarter.main(RemoteTestNGStarter.java:123) [testng-plugin.jar:?]\r\n```\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. Send a message which over than 5MB\r\n2. check the client log\r\n3. See error\r\n\r\n**Expected behavior**\r\nDon't release the ByteBuf since it is already released\r\n\r\n**Additional context**\r\nin master branch\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5747",
+        "assignees": [
+            "codelipenghui"
+        ],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2019-11-29T11:02:11.000Z",
+        "fix_commit_hash": "ecf779210c31d1051f9cd2c823a1a7d078cdfd75",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Fix NPE when send a large message and don't release batchedMessageMetadataAndPayload when discard in batch message container. (#5748)\n\nFixes #5746 #5747\r\n\r\n### Motivation\r\n\r\nFix NPE and release an already released ByteBuf when publish an oversize message.\r\n\r\nHere is error log:\r\n```\r\nio.netty.util.IllegalReferenceCountException: refCnt: 0, decrement: 1\r\n\tat io.netty.util.internal.ReferenceCountUpdater.toLiveRealRefCnt(ReferenceCountUpdater.java:74) ~[netty-common-4.1.43.Final.jar:4.1.43.Final]\r\n\tat io.netty.util.internal.ReferenceCountUpdater.release(ReferenceCountUpdater.java:138) ~[netty-common-4.1.43.Final.jar:4.1.43.Final]\r\n\tat io.netty.buffer.AbstractReferenceCountedByteBuf.release(AbstractReferenceCountedByteBuf.java:100) ~[netty-buffer-4.1.43.Final.jar:4.1.43.Final]\r\n\tat io.netty.util.ReferenceCountUtil.release(ReferenceCountUtil.java:88) ~[netty-common-4.1.43.Final.jar:4.1.43.Final]\r\n\tat io.netty.util.ReferenceCountUtil.safeRelease(ReferenceCountUtil.java:113) [netty-common-4.1.43.Final.jar:4.1.43.Final]\r\n\tat org.apache.pulsar.client.impl.BatchMessageKeyBasedContainer$KeyedBatch.discard(BatchMessageKeyBasedContainer.java:244) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.BatchMessageKeyBasedContainer.createOpSendMsg(BatchMessageKeyBasedContainer.java:125) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.BatchMessageKeyBasedContainer.createOpSendMsgs(BatchMessageKeyBasedContainer.java:145) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerImpl.batchMessageAndSend(ProducerImpl.java:1426) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerImpl.triggerFlush(ProducerImpl.java:1411) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerBase.send(ProducerBase.java:112) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.TypedMessageBuilderImpl.send(TypedMessageBuilderImpl.java:89) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerBase.send(ProducerBase.java:63) [classes/:?]\r\n\tat org.apache.pulsar.broker.service.BatchMessageTest.testSendOverSizeMessage(BatchMessageTest.java:875) [test-classes/:?]\r\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method) ~[?:1.8.0_201]\r\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62) ~[?:1.8.0_201]\r\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43) ~[?:1.8.0_201]\r\n\tat java.lang.reflect.Method.invoke(Method.java:498) ~[?:1.8.0_201]\r\n\tat org.testng.internal.MethodInvocationHelper.invokeMethod(MethodInvocationHelper.java:124) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.Invoker.invokeMethod(Invoker.java:583) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.Invoker.invokeTestMethod(Invoker.java:719) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.Invoker.invokeTestMethods(Invoker.java:989) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.TestMethodWorker.invokeTestMethods(TestMethodWorker.java:125) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.TestMethodWorker.run(TestMethodWorker.java:109) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestRunner.privateRun(TestRunner.java:648) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestRunner.run(TestRunner.java:505) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.runTest(SuiteRunner.java:455) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.runSequentially(SuiteRunner.java:450) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.privateRun(SuiteRunner.java:415) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.run(SuiteRunner.java:364) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunnerWorker.runSuite(SuiteRunnerWorker.java:52) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunnerWorker.run(SuiteRunnerWorker.java:84) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.runSuitesSequentially(TestNG.java:1208) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.runSuitesLocally(TestNG.java:1137) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.runSuites(TestNG.java:1049) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.run(TestNG.java:1017) [testng-6.14.3.jar:?]\r\n\tat org.testng.IDEARemoteTestNG.run(IDEARemoteTestNG.java:73) [testng-plugin.jar:?]\r\n\tat org.testng.RemoteTestNGStarter.main(RemoteTestNGStarter.java:123) [testng-plugin.jar:?]\r\n\r\n\r\n\r\n16:19:13.850 [main:org.apache.pulsar.client.impl.ProducerImpl@1439] WARN  org.apache.pulsar.client.impl.ProducerImpl - [persistent://prop/ns-abc/testSendOverSizeMessage-623833fc-d9f7-4b28-aead-27955928fae9] [test-0-0] error while create opSendMsg by batch message container\r\njava.lang.NullPointerException: null\r\n\tat org.apache.pulsar.client.impl.ProducerImpl.releaseSemaphoreForSendOp(ProducerImpl.java:858) ~[classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerImpl.processOpSendMsg(ProducerImpl.java:1477) ~[classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerImpl.batchMessageAndSend(ProducerImpl.java:1432) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerImpl.triggerFlush(ProducerImpl.java:1411) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerBase.send(ProducerBase.java:112) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.TypedMessageBuilderImpl.send(TypedMessageBuilderImpl.java:89) [classes/:?]\r\n\tat org.apache.pulsar.client.impl.ProducerBase.send(ProducerBase.java:63) [classes/:?]\r\n\tat org.apache.pulsar.broker.service.BatchMessageTest.testSendOverSizeMessage(BatchMessageTest.java:875) [test-classes/:?]\r\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method) ~[?:1.8.0_201]\r\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62) ~[?:1.8.0_201]\r\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43) ~[?:1.8.0_201]\r\n\tat java.lang.reflect.Method.invoke(Method.java:498) ~[?:1.8.0_201]\r\n\tat org.testng.internal.MethodInvocationHelper.invokeMethod(MethodInvocationHelper.java:124) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.Invoker.invokeMethod(Invoker.java:583) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.Invoker.invokeTestMethod(Invoker.java:719) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.Invoker.invokeTestMethods(Invoker.java:989) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.TestMethodWorker.invokeTestMethods(TestMethodWorker.java:125) [testng-6.14.3.jar:?]\r\n\tat org.testng.internal.TestMethodWorker.run(TestMethodWorker.java:109) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestRunner.privateRun(TestRunner.java:648) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestRunner.run(TestRunner.java:505) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.runTest(SuiteRunner.java:455) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.runSequentially(SuiteRunner.java:450) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.privateRun(SuiteRunner.java:415) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunner.run(SuiteRunner.java:364) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunnerWorker.runSuite(SuiteRunnerWorker.java:52) [testng-6.14.3.jar:?]\r\n\tat org.testng.SuiteRunnerWorker.run(SuiteRunnerWorker.java:84) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.runSuitesSequentially(TestNG.java:1208) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.runSuitesLocally(TestNG.java:1137) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.runSuites(TestNG.java:1049) [testng-6.14.3.jar:?]\r\n\tat org.testng.TestNG.run(TestNG.java:1017) [testng-6.14.3.jar:?]\r\n\tat org.testng.IDEARemoteTestNG.run(IDEARemoteTestNG.java:73) [testng-plugin.jar:?]\r\n\tat org.testng.RemoteTestNGStarter.main(RemoteTestNGStarter.java:123) [testng-plugin.jar:?]\r\n```\r\n\r\n### Modifications\r\n\r\nAdd check for processOpSendMsg, if the op is null, just return.\r\nDon't release the batchedMessageMetadataAndPayload since it is already released in getCompressedBatchMetadataAndPayload() method.",
+        "closer_url": null,
+        "earliest_issue_date": "2019-11-26T08:53:55Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5753,
+        "issue_title": "[Doc] link for  TLS Authentication on Proxies is dead",
+        "issue_body": "Expected behavior\r\nShow a page / Enabling TLS Authentication on Proxies \r\nActual behavior\r\n404\r\nSteps to reproduce\r\n1\u3001Open https://pulsar.apache.org/docs/zh-CN/security-authorization/\r\n2\u3001Click a link for  Enabling TLS Authentication on Proxies",
+        "issue_url": "https://github.com/apache/pulsar/issues/5753",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "doc"
+        ],
+        "issue_closed_at": "2019-12-01T16:47:21.000Z",
+        "fix_commit_hash": "f0df25308d274cd9358a4bf9195aa4f0244f4d9c",
+        "commit_type": "pr",
+        "commit_message": "[docs] Fix link issue for \"Authentication and authorization in Pulsar\"  (#5771)\n\n* Fixes the dead link\r\n\r\nchanged to: \r\nsee [\"Enabling TLS Authentication on Proxies\"](security-tls-authentication.md#enable-tls-authentication-on-proxies)",
+        "closer_url": "https://github.com/apache/pulsar/pull/5771",
+        "earliest_issue_date": "2019-11-26T13:07:02Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5755,
+        "issue_title": "UnAckedMessages admin information not correct",
+        "issue_body": "We are trying to test UnAck message redelivery function. \r\n\r\nVersion: 2.4.1 standalone\r\n\r\n\r\n**Describe the bug**\r\nWe use pulsar admin CLI to check topic stats. The unackedMessages field number is negative which makes no sense to me.\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. Set \"maxUnackedMessagesPerConsumer\" to be 0 (Non 0 value won't trigger this bug) \r\n2. Start pulsar(standalone)\r\n3. Use java pulsar client to create topic and subscription.\r\n4. Utilize java pulsar client to produce 100000 messages.\r\n5. Start a consumer to consume messages, acknowledge 1 message for every 1000 messages.\r\n\r\n**Expected behavior**\r\n![image](https://user-images.githubusercontent.com/6291739/69706066-e322cd80-1131-11ea-8e11-a69bec77d92d.png)\r\n\r\n**Practice behavior**\r\n![image](https://user-images.githubusercontent.com/6291739/69706109-fa61bb00-1131-11ea-9819-4844b4a29247.png)\r\nIt is clear that the unackedMessages is a negative number.\r\n\r\n**Desktop (please complete the following information):**\r\n - OS: Mac OS 10.14.6\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5755",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "help wanted"
+        ],
+        "issue_closed_at": "2020-01-06T04:01:09.000Z",
+        "fix_commit_hash": "9d948600af665f13b1ae3a7ee5a24b1136aabbcc",
+        "commit_type": "pr",
+        "commit_message": "Fix negative un-ack messages in consumer stats (#5929)\n\nFixes #5755\r\n\r\n### Motivation\r\n\r\nFix negative un-ack messages in consumer stats while set maxUnackedMessagesPerConsumer=0\r\n\r\n### Verifying this change\r\n\r\nAdded unit test",
+        "closer_url": "https://github.com/apache/pulsar/pull/5929",
+        "earliest_issue_date": "2019-11-27T10:24:21Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5759,
+        "issue_title": "Inactive non-persistent subscriptions not purged",
+        "issue_body": "**Describe the bug**\r\n\r\nI have set up a cluster with brokers that only serve non-persistent topics. Furthermore, I have set the topic/subscription purge intervals/frequencies to low values to satisfy the use case I am focused on. However I am not seeing topics get cleaned up due to inactivity.\r\n\r\nIn the original pull request (1352) by @yush1ga  that implemented the inactive subscription purge feature the checkInactiveSubscriptions method was not implemented for NonPersistent topics:\r\nhttps://github.com/apache/pulsar/pull/1352/files#diff-48abd445bf0d38e83cc8966f765f6615\r\n\r\nIsn't the side effect of this that unused subscriptions will never be cleared on non-persistent topics? In turn this prevents the broker from purging the topic as inactive if there are also no producers?\r\n\r\nIs this correct?\r\n\r\nMy concern is that in an environment where I need lots of short-lived (read: ephemeral) non-persistent topics I will accumulate topic metadata as older topics are abandoned but never fully cleaned up...\r\n\r\n**Expected behavior**\r\n\r\nI would expect that the subscription inactivity and topic inactivity settings would apply to non-persistent topics as well.\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5759",
+        "assignees": [
+            "315157973"
+        ],
+        "labels": [
+            "type/bug",
+            "help wanted",
+            "release/2.6.2"
+        ],
+        "issue_closed_at": "2020-10-05T22:30:06.000Z",
+        "fix_commit_hash": "6711b71a5e973d7cc663f7fa7bf92122df6914ad",
+        "commit_type": "pr",
+        "commit_message": "[ISSUE #5759] Clean inactive non-persistent subscriptions (#8166)\n\nFixes #5759\r\n\r\n### Motivation\r\nunused subscriptions will never be cleared on non-persistent topics\r\n\r\n### Modifications\r\nAdd the `lastActive` attribute for non-persistent subscriptions. In the `checkInactiveSubscriptions` method of `NonPersistentTopic`, eligible subscriptions will be cleaned up\r\n\r\n### Verifying this change\r\norg.apache.pulsar.client.api.NonDurableSubscriptionTest#testDeleteInactiveNonPersistentSubscription",
+        "closer_url": "https://github.com/apache/pulsar/pull/8166",
+        "earliest_issue_date": "2019-11-27T16:56:12Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5760,
+        "issue_title": "IndexOutOfBoundsException in PerformanceProducer",
+        "issue_body": "**Describe the bug**\r\nHere is the error log:\r\n```\r\n00:04:50.603 [pulsar-client-io-2-22] WARN  org.apache.pulsar.testclient.PerformanceProducer - Write error on message\r\njava.util.concurrent.CompletionException: java.lang.ArrayIndexOutOfBoundsException: value outside of histogram covered range. Caused by: java.lang.IndexOutOfBoundsException: index 1442458\r\n\tat java.util.concurrent.CompletableFuture.encodeThrowable(CompletableFuture.java:273) ~[?:1.8.0_181]\r\n\tat java.util.concurrent.CompletableFuture.completeThrowable(CompletableFuture.java:280) ~[?:1.8.0_181]\r\n\tat java.util.concurrent.CompletableFuture.uniRun(CompletableFuture.java:708) ~[?:1.8.0_181]\r\n\tat java.util.concurrent.CompletableFuture$UniRun.tryFire(CompletableFuture.java:687) ~[?:1.8.0_181]\r\n\tat java.util.concurrent.CompletableFuture.postComplete(CompletableFuture.java:474) [?:1.8.0_181]\r\n\tat java.util.concurrent.CompletableFuture.complete(CompletableFuture.java:1962) [?:1.8.0_181]\r\n\tat org.apache.pulsar.client.impl.ProducerImpl$1.sendComplete(ProducerImpl.java:253) [org.apache.pulsar-pulsar-client-original-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat org.apache.pulsar.client.impl.ProducerImpl.ackReceived(ProducerImpl.java:714) [org.apache.pulsar-pulsar-client-original-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat org.apache.pulsar.client.impl.ClientCnx.handleSendReceipt(ClientCnx.java:363) [org.apache.pulsar-pulsar-client-original-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat org.apache.pulsar.common.protocol.PulsarDecoder.channelRead(PulsarDecoder.java:208) [org.apache.pulsar-pulsar-common-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:362) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:348) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.fireChannelRead(AbstractChannelHandlerContext.java:340) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.handler.codec.ByteToMessageDecoder.fireChannelRead(ByteToMessageDecoder.java:323) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.handler.codec.ByteToMessageDecoder.fireChannelRead(ByteToMessageDecoder.java:310) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.handler.codec.ByteToMessageDecoder.callDecode(ByteToMessageDecoder.java:426) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.handler.codec.ByteToMessageDecoder.channelRead(ByteToMessageDecoder.java:278) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:362) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:348) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.fireChannelRead(AbstractChannelHandlerContext.java:340) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.DefaultChannelPipeline$HeadContext.channelRead(DefaultChannelPipeline.java:1434) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:362) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:348) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.DefaultChannelPipeline.fireChannelRead(DefaultChannelPipeline.java:965) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.epoll.AbstractEpollStreamChannel$EpollStreamUnsafe.epollInReady(AbstractEpollStreamChannel.java:799) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.epoll.EpollEventLoop.processReady(EpollEventLoop.java:433) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.epoll.EpollEventLoop.run(EpollEventLoop.java:330) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.util.concurrent.SingleThreadEventExecutor$5.run(SingleThreadEventExecutor.java:909) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat java.lang.Thread.run(Thread.java:748) [?:1.8.0_181]\r\nCaused by: java.lang.ArrayIndexOutOfBoundsException: value outside of histogram covered range. Caused by: java.lang.IndexOutOfBoundsException: index 1442458\r\n\tat org.HdrHistogram.AbstractHistogram.handleRecordException(AbstractHistogram.java:492) ~[org.hdrhistogram-HdrHistogram-2.1.9.jar:2.1.9]\r\n\tat org.HdrHistogram.AbstractHistogram.recordSingleValue(AbstractHistogram.java:484) ~[org.hdrhistogram-HdrHistogram-2.1.9.jar:2.1.9]\r\n\tat org.HdrHistogram.AbstractHistogram.recordValue(AbstractHistogram.java:397) ~[org.hdrhistogram-HdrHistogram-2.1.9.jar:2.1.9]\r\n\tat org.HdrHistogram.Recorder.recordValue(Recorder.java:100) ~[org.hdrhistogram-HdrHistogram-2.1.9.jar:2.1.9]\r\n\tat org.apache.pulsar.testclient.PerformanceProducer.lambda$runProducer$2(PerformanceProducer.java:495) ~[org.apache.pulsar-pulsar-testclient-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat java.util.concurrent.CompletableFuture.uniRun(CompletableFuture.java:705) ~[?:1.8.0_181]\r\n\t... 27 more\r\n```\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. Use pulsar-perf to run long times(e.g. 8 hours)\r\n2. Can see the above error log\r\n3. The pulsar-perf will exit\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5760",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2019-12-07T09:05:29.000Z",
+        "fix_commit_hash": "54ec19423883e6c1ab3db828ab13ef92aba511a5",
+        "commit_type": "pr",
+        "commit_message": "Fix ArrayIndexOutOfBoundsException in PerformanceProducer. (#5786)\n\nFixes #5760\r\n\r\n### Motivation\r\n\r\nWe use `org.HdrHistogram.Recorder` to record write latency and `highestTrackableValue` is `TimeUnit.SECONDS.toMicros(120000)`, but we record the value in micros, the error happens when the latency in micros is a very large number, so this PR change the `highestTrackableValue` of Recorder to `TimeUnit.SECONDS.toMicros(120000)`",
+        "closer_url": "https://github.com/apache/pulsar/pull/5786",
+        "earliest_issue_date": "2019-11-28T02:25:33Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5763,
+        "issue_title": "Broker graceful shutdown when znode of loadbalance disappeared",
+        "issue_body": "**Describe the bug**\r\n```\r\n00:03:35.345 [pulsar-load-manager-4-1] WARN  org.apache.pulsar.broker.loadbalance.impl.ModularLoadManagerImpl - Error writing broker data on ZooKeeper: {}\r\norg.apache.zookeeper.KeeperException$NoNodeException: KeeperErrorCode = NoNode for /loadbalance/brokers/172.30.92.32:8080\r\n\tat org.apache.zookeeper.KeeperException.create(KeeperException.java:114) ~[org.apache.pulsar-pulsar-zookeeper-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat org.apache.zookeeper.KeeperException.create(KeeperException.java:54) ~[org.apache.pulsar-pulsar-zookeeper-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat org.apache.zookeeper.ZooKeeper.setData(ZooKeeper.java:1336) ~[org.apache.pulsar-pulsar-zookeeper-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat org.apache.bookkeeper.zookeeper.ZooKeeperClient.access$3101(ZooKeeperClient.java:70) ~[org.apache.bookkeeper-bookkeeper-server-4.9.2.jar:4.9.2]\r\n\tat org.apache.bookkeeper.zookeeper.ZooKeeperClient$21.call(ZooKeeperClient.java:1065) ~[org.apache.bookkeeper-bookkeeper-server-4.9.2.jar:4.9.2]\r\n\tat org.apache.bookkeeper.zookeeper.ZooKeeperClient$21.call(ZooKeeperClient.java:1059) ~[org.apache.bookkeeper-bookkeeper-server-4.9.2.jar:4.9.2]\r\n\tat org.apache.bookkeeper.zookeeper.ZooWorker.syncCallWithRetries(ZooWorker.java:140) ~[org.apache.bookkeeper-bookkeeper-server-4.9.2.jar:4.9.2]\r\n\tat org.apache.bookkeeper.zookeeper.ZooKeeperClient.setData(ZooKeeperClient.java:1059) ~[org.apache.bookkeeper-bookkeeper-server-4.9.2.jar:4.9.2]\r\n\tat org.apache.pulsar.broker.loadbalance.impl.ModularLoadManagerImpl.writeBrokerDataOnZooKeeper(ModularLoadManagerImpl.java:873) [org.apache.pulsar-pulsar-broker-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat org.apache.pulsar.broker.loadbalance.impl.ModularLoadManagerWrapper.writeLoadReportOnZookeeper(ModularLoadManagerWrapper.java:120) [org.apache.pulsar-pulsar-broker-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat org.apache.pulsar.broker.loadbalance.LoadReportUpdaterTask.run(LoadReportUpdaterTask.java:41) [org.apache.pulsar-pulsar-broker-2.5.0-SNAPSHOT.jar:2.5.0-SNAPSHOT]\r\n\tat java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511) [?:1.8.0_181]\r\n\tat java.util.concurrent.FutureTask.runAndReset(FutureTask.java:308) [?:1.8.0_181]\r\n\tat java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.access$301(ScheduledThreadPoolExecutor.java:180) [?:1.8.0_181]\r\n\tat java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:294) [?:1.8.0_181]\r\n\tat java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149) [?:1.8.0_181]\r\n\tat java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624) [?:1.8.0_181]\r\n\tat io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat java.lang.Thread.run(Thread.java:748) [?:1.8.0_181]\r\n00:03:35.752 [pulsar-io-22-37] WARN  org.apache.pulsar.broker.MessagingServiceShutdownHook - Graceful shutdown timeout expired. Closing nowzh\r\n```\r\n\r\n**Expected behavior**\r\nCatch the no node exception and create the disappeared znode\r\n\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5763",
+        "assignees": [
+            "codelipenghui"
+        ],
+        "labels": [
+            "type/bug",
+            "help wanted"
+        ],
+        "issue_closed_at": "2019-12-07T15:01:53.000Z",
+        "fix_commit_hash": "3d38ad270b3e4a24308b8e7938080e6fd4d05f7a",
+        "commit_type": "pr",
+        "commit_message": "Create load balance znode of broker when znode missed. (#5784)",
+        "closer_url": "https://github.com/apache/pulsar/pull/5784",
+        "earliest_issue_date": "2019-11-28T07:04:41Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5772,
+        "issue_title": "Bump Lombok version to allow building with a JDK >=12",
+        "issue_body": "**Describe the bug**\r\nRunning `mvn clean install` on branch master using JDK13 results on a Lombok annotation failure.\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. Pull JDK13\r\n2. Run `mvn install`\r\n\r\n**Expected behavior**\r\nBuild success\r\n\r\n**Screenshots**\r\n```\r\n[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.8.0:testCompile (default-testCompile) on project integration: Compilation failure\r\n[ERROR] Lombok annotation handler class lombok.javac.handlers.HandleBuilder failed on /home/pierrez/workspace/java/pulsar/tests/integration/src/test/java/org/apache/pulsar/tests/integration/topologies/PulsarClusterSpec.java: \r\njava.lang.IllegalStateException: Lombok TreeMaker frontend issue: no match when looking for method: com.sun.tools.javac.tree.JCTree$JCCase com.sun.tools.javac.tree.TreeMaker.Case(com.sun.tools.javac.tree.JCTree$JCExpression, com.sun.tools.javac.util.List)\r\n```\r\n\r\nIt is an [closed Lombok issue](rzwitserloot/lombok/issues/1888), so we should be fine by upgrading Lombok.\r\n\r\n**Desktop (please complete the following information):**\r\n\r\n```bash\r\nuname -a\r\n# Linux pierrez-xps 5.3.0-23-generic #25-Ubuntu SMP Tue Nov 12 09:22:33 UTC 2019 x86_64 x86_64 x86_64 GNU/Linux\r\n\r\njava -version\r\n# openjdk version \"13.0.1\" 2019-10-15\r\n# OpenJDK Runtime Environment AdoptOpenJDK (build 13.0.1+9)\r\n# OpenJDK 64-Bit Server VM AdoptOpenJDK (build 13.0.1+9, mixed mode, sharing)\r\n```\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5772",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "help wanted"
+        ],
+        "issue_closed_at": "2019-11-30T06:02:44.000Z",
+        "fix_commit_hash": "f0b34e79d53a909fcce31f3231b03a308b5a6120",
+        "commit_type": "pr",
+        "commit_message": "Bump Lombok version to allow building with a JDK12>=12 (#5772) (#5773)\n\nFixes #5772 \r\n\r\n### Motivation\r\n\r\nI would like to be able to build Pulsar with at least JDK12.\r\n\r\n### Modifications\r\n\r\nBumping lombok dep.\r\n\r\n### Verifying this change\r\n\r\n\r\nThis change is a trivial rework / code cleanup without any test coverage.",
+        "closer_url": "https://github.com/apache/pulsar/pull/5773",
+        "earliest_issue_date": "2019-11-29T08:52:00Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5787,
+        "issue_title": "deploy-kubernetes in minikube tutorial doc seems not work",
+        "issue_body": "**Describe the bug**\r\nIn Pulsar website: http://pulsar.apache.org/docs/en/deploy-kubernetes/#minikube\r\nIt is suggested use this command:\r\n> minikube start --memory=8192 --cpus=4 \\\r\n>    --kubernetes-version=v1.10.5\r\n\r\nbut this will report error in macos 10.14.2\r\n![image](https://user-images.githubusercontent.com/6348208/69974222-ca664d80-155f-11ea-99eb-f604d09ccec0.png)\r\n\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. follow instructions  in above like to install the latest minikube\r\n2. run 'minikube start --memory=8192 --cpus=4 \\\r\n    --kubernetes-version=v1.10.5'\r\n3. See error\r\n\r\n**Expected behavior**\r\nNo error happens\r\n\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5787",
+        "assignees": [
+            "wolfstudy"
+        ],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2019-12-06T08:19:38.000Z",
+        "fix_commit_hash": "eec4fa5e2d6df7b7a4b465118ac0227e0608fd79",
+        "commit_type": "pr",
+        "commit_message": "[Issue:5787] Fix docs for creating a K8S cluster on Minikube fail (#5805)\n\nSigned-off-by: xiaolong.ran <rxl@apache.org>\r\n\r\nSigned-off-by: xiaolong.ran <rxl@apache.org>\r\n\r\nFixes #5787 \r\n\r\n### Motivation\r\n\r\nWhen we creating a K8S cluster on Minikube, due to the different versions of Minikube in the local environment, the installation fails on `--kubernetes-version=v1.10.5`.\r\n\r\n### Modifications\r\n\r\n- Remove the `--kubernetes-version=v1.10.5` in docs.",
+        "closer_url": "https://github.com/apache/pulsar/pull/5805",
+        "earliest_issue_date": "2019-12-02T16:01:43Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5798,
+        "issue_title": "s3 offloading generates huge zk txn logs in some conditions",
+        "issue_body": "**Describe the bug**\r\nWhen s3 offloading is turned on but credentials is incorrect the zookeeper /managed-ledger znode entries grow to be fairly large (1MB), causing zk txn log to be in the range of multiple GBs, which could easily run out of the space on the zk log device under default log purging configuration.\r\n\r\nAn example of the content of such a znode:\r\n```\r\nk: localhost:2181(CONNECTED) 0] get /managed-ledgers/<topic-path>\r\n?????  ?????-*???????????????????2?*\r\ns34\r\nbucket*<bucket>\r\nregion  us-west-2.\r\nendpoint\"https://s3.us-west-2.amazonaws.com4\r\nbucket*<bucket>\r\nregion  us-west-2.\r\nendpoint\"https://s3.us-west-2.amazonaws.com4\r\nbucket*<bucket>\r\nregion  us-west-2.\r\n```\r\nwhere the bucket, endpoint, and region info appears to be duplicated many times. The entry size also grows under normal offloading operation conditions but slower.\r\n\r\n**To Reproduce**\r\nSee above. We reproduced the problem with fake topics\r\n\r\n**Expected behavior**\r\nznode entry size should be bounded. There appears no reason to duplicate offloading metadata.\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5798",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2019-12-20T07:18:01.000Z",
+        "fix_commit_hash": "3683b595b95bcadc55f691b0f9f1042b9ebf82b1",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "To fix  the problem of repeated storage of offload driver metadata. (#5834)\n\nMotivation\r\nTo fix the #5798 , repeated storage of offload driver metadata.\r\n\r\nVerifying this change\r\nAdd the tests for it",
+        "closer_url": null,
+        "earliest_issue_date": "2019-12-05T00:12:02Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5808,
+        "issue_title": "[docs] The example code does not display correctly",
+        "issue_body": "**Describe the bug**\r\nUnunderstood example code .\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. Go to 'http://pulsar.apache.org/docs/en/schema-understand'\r\n2. Click on 'Understand schema'\r\n3. Scroll down to 'Complex type>Example'\r\n\r\n**Expected behavior**\r\nthis  example code is for java or other?\r\n**Screenshots**\r\n![\u56fe\u7247](https://user-images.githubusercontent.com/29513837/70309120-bebca480-1847-11ea-89ed-badf4ca9c5e2.png)\r\n\r\n\r\n**Additional context**\r\nFor JAVA , ``` Schema> ```  means ``` Schema<KeyValue<Integer, String>>```,right?\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5808",
+        "assignees": [
+            "huangdx0726"
+        ],
+        "labels": [
+            "type/bug",
+            "doc"
+        ],
+        "issue_closed_at": "2019-12-17T11:48:07.000Z",
+        "fix_commit_hash": "a7e2f13e1cdfad2fc2deaebfb3593838149b0aa5",
+        "commit_type": "pr",
+        "commit_message": "[Issue 5808][documentation]fix example code (#5814)\n\nfix example code\r\n\r\nFixes #5808\r\n\r\nMotivation\r\nExample code display error.",
+        "closer_url": "https://github.com/apache/pulsar/pull/5814",
+        "earliest_issue_date": "2019-12-06T08:49:13Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5818,
+        "issue_title": "2.4.2 on Kubernetes, can't start Brokers, functions.worker.WorkerService",
+        "issue_body": "**Describe the bug**\r\nStarting image 2.4.2 on Kubernetes config where 2.4.1 worked, puts the brokers into `CrashLoopBackOff`.\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. in your k8s yamls, change your pulsar image ref from 2.4.1 to 2.4.2 and clean-deploy\r\n2. observe the pod initialization\r\n\r\n**Expected behavior**\r\nPulsar should start normally.\r\n\r\n**Screenshots**\r\n![image](https://user-images.githubusercontent.com/588573/70395931-9af68b80-1a0c-11ea-905a-fcd5b5222715.png)\r\n\r\n\r\n**Additional context**\r\nn/a\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5818",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "area/function"
+        ],
+        "issue_closed_at": "2020-01-02T07:52:40.000Z",
+        "fix_commit_hash": "4b57776be3576a8463942875929c65e37ce7df00",
+        "commit_type": "pr",
+        "commit_message": "[Issue:5818]Set the startup order of broker and bookie (#5957)\n\nSigned-off-by: xiaolong.ran <rxl@apache.org>\r\n\r\nSet the startup order of broker and bookie",
+        "closer_url": "https://github.com/apache/pulsar/pull/5957",
+        "earliest_issue_date": "2019-12-08T20:50:37Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5827,
+        "issue_title": "Netty UDP connector ClassCastException",
+        "issue_body": "When trying to create a Netty udp connector, a ClassCastException is thrown\r\n\r\nconfigs:\r\n    type: \"udp\"\r\n    host: \"127.0.0.1\"\r\n    port: 10999\r\n    numberOfThreads: 1\r\n\r\nException : \r\n12:50:43.259 [nioEventLoopGroup-6-1] WARN  io.netty.channel.ChannelInitializer - Failed to initialize a channel. Closing: [id: 0xbeba8942]\r\njava.lang.ClassCastException: io.netty.channel.socket.nio.NioDatagramChannel cannot be cast to io.netty.channel.socket.SocketChannel\r\n\tat org.apache.pulsar.io.netty.server.NettyChannelInitializer.initChannel(NettyChannelInitializer.java:29) ~[pulsar-io-netty-2.4.2.nar-unpacked/:?]\r\n\tat io.netty.channel.ChannelInitializer.initChannel(ChannelInitializer.java:115) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.ChannelInitializer.handlerAdded(ChannelInitializer.java:107) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.DefaultChannelPipeline.callHandlerAdded0(DefaultChannelPipeline.java:637) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.DefaultChannelPipeline.access$000(DefaultChannelPipeline.java:46) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.DefaultChannelPipeline$PendingHandlerAddedTask.execute(DefaultChannelPipeline.java:1487) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.DefaultChannelPipeline.callHandlerAddedForAllHandlers(DefaultChannelPipeline.java:1161) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.DefaultChannelPipeline.invokeHandlerAddedIfNeeded(DefaultChannelPipeline.java:686) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannel$AbstractUnsafe.register0(AbstractChannel.java:514) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannel$AbstractUnsafe.access$200(AbstractChannel.java:427) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannel$AbstractUnsafe$1.run(AbstractChannel.java:486) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.util.concurrent.AbstractEventExecutor.safeExecute(AbstractEventExecutor.java:163) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.util.concurrent.SingleThreadEventExecutor.runAllTasks(SingleThreadEventExecutor.java:404) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.nio.NioEventLoop.run(NioEventLoop.java:474) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.util.concurrent.SingleThreadEventExecutor$5.run(SingleThreadEventExecutor.java:909) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30) [io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat java.lang.Thread.run(Thread.java:748) [?:1.8.0_232]\r\n\r\n\r\nProposed solution :\r\nIn NettyChannelInitializer.java SocketChannel chould be replaced by Channel\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5827",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "help wanted"
+        ],
+        "issue_closed_at": "2019-12-14T02:40:39.000Z",
+        "fix_commit_hash": "b52449a6604cbdc4fe70bdfd8ecc9456d6b42ece",
+        "commit_type": "pr",
+        "commit_message": "[Issue 5827][Issue 5828][netty] Fixes for UDP protocol support in netty connector (#5829)\n\n\r\n### Motivation\r\nUDP protocol is not working for netty connector\r\n\r\n### Modifications\r\nAdded a specific handler for UDP and use Channel instead of SocketChannel in NettyChannelInitializer\r\n\r\nSuccessfully tested\r\n\r\n* Fixes for UDP protocol support in netty connector\r\n\r\n* Added specific handlers for UDP and TCP netty connector",
+        "closer_url": "https://github.com/apache/pulsar/pull/5829",
+        "earliest_issue_date": "2019-12-09T12:52:07Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5828,
+        "issue_title": "Netty UDP connector doesn't work",
+        "issue_body": "NettyServerHandler doesn't work for UDP as it will receive DatagramPacket instead of byte[]\r\n\r\nI managed to make the UDP connector working using a new NettyUDPServerHandler :\r\n\r\npublic class NettyUDPServerHandler extends SimpleChannelInboundHandler<DatagramPacket> {\r\n\r\n    private static final Logger logger = LoggerFactory.getLogger(NettyUDPServerHandler.class);\r\n    private NettySource nettySource;\r\n\r\n    public NettyUDPServerHandler(NettySource nettySource) {\r\n        this.nettySource = nettySource;\r\n    }\r\n    \r\n    @Override\r\n    protected void channelRead0(ChannelHandlerContext channelHandlerContext, DatagramPacket packet) throws Exception {\r\n        ByteBuf buf = packet.content();\r\n        byte[] bytes = new byte[buf.readableBytes()];\r\n        buf.readBytes(bytes);\r\n        buf.retain();\r\n        nettySource.consume(new NettyRecord(Optional.ofNullable(\"\"), bytes));\r\n    }\r\n\r\n    @Override\r\n    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {\r\n        logger.error(\"Error when processing incoming data\", cause);\r\n        ctx.close();\r\n    }\r\n\r\n    @Data\r\n    static private class NettyRecord implements Record<byte[]>, Serializable {\r\n        private final Optional<String> key;\r\n        private final byte[] value;\r\n    }\r\n\r\n}",
+        "issue_url": "https://github.com/apache/pulsar/issues/5828",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "help wanted"
+        ],
+        "issue_closed_at": "2019-12-14T02:40:39.000Z",
+        "fix_commit_hash": "b52449a6604cbdc4fe70bdfd8ecc9456d6b42ece",
+        "commit_type": "pr",
+        "commit_message": "[Issue 5827][Issue 5828][netty] Fixes for UDP protocol support in netty connector (#5829)\n\n\r\n### Motivation\r\nUDP protocol is not working for netty connector\r\n\r\n### Modifications\r\nAdded a specific handler for UDP and use Channel instead of SocketChannel in NettyChannelInitializer\r\n\r\nSuccessfully tested\r\n\r\n* Fixes for UDP protocol support in netty connector\r\n\r\n* Added specific handlers for UDP and TCP netty connector",
+        "closer_url": "https://github.com/apache/pulsar/pull/5829",
+        "earliest_issue_date": "2019-12-09T14:46:19Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5832,
+        "issue_title": "NullPointerException throwed by Debezium Connector  when  a row deleted",
+        "issue_body": "**Describe the bug**\r\nDebezium Connector will throw NullPointerException and shutdown  when a row is deleted anytime.\r\n\r\n**To Reproduce**\r\n1. run a new Debezium Connector  pulsar io instance\r\n2. delete a row in mysql\r\n3. NullPointerException is throwed by Connector  \r\n\r\n**Expected behavior**\r\ndelete transaction in bin log is write into pulsar normally\r\n\r\n**Screenshots**\r\n\r\n\r\n**Desktop (please complete the following information):**\r\n - k8s\r\n-  apachepulsar/pulsar-all:2.4.2\r\n\r\n**Additional context**\r\nlog\r\n```\r\n02:04:28.729 [iot/pipe/iot-mysql-log-test1-source-0] INFO  org.apache.pulsar.functions.instance.JavaInstanceRunnable - Encountered exception in sink write: \r\njava.lang.NullPointerException: null\r\n        at org.apache.pulsar.common.schema.KeyValue.encode(KeyValue.java:101) ~[java-instance.jar:?]\r\n        at org.apache.pulsar.client.impl.schema.KeyValueSchema.encode(KeyValueSchema.java:128) ~[org.apache.pulsar-pulsar-client-original-2.4.2.jar:2.4.2]\r\n        at org.apache.pulsar.client.impl.schema.KeyValueSchema.encode(KeyValueSchema.java:37) ~[org.apache.pulsar-pulsar-client-original-2.4.2.jar:2.4.2]\r\n        at org.apache.pulsar.client.impl.TypedMessageBuilderImpl.value(TypedMessageBuilderImpl.java:116) ~[org.apache.pulsar-pulsar-client-original-2.4.2.jar:2.4.2]\r\n        at org.apache.pulsar.functions.sink.PulsarSink.write(PulsarSink.java:282) ~[org.apache.pulsar-pulsar-functions-instance-2.4.2.jar:2.4.2]\r\n        at org.apache.pulsar.functions.instance.JavaInstanceRunnable.sendOutputMessage(JavaInstanceRunnable.java:445) [org.apache.pulsar-pulsar-functions-instance-2.4.2.jar:?]\r\n        at org.apache.pulsar.functions.instance.JavaInstanceRunnable.processResult(JavaInstanceRunnable.java:428) [org.apache.pulsar-pulsar-functions-instance-2.4.2.jar:?]\r\n        at org.apache.pulsar.functions.instance.JavaInstanceRunnable.run(JavaInstanceRunnable.java:282) [org.apache.pulsar-pulsar-functions-instance-2.4.2.jar:?]\r\n        at java.lang.Thread.run(Thread.java:748) [?:1.8.0_232]\r\n02:04:28.735 [iot/pipe/iot-mysql-log-test1-source-0] WARN  org.apache.pulsar.functions.instance.JavaInstanceRunnable - Failed to process result of message org.apache.pulsar.io.kafka.connect.KafkaConnectSource$KafkaSourceRecord@6b986037\r\njava.lang.RuntimeException: java.lang.NullPointerException\r\n        at org.apache.pulsar.functions.instance.JavaInstanceRunnable.sendOutputMessage(JavaInstanceRunnable.java:449) ~[org.apache.pulsar-pulsar-functions-instance-2.4.2.jar:?]\r\n        at org.apache.pulsar.functions.instance.JavaInstanceRunnable.processResult(JavaInstanceRunnable.java:428) ~[org.apache.pulsar-pulsar-functions-instance-2.4.2.jar:?]\r\n        at org.apache.pulsar.functions.instance.JavaInstanceRunnable.run(JavaInstanceRunnable.java:282) [org.apache.pulsar-pulsar-functions-instance-2.4.2.jar:?]\r\n        at java.lang.Thread.run(Thread.java:748) [?:1.8.0_232]\r\nCaused by: java.lang.NullPointerException\r\n        at org.apache.pulsar.common.schema.KeyValue.encode(KeyValue.java:101) ~[java-instance.jar:?]\r\n        at org.apache.pulsar.client.impl.schema.KeyValueSchema.encode(KeyValueSchema.java:128) ~[org.apache.pulsar-pulsar-client-original-2.4.2.jar:2.4.2]\r\n        at org.apache.pulsar.client.impl.schema.KeyValueSchema.encode(KeyValueSchema.java:37) ~[org.apache.pulsar-pulsar-client-original-2.4.2.jar:2.4.2]\r\n        at org.apache.pulsar.client.impl.TypedMessageBuilderImpl.value(TypedMessageBuilderImpl.java:116) ~[org.apache.pulsar-pulsar-client-original-2.4.2.jar:2.4.2]\r\n        at org.apache.pulsar.functions.sink.PulsarSink.write(PulsarSink.java:282) ~[org.apache.pulsar-pulsar-functions-instance-2.4.2.jar:2.4.2]\r\n        at org.apache.pulsar.functions.instance.JavaInstanceRunnable.sendOutputMessage(JavaInstanceRunnable.java:445) ~[org.apache.pulsar-pulsar-functions-instance-2.4.2.jar:?]\r\n        ... 3 more\r\n02:04:28.742 [iot/pipe/iot-mysql-log-test1-source-0] INFO  org.apache.pulsar.functions.instance.JavaInstanceRunnable - Encountered exception in source read: \r\njava.util.concurrent.ExecutionException: java.lang.Exception: Sink Error\r\n        at java.util.concurrent.CompletableFuture.reportGet(CompletableFuture.java:357) ~[?:1.8.0_232]\r\n        at java.util.concurrent.CompletableFuture.get(CompletableFuture.java:1908) ~[?:1.8.0_232]\r\n        at org.apache.pulsar.io.kafka.connect.KafkaConnectSource.read(KafkaConnectSource.java:148) ~[pulsar-io-kafka-connect-adaptor-2.4.2.jar:?]\r\n        at org.apache.pulsar.functions.instance.JavaInstanceRunnable.readInput(JavaInstanceRunnable.java:461) [org.apache.pulsar-pulsar-functions-instance-2.4.2.jar:?]\r\n        at org.apache.pulsar.functions.instance.JavaInstanceRunnable.run(JavaInstanceRunnable.java:246) [org.apache.pulsar-pulsar-functions-instance-2.4.2.jar:?]\r\n        at java.lang.Thread.run(Thread.java:748) [?:1.8.0_232]\r\nCaused by: java.lang.Exception: Sink Error\r\n        at org.apache.pulsar.io.kafka.connect.KafkaConnectSource$KafkaSourceRecord.fail(KafkaConnectSource.java:269) ~[pulsar-io-kafka-connect-adaptor-2.4.2.jar:?]\r\n        at org.apache.pulsar.functions.instance.JavaInstanceRunnable.run(JavaInstanceRunnable.java:285) ~[?:?]\r\n        ... 1 more\r\n02:04:28.743 [iot/pipe/iot-mysql-log-test1-source-0] ERROR org.apache.pulsar.functions.instance.JavaInstanceRunnable - [iot/pipe/iot-mysql-log-test1-source:0] Uncaught exception in Java Instance\r\njava.lang.RuntimeException: java.util.concurrent.ExecutionException: java.lang.Exception: Sink Error\r\n        at org.apache.pulsar.functions.instance.JavaInstanceRunnable.readInput(JavaInstanceRunnable.java:465) ~[org.apache.pulsar-pulsar-functions-instance-2.4.2.jar:?]\r\n        at org.apache.pulsar.functions.instance.JavaInstanceRunnable.run(JavaInstanceRunnable.java:246) [org.apache.pulsar-pulsar-functions-instance-2.4.2.jar:?]\r\n        at java.lang.Thread.run(Thread.java:748) [?:1.8.0_232]\r\nCaused by: java.util.concurrent.ExecutionException: java.lang.Exception: Sink Error\r\n        at java.util.concurrent.CompletableFuture.reportGet(CompletableFuture.java:357) ~[?:1.8.0_232]\r\n        at java.util.concurrent.CompletableFuture.get(CompletableFuture.java:1908) ~[?:1.8.0_232]\r\n        at org.apache.pulsar.io.kafka.connect.KafkaConnectSource.read(KafkaConnectSource.java:148) ~[?:?]\r\n        at org.apache.pulsar.functions.instance.JavaInstanceRunnable.readInput(JavaInstanceRunnable.java:461) ~[org.apache.pulsar-pulsar-functions-instance-2.4.2.jar:?]\r\n        ... 2 more\r\nCaused by: java.lang.Exception: Sink Error\r\n        at org.apache.pulsar.io.kafka.connect.KafkaConnectSource$KafkaSourceRecord.fail(KafkaConnectSource.java:269) ~[?:?]\r\n        at org.apache.pulsar.functions.instance.JavaInstanceRunnable.run(JavaInstanceRunnable.java:285) ~[org.apache.pulsar-pulsar-functions-instance-2.4.2.jar:?]\r\n        ... 1 more\r\n```\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5832",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "area/connector"
+        ],
+        "issue_closed_at": "2019-12-20T06:05:47.000Z",
+        "fix_commit_hash": "06076009e0cba36581730bb64781bfad825fa133",
+        "commit_type": "pr",
+        "commit_message": "[Issue 5832][Pulsar IO]Fix npe of debezium delete event (#5876)\n\nFixes https://github.com/apache/pulsar/issues/5832\r\n\r\nMaster Issue: https://github.com/apache/pulsar/issues/5832\r\n\r\n### Motivation\r\n\r\nCurrently, in debezium, for delete events, in order to be compatible with Kafka's compaction, each delete event will be followed by a record with a null value. For records with a null value, the null value is not currently processed in pulsar, resulting in an exception of throwing a null pointer. Now, we considered to ignore the null value or use it in combination with pulsar's compaction feature in the future.\r\n\r\n![image](https://user-images.githubusercontent.com/1907867/70976050-21cef680-20e6-11ea-963f-56471c915c98.png)\r\nhttps://debezium.io/documentation/reference/0.10/connectors/mysql.html\r\n\r\n### Modifications\r\n\r\n* Ignore the record of the null value.\r\n* Add more integrations, such as insert, delete, update.",
+        "closer_url": "https://github.com/apache/pulsar/pull/5876",
+        "earliest_issue_date": "2019-12-10T02:15:43Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5835,
+        "issue_title": "Exception is thrown when generating javadoc for apache-kafka wrappers.",
+        "issue_body": "**Describe the bug**\r\n\r\nException is thrown when generating javadoc for apache-kafka wrappers.\r\n\r\n```\r\n[ERROR] Failed to execute goal org.apache.maven.plugins:maven-javadoc-plugin:2.10.3:jar (attach-javadocs) on project pulsar-client-kafka-original: MavenReportException: Error while generating Javadoc:\r\n[ERROR] Exit code: 1 - /Users/sijie/Workspaces/pulsar/pulsar-client-kafka-compat/pulsar-client-kafka/src/main/java/org/apache/pulsar/client/kafka/compat/KafkaProducerInterceptorWrapper.java:63: warning - Tag @link:illegal character: \"60\" in \"ProducerInterceptor<byte[]>\"\r\n[ERROR] /Users/sijie/Workspaces/pulsar/pulsar-client-kafka-compat/pulsar-client-kafka/src/main/java/org/apache/pulsar/client/kafka/compat/KafkaProducerInterceptorWrapper.java:63: warning - Tag @link:illegal character: \"62\" in \"ProducerInterceptor<byte[]>\"\r\n[ERROR] /Users/sijie/Workspaces/pulsar/pulsar-client-kafka-compat/pulsar-client-kafka/src/main/java/org/apache/pulsar/client/kafka/compat/KafkaProducerInterceptorWrapper.java:63: warning - Tag @link: reference not found: ProducerInterceptor<byte[]>\r\n[ERROR] /Users/sijie/Workspaces/pulsar/pulsar-client-kafka-compat/pulsar-client-kafka/src/main/java/org/apache/pulsar/client/kafka/compat/KafkaProducerInterceptorWrapper.java:93: warning - Tag @link:illegal character: \"60\" in \"org.apache.kafka.clients.producer.ProducerInterceptor<K, V>\"\r\n[ERROR] /Users/sijie/Workspaces/pulsar/pulsar-client-kafka-compat/pulsar-client-kafka/src/main/java/org/apache/pulsar/client/kafka/compat/KafkaProducerInterceptorWrapper.java:93: warning - Tag @link: malformed: \"org.apache.kafka.clients.producer.ProducerInterceptor<K, V>\"\r\n[ERROR] /Users/sijie/Workspaces/pulsar/pulsar-client-kafka-compat/pulsar-client-kafka/src/main/java/org/apache/pulsar/client/kafka/compat/KafkaProducerInterceptorWrapper.java:93: warning - Tag @link: reference not found: org.apache.kafka.clients.producer.ProducerInterceptor<K, V>\r\n[ERROR] /Users/sijie/Workspaces/pulsar/pulsar-client-kafka-compat/pulsar-client-kafka/src/main/java/org/apache/pulsar/client/kafka/compat/KafkaProducerInterceptorWrapper.java:93: warning - @param argument \"keySerializer\" is not a parameter name.\r\n[ERROR] /Users/sijie/Workspaces/pulsar/pulsar-client-kafka-compat/pulsar-client-kafka/src/main/java/org/apache/pulsar/client/kafka/compat/KafkaProducerInterceptorWrapper.java:93: warning - @param argument \"valueSerializer\" is not a parameter name.\r\n[ERROR] javadoc: error - class file for com.google.protobuf.GeneratedMessageV3 not found\r\n```\r\n\r\n**To Reproduce**\r\n\r\nrun `mvn deploy`\r\n\r\n**Expected behavior**\r\n\r\nThe command should succeed.\r\n\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5835",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "area/build"
+        ],
+        "issue_closed_at": "2020-01-14T13:13:40.000Z",
+        "fix_commit_hash": "97f9431f40ce644c69c5a711649fd990b36982c1",
+        "commit_type": "pr",
+        "commit_message": "[build] Skip javadoc task for pulsar-client-kafka-compact modules (#5836)\n\n*Motivation*\r\n\r\npulsar-client-kafka-compact depends on pulsar-client implementation hence it pulls in\r\nprotobuf dependencies. This results in `class file for com.google.protobuf.GeneratedMessageV3 not found`\r\nerrors when generating javadoc for those modules.\r\n\r\n*Modifications*\r\n\r\nSkip javadoc tasks for these modules. Because:\r\n\r\n- pulsar-client-kafka-compact is a kafka wrapper. Kafka already provides javadoc for this API.\r\n- we didn't publish the javadoc for this module.",
+        "closer_url": "https://github.com/apache/pulsar/pull/5836",
+        "earliest_issue_date": "2019-12-10T16:55:17Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5839,
+        "issue_title": "[Doc] Variable issues in website download links",
+        "issue_body": "### Issue\r\n\r\nCurrently, for different contents, we use the same variables in multiple versions.\r\n\r\n### Incorrect example 1\r\n\r\nWhen I resolve https://github.com/apache/pulsar/issues/4053, I find that:\r\n\r\n**From `2.1.0-incubating` to `2.4.2`, the download links for the contents in the red box are redirected to **2.4.1 links****, which are the **latest version of docs** now (2.4.2 is released, but the docs are not shown on Pulsar website now, so 2.4.1 is the latest).\r\n\r\n![image](https://user-images.githubusercontent.com/50226895/70599960-775c5c80-1c29-11ea-94ea-95de1c52078e.png)\r\n\r\nThen I open the original file (that is `client-libraries-cpp.md`) and find that all version docs are using the same variables:\r\n\r\n![image](https://user-images.githubusercontent.com/50226895/70606263-0de34a80-1c37-11ea-8a90-3f0b3e6c2e26.png)\r\n\r\nP.S. I search `{{pulsar:rpm:client}}` in Pulsar project, except in `.md` and `html` files, it appears in the`site2/website/scripts/replace.js` file, which contains many variables:\r\n\r\n![image](https://user-images.githubusercontent.com/50226895/70600541-e25a6300-1c2a-11ea-9115-1179b39d1806.png)\r\n\r\n### Incorrect example 2\r\n\r\nTaking 2.3.1 as an example, as same to other version docs, it uses a general variable so that it is shown and redirected to 2.4.1:\r\n\r\n![image](https://user-images.githubusercontent.com/50226895/70605953-6bc36280-1c36-11ea-9c8f-a1f72b750526.png)\r\n\r\n### Summary\r\n\r\nFor different contents, we can not use the same variables in multiple versions, because each version should have its own specific links.\r\n\r\nBut I do not know how to change it (seems it needs coding updates?), anyone can help?",
+        "issue_url": "https://github.com/apache/pulsar/issues/5839",
+        "assignees": [
+            "tuteng",
+            "Anonymitaet"
+        ],
+        "labels": [
+            "help wanted",
+            "doc"
+        ],
+        "issue_closed_at": "2020-01-22T13:00:00.000Z",
+        "fix_commit_hash": "e5a9a669057a35646b949b5b7349a5ae291eafce",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "[Issue 5839][website]Fix version replace for old version document (#5865)\n\nFixes #5839\r\n\r\nMotivation\r\nCurrently, for different contents, we use the same variables in multiple versions.\r\n\r\nModifications\r\nWhen replacing the latest version, the old version is ignored\r\nSet option dry to false for enable replace\r\n\r\nVerifying this change\r\nyarn build\r\nnode scripts/replace.js",
+        "closer_url": null,
+        "earliest_issue_date": "2019-12-11T08:57:43Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5841,
+        "issue_title": "Biscuit customs authentication and authorization providers usages.",
+        "issue_body": "**Describe the bug**\r\npulsar-client java invalid connection state using custom authentication & authorization provider:\r\n\r\nHere are the breakpoints and their results:\r\n[\r\n![1](https://user-images.githubusercontent.com/7518245/70654540-d2587880-1c56-11ea-8251-520bdbc1a90b.png)\r\n](url)\r\n\r\n![Screenshot from 2019-12-11 20-41-53](https://user-images.githubusercontent.com/7518245/70654549-d5ebff80-1c56-11ea-938e-9823899a76ac.png)\r\n\r\nand throws:\r\n\r\n```\r\n19:55:25.068 [pulsar-client-io-1-1] INFO  org.apache.pulsar.client.impl.ConnectionPool - [[id: 0x88e0c178, L:/127.0.0.1:38446 - R:127.0.0.1/127.0.0.1:22022]] Connected to server\r\n19:55:25.120 [pulsar-client-io-1-1] DEBUG org.apache.pulsar.common.protocol.PulsarHandler - [[id: 0x88e0c178, L:/127.0.0.1:38446 - R:127.0.0.1/127.0.0.1:22022]] Scheduling keep-alive task every 30 s\r\n19:55:25.123 [pulsar-client-io-1-1] DEBUG org.apache.pulsar.client.impl.ClientCnx - [id: 0x88e0c178, L:/127.0.0.1:38446 - R:127.0.0.1/127.0.0.1:22022] Connected to broker\r\n19:55:25.143 [pulsar-client-io-1-1] DEBUG org.apache.pulsar.client.impl.ClientCnx - Complete: true\r\n19:55:25.163 [pulsar-client-io-1-1] DEBUG org.apache.pulsar.common.protocol.PulsarDecoder - [127.0.0.1/127.0.0.1:22022] Received cmd ERROR\r\n20:34:55.905 [pulsar-client-io-1-1] WARN  org.apache.pulsar.client.impl.ClientCnx - [127.0.0.1/127.0.0.1:22022] Got exception IllegalArgumentException : null\r\njava.lang.IllegalArgumentException: null\r\n\tat com.google.common.base.Preconditions.checkArgument(Preconditions.java:108) ~[guava-21.0.jar:?]\r\n\tat org.apache.pulsar.client.impl.ClientCnx.handleError(ClientCnx.java:588) ~[pulsar-client-original-2.4.1.jar:2.4.1]\r\n\tat org.apache.pulsar.common.protocol.PulsarDecoder.channelRead(PulsarDecoder.java:154) ~[pulsar-common-2.4.1.jar:2.4.1]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:362) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:348) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.fireChannelRead(AbstractChannelHandlerContext.java:340) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.handler.codec.ByteToMessageDecoder.fireChannelRead(ByteToMessageDecoder.java:323) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.handler.codec.ByteToMessageDecoder.channelRead(ByteToMessageDecoder.java:297) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:362) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:348) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.fireChannelRead(AbstractChannelHandlerContext.java:340) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.DefaultChannelPipeline$HeadContext.channelRead(DefaultChannelPipeline.java:1434) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:362) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:348) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.DefaultChannelPipeline.fireChannelRead(DefaultChannelPipeline.java:965) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.epoll.AbstractEpollStreamChannel$EpollStreamUnsafe.epollInReady(AbstractEpollStreamChannel.java:799) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.epoll.EpollEventLoop.processReady(EpollEventLoop.java:433) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.epoll.EpollEventLoop.run(EpollEventLoop.java:330) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.util.concurrent.SingleThreadEventExecutor$5.run(SingleThreadEventExecutor.java:909) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat java.lang.Thread.run(Thread.java:748) [?:1.8.0_201]\r\n```\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. `git clone git@github.com:CleverCloud/biscuit-pulsar.git`\r\n2. `mvn install` # it's using hadoop-unit which boot a pulsar\r\n3. `BiscuitPulsarIntegrationTest.java` should create a producer but it throws the quoted exception.\r\n\r\n**Expected behavior**\r\nCreate producer and produce messages using biscuit authentication & authorization.\r\n\r\n**Additional context**\r\nTo debug pulsar-client you probably needs to remove the hadoop-unit usage and use standalone. To do it you just need to boot a pulsar standalone and replace the needed configuration on pulsar client creation in `BiscuitPulsarIntegrationTest.java` and provide the built biscuit-plugin like:\r\n\r\n```\r\n# Enable authentication\r\nauthenticationEnabled=true\r\n\r\n# Autentication provider name list, which is comma separated list of class names\r\nauthenticationProviders=com.clevercloud.biscuitpulsar.AuthenticationProviderBiscuit\r\n\r\n# Enforce authorization\r\nauthorizationEnabled=true\r\n\r\n# Authorization provider fully qualified class-name\r\nauthorizationProvider=com.clevercloud.biscuitpulsar.AuthorizationProviderBiscuit\r\n\r\n# Biscuit root signing key\r\nbiscuitRootKey=da905388864659eb785877a319fbc42c48e2f8a40af0c5baea0ef8ff7c795253 #random string\r\n\r\nsuperUserRoles=admin\r\n```\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5841",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2020-01-01T00:38:07.000Z",
+        "fix_commit_hash": "d6f90ddc535f24bc5cb061216bb47a97c9f086a8",
+        "commit_type": "pr",
+        "commit_message": "Fixes #5814: add SentConnectFrame state check when running `handleError` (#5913)\n\n\r\n\r\nFixes #5841\r\n\r\n*Motivation*\r\n\r\nwhen enabling authentication and authorization, if a user using\r\nthe wrong key to send to the server, the server will return an\r\n`Error` message. There is no `Connected` message return to the\r\nclient so the client is staying in `SentConnectFrame` and it can\r\nreceive the server `Error` message.\r\nWe need to check the `SentConnectFrame` state when receiving `Error` message.\r\n\r\nThe client will throw error:\r\n\r\n```\r\njava.lang.IllegalArgumentException: null\r\n\tat com.google.common.base.Preconditions.checkArgument(Preconditions.java:108) ~[guava-21.0.jar:?]\r\n\tat org.apache.pulsar.client.impl.ClientCnx.handleError(ClientCnx.java:588) ~[pulsar-client-original-2.4.1.jar:2.4.1]\r\n\tat org.apache.pulsar.common.protocol.PulsarDecoder.channelRead(PulsarDecoder.java:154) ~[pulsar-common-2.4.1.jar:2.4.1]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:362) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:348) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.fireChannelRead(AbstractChannelHandlerContext.java:340) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.handler.codec.ByteToMessageDecoder.fireChannelRead(ByteToMessageDecoder.java:323) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.handler.codec.ByteToMessageDecoder.channelRead(ByteToMessageDecoder.java:297) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:362) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:348) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.fireChannelRead(AbstractChannelHandlerContext.java:340) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.DefaultChannelPipeline$HeadContext.channelRead(DefaultChannelPipeline.java:1434) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:362) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:348) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.DefaultChannelPipeline.fireChannelRead(DefaultChannelPipeline.java:965) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.epoll.AbstractEpollStreamChannel$EpollStreamUnsafe.epollInReady(AbstractEpollStreamChannel.java:799) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.epoll.EpollEventLoop.processReady(EpollEventLoop.java:433) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.channel.epoll.EpollEventLoop.run(EpollEventLoop.java:330) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.util.concurrent.SingleThreadEventExecutor$5.run(SingleThreadEventExecutor.java:909) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30) [netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat java.lang.Thread.run(Thread.java:748) [?:1.8.0_201]\r\n```\r\n\r\n*Modifications*\r\n\r\n- Add `SentConnectFrame` check",
+        "closer_url": "https://github.com/apache/pulsar/pull/5913",
+        "earliest_issue_date": "2019-12-11T19:40:10Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5858,
+        "issue_title": "Helm chart does not allow ingress TLS to be enabled without a secretName",
+        "issue_body": "**Describe the bug**\r\nThe provided helm chart can create an Ingress with TLS, but it requires a `secretName` to be added. This is not an Ingress requirement and, in some cases, the ingress controller can provide a default certificate when the Ingress object does not declare one.\r\n\r\n**To Reproduce**\r\nDeploy the helm chart with an Ingress enabled and an empty tls `secretName`.\r\n\r\n**Expected behavior**\r\nI expect to be able to configure the Ingress TLS without the need to give it a `secretName`. My Ingress controller will use a default certificate.\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5858",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2019-12-17T11:40:26.000Z",
+        "fix_commit_hash": "3bc8299072e0635d59735c0646df71796dc31a58",
+        "commit_type": "pr",
+        "commit_message": "Provide better defaults for ingress tls and secretName configuration. (#5859)\n\nThis patch allows tls to be enabled with an empty secretName for ingress controllers might be able to provide a default certificate.\r\n\r\nFixes #5858, provides better defaults for the Ingress object and allows TLS to be enabled with an empty secretName.\r\n\r\n### Motivation\r\n\r\nThe current helm chart can create an Ingress with TLS, but it requires a secretName to be added. This is not an Ingress requirement and, in some cases, the ingress controller can provide a default certificate when the Ingress object does not declare one.\r\n\r\n### Modifications\r\n\r\nModifications include `values.yaml` and `dashboard-ingress.yaml` to address the issue.",
+        "closer_url": "https://github.com/apache/pulsar/pull/5859",
+        "earliest_issue_date": "2019-12-13T20:52:07Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5869,
+        "issue_title": "[terraform] Error while using terraform init command in pulsar/deployment/terraform-ansible/aws using Terraform v0.12.18",
+        "issue_body": "I am trying to run the terraform `init command` to set-up my AWS cluster so I can deploy a Pulsar cluster, and I am getting the following error:\r\n\r\n```\r\n>terraform init\r\nInitializing the backend...\r\nInitializing provider plugins...\r\n- Checking for available provider plugins...\r\n- Downloading plugin for provider \"random\" (hashicorp/random) 2.2.1...\r\nProvider \"registry.terraform.io/-/aws\" v1.5.0 is not compatible with Terraform 0.12.18.\r\nProvider version 2.7.0 is the earliest compatible version. Select it with\r\nthe following version constraint:\r\n\tversion = \"~> 2.7\"\r\nTerraform checked all of the plugin versions matching the given constraint:\r\n    1.5\r\nConsult the documentation for this provider for more information on\r\ncompatibility between provider and Terraform versions.\r\nError: incompatible provider version\r\n```\r\n\r\nI have installed the terraform on my Mac using `brew install terraform` command and the output of `terraform -version` is `Terraform v0.12.18`",
+        "issue_url": "https://github.com/apache/pulsar/issues/5869",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2022-01-28T22:00:14.000Z",
+        "fix_commit_hash": "57fcf0fb762ab53026f8e4c5bf9278798b31b8a8",
+        "commit_type": "pr",
+        "commit_message": "[Issue 5869][deploy] Bump AWS terraform deployment to Terraform 0.13 and AWS provider 3.3.0 (#7887)\n\n* Bump to Terraform 0.13 and AWS provider 3.3.0\r\n\r\n* Update versions.tf\r\n\r\nUnlock Terraform version\r\n\r\n* Adjust the variable type to new Terraform version\r\n\r\n* Ansible and terraform updates\r\n\r\nNote that id_rsa is changed to pulsar_aws.\r\n\r\nDocumentation changes are required.\r\n\r\nCo-authored-by: Koen Rutten <koen@twilights.be>\r\nCo-authored-by: Dave Fisher <dave.fisher@datastax.com>\r\nCo-authored-by: Dave Fisher <dave2wave@comcast.net>",
+        "closer_url": "https://github.com/apache/pulsar/pull/7887",
+        "earliest_issue_date": "2019-12-16T17:52:14Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5887,
+        "issue_title": "[Docs]Old version download link error",
+        "issue_body": "**Describe the bug**\r\n\r\nhttp://pulsar.apache.org/docs/en/2.3.0/standalone/\r\n\r\n![image](https://user-images.githubusercontent.com/1907867/71054469-1387e580-218d-11ea-9c08-289f509c8970.png)\r\n\r\nThe old version has been removed https://archive.apache.org/dist/pulsar/. Only the latest two versions are kept here in https://www-eu.apache.org/dist/pulsar/.\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. Go to '...'\r\n2. Click on '....'\r\n3. Scroll down to '....'\r\n4. See error\r\n\r\n**Expected behavior**\r\nDisplays the correct download link\r\n\r\n**Screenshots**\r\nIf applicable, add screenshots to help explain your problem.\r\n\r\n**Desktop (please complete the following information):**\r\n - OS: [e.g. iOS]\r\n\r\n**Additional context**\r\nWe should fix this script https://github.com/apache/pulsar/blob/master/site2/website/scripts/replace.js to solve this problem.\r\n\r\nTest\r\n\r\n```\r\ngit clone https://github.com/apache/pulsar.git\r\ncd pulsar/site2/website\r\nyarn install\r\nrm -rf build\r\nyarn build\r\nnode scripts/replace.js\r\n```\r\n\r\nCheck file build/pulsar/docs/en/2.3.0/standalone/index.html, search key `downloads page`:\r\n\r\n```\r\n<li><p>from the Pulsar <a href=\"/download\">downloads page</a></p></li>\r\n```",
+        "issue_url": "https://github.com/apache/pulsar/issues/5887",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "help wanted"
+        ],
+        "issue_closed_at": "2020-01-13T12:46:33.000Z",
+        "fix_commit_hash": "348cedd2309c38722e3ca0856d438c387e26f316",
+        "commit_type": "pr",
+        "commit_message": "[Issue 5887]Fix old version download link error (#5897)\n\nFix old version download link error\r\n\r\nFixes #5887 \r\n\r\n### Motivation\r\n\r\nOld version download link error\r\n\r\n### Modifications\r\n\r\nChange the download link to https://archive.apache.org/dist/pulsar/",
+        "closer_url": "https://github.com/apache/pulsar/pull/5897",
+        "earliest_issue_date": "2019-12-18T03:58:02Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5922,
+        "issue_title": "On the dependencies in the pom.xml files.",
+        "issue_body": "**Describe the bug**\r\nMost of pom.xml files, in which some dependencies on the pulsar itself are written as following:\r\n    ......\r\n    \\<dependency>\r\n      \\<groupId>org.apache.pulsar\\</groupId> // **THIS LINE**\r\n      \\<artifactId>pulsar------\\</artifactId>\r\n      \\<version>${project.version}\\</version>\r\n    \\</dependency>\r\n    ......\r\nBut most of them are like this:\r\n\\<dependency>\r\n      \\<groupId>${project.groupId}\\</groupId> // **THIS LINE**\r\n      \\<artifactId>pulsar------\\</artifactId>\r\n      \\<version>${project.version}\\</version>\r\n    \\</dependency>\r\n\r\n**Although both of them work, why not use JUST one of them (e.g.  \\<groupId>${project.groupId}\\</groupId>)**. \r\n![pulsar-pom](https://user-images.githubusercontent.com/4320310/71367272-848d2a00-25df-11ea-92e2-92c2635d08df.png)\r\n\r\n \r\n\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5922",
+        "assignees": [
+            "vcottagiri"
+        ],
+        "labels": [
+            "type/bug",
+            "help wanted"
+        ],
+        "issue_closed_at": "2020-07-16T05:24:27.000Z",
+        "fix_commit_hash": "4acf7757399abd0666d4b186fb6328cf748cf15b",
+        "commit_type": "pr",
+        "commit_message": "#5922 - Update poms to use project.groupId instead of org.apache.pulsar where applicable (#7548)",
+        "closer_url": "https://github.com/apache/pulsar/pull/7548",
+        "earliest_issue_date": "2019-12-23T15:55:26Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5924,
+        "issue_title": "Is georeplication docs outdated since PIP-33 was released?",
+        "issue_body": "The [site](https://github.com/apache/pulsar/blob/master/site2/docs/administration-geo.md#subscriptions-are-local-to-a-cluster) says:\r\n\r\n> Subscriptions are local to a cluster\r\n> While producers and consumers can publish to and consume from any cluster in a Pulsar instance, subscriptions are local to the clusters in which the subscriptions are created and cannot be transferred between clusters. If you do need to transfer a subscription, you need to create a new subscription in the desired cluster.\r\n\r\nShould this be updated since [PIP-33](https://github.com/apache/pulsar/wiki/PIP-33%3A-Replicated-subscriptions) was released in 2.4.0?\r\n\r\nMy understanding is since PIP-33 was released then subscriptions are replicated so a consumer can fail over?",
+        "issue_url": "https://github.com/apache/pulsar/issues/5924",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "doc"
+        ],
+        "issue_closed_at": "2020-06-09T23:07:44.000Z",
+        "fix_commit_hash": "e6e63fbf3cc99484041c63965bacf9c5394cb064",
+        "commit_type": "pr",
+        "commit_message": "[Doc]--Update geo-replication doc. (#7218)",
+        "closer_url": "https://github.com/apache/pulsar/pull/7218",
+        "earliest_issue_date": "2019-12-23T17:11:30Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5962,
+        "issue_title": "After stopping the bookie and recovering, it can be produced at this time, but cannot be consumed normally. Restarting the broker can resume normal",
+        "issue_body": "**Describe the bug**\r\nTopic(E=3,W=3,A=2), stopped 2 bookie nodes, then recover the 2 bookie, \r\nThe message can be produced normally, but the consumer cannot pull the message unless the broker is restarted.\r\n\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. sh pulsar-daemon stop bookie -- A \r\n2. sh pulsar-daemon stop bookie -- B\r\n3. production message, return result is normal\r\n4. consumers have been unable to pull news",
+        "issue_url": "https://github.com/apache/pulsar/issues/5962",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2020-01-03T12:58:14.000Z",
+        "fix_commit_hash": "dcaa1d350fec920ef0ba32b4aeecd2e9604d4824",
+        "commit_type": "pr",
+        "commit_message": "fix  2 copies of 3bookie and stop 2 booksie after production. After the entire bookie is restored, it can be produced at this time, and the produced data cannot be consumed normally. Restarting the broker can resume normal (#5965)\n\nAfter stopping the bookie and recovering, it can be produced at this time, but cannot be consumed normally. Restarting the broker can resume normal\r\n\r\nFixes #5962\r\n\r\nMotivation\r\nproblem :\r\nTopic(E=3,W=3,A=2), stopped 2 bookie nodes, then recover the 2 bookie,\r\nThe message can be produced normally, but the consumer cannot pull the message unless the broker is restarted.\r\nWe hope that the bookie summary will resume normal consumption\r\n\r\nModifications\r\nThe main cause of this problem is that readHandle.readAsync does not catch the exception,\r\ncausing some methods to not trigger.\r\ntherefore, added the exception capture module , and the exceptions involved in the bookeeper project are also fixed.",
+        "closer_url": "https://github.com/apache/pulsar/pull/5965",
+        "earliest_issue_date": "2019-12-30T08:25:44Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5967,
+        "issue_title": "Vagrantfile problem",
+        "issue_body": "**Describe the bug**\r\nWhen I try to setup the vm environment, and build the project. I failed because zip/unzip tools are not installed.\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. Clear your pulsar environment\r\n2. cd dev/ \r\n3. vargrant up; vagrant ssh\r\n4. cd /pulsar\r\n5. mvn test\r\n\r\n**Expected behavior**\r\nBuild failure because of Pulsar Shaded Broker depends on zip/unzip tool.\r\n\r\n**Desktop (please complete the following information):**\r\n - OS: macos\r\n\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5967",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2020-01-01T00:28:41.000Z",
+        "fix_commit_hash": "babce5e02c9b82ae10947ba81ef46748c6f2c85a",
+        "commit_type": "pr",
+        "commit_message": "Vagrantfile update for build dependency (#5968)\n\nFixes #5967\r\n\r\n### Motivation\r\nCannot build the project successfully.\r\n\r\n### Modifications\r\nAdd install commands to install the unzip zip tools when vm sets up",
+        "closer_url": "https://github.com/apache/pulsar/pull/5968",
+        "earliest_issue_date": "2019-12-30T22:21:05Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5969,
+        "issue_title": "Acked messages unexpectedly redelivered when others are negatively acked",
+        "issue_body": "**Describe the bug**\r\n\r\nWe've encountered an issue in which acknowledged messages are redelivered one or more times after other messages are negatively acknowledged. This seems to occur when messages are produced in batches. This happens in the absence of any known broker or connection failures.\r\n\r\n**To Reproduce**\r\n\r\nI've modified the `NegativeAcksTest` to test for the correct behavior here: https://github.com/apache/pulsar/compare/master...gmethvin:negative-ack-duplicates\r\n\r\nAs the test demonstrates, in some configurations positively acknowledged messages are redelivered. This is similar to a situation we see in production.\r\n\r\n**Expected behavior**\r\n\r\nOnly the negatively acknowledged messages should be redelivered. Positively acknowledged messages should not be redelivered, at least not in a typical situation with no failures.\r\n\r\nWe produce messages in batches, but both the APIs and the documentation suggest that both acks and negative acks act on a per-message level. If negative acks act on batches, then the APIs and documentation should be changed to clearly indicate that.\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5969",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2020-06-02T01:01:18.000Z",
+        "fix_commit_hash": "aa0fbb0d31d36f383054d93e3684de79879c430c",
+        "commit_type": "pr",
+        "commit_message": "[PIP-54] Support acknowledgment at batch index level (#6052)\n\nMaster issue: #6253\r\nFixes #5969\r\n\r\n### Motivation\r\n\r\nAdd support for ack batch message local index. Can be disabled at broker side by set batchIndexAcknowledgeEnable=false at broker.conf\r\n\r\nPIP-54 documentation will be created soon.\r\n\r\n### Modifications\r\n\r\n1. Managed cursor support track and persistent local index of batch message.\r\n2. Client support send batch index ack to broker.\r\n3. The batch messages with index ack information dispatched to the client.\r\n4. Client skip the acked index.\r\n\r\n### Verifying this change\r\n\r\nNew unit tests added",
+        "closer_url": "https://github.com/apache/pulsar/pull/6052",
+        "earliest_issue_date": "2019-12-31T04:48:45Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5983,
+        "issue_title": "one small barrier in starting the standalone cluster",
+        "issue_body": "**Describe the bug**\r\nWhen I started a local standalone cluster according to the documentation, I encountered a small problem that the standalone cluster start failure.\r\nUsing the following command\r\n```shell\r\nbin/pulsar standalone\r\n```\r\nThe error message is as follows:\r\n```shell\r\nCaused by: java.net.UnknownHostException: failed to resolve 'pdeMacBook-Pro.local' after 4 queries\r\n\tat io.netty.resolver.dns.DnsResolveContext.finishResolve(DnsResolveContext.java:848) ~[io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n\tat io.netty.resolver.dns.DnsResolveContext.tryToFinishResolve(DnsResolveContext.java:809) ~[io.netty-netty-all-4.1.32.Final.jar:4.1.32.Final]\r\n```\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n```shell\r\nwget https://archive.apache.org/dist/pulsar/pulsar-2.4.2/apache-pulsar-2.4.2-bin.tar.gz\r\ntar xvfz apache-pulsar-2.4.2-bin.tar.gz\r\nbin/pulsar standalone\r\n```\r\n\r\n**Desktop (please complete the following information):**\r\n - OS: Mac OS\r\n\r\n**Additional context**\r\nActually, I have solved this problem by editing \"advertisedAddress\" configuration in standalone.conf.\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5983",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "help wanted"
+        ],
+        "issue_closed_at": "2020-01-23T08:29:31.000Z",
+        "fix_commit_hash": "138f662e23801033ec5228f27703e9b9c159552b",
+        "commit_type": "pr",
+        "commit_message": "[Issue 5983][docs] promote assign the advertisedAddress when startup Pulsar standalone (#5998)",
+        "closer_url": "https://github.com/apache/pulsar/pull/5998",
+        "earliest_issue_date": "2020-01-03T08:53:38Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5994,
+        "issue_title": "k8s/EKS some Proxies fail to get Broker info from Zookeeper",
+        "issue_body": "![image](https://user-images.githubusercontent.com/588573/71786914-e014da00-3019-11ea-8632-19f3c4f78887.png)\r\n\r\n1 - seeing a lot of these errors during cluster init\r\n2 - this is a response to e.g. `bin/pulsar-admin topics list cb/test`, which on the console returns `HTTP 403 Forbidden`\r\n\r\nThis only happens on 1 or 2 out of 4 total Proxies in the cluster. The healthy Proxies return a correct response.\r\n\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5994",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2020-02-01T07:52:12.000Z",
+        "fix_commit_hash": "b838c59fcf43b4bdce65867e85c3871f6971f957",
+        "commit_type": "pr",
+        "commit_message": "[Issue-5994]: Start proxy pods when at least one broker pod is running (#6158)\n\n### Motivation\r\nFixes #5994:\r\nIf the proxy service comes up before the brokers are up and reachable there will be HTTP 403 when running `bin/pulsar-admin` commands from inside the proxy pod.\r\n \r\nThe proxy will also not be able to connect to the brokers when data is pushed through binary port with the following error:\r\n```bash\r\nCaused by: org.apache.pulsar.broker.service.BrokerServiceException$PersistenceException: org.apache.bookkeeper.mledger.ManagedLedgerException: Not enough non-faulty bookies available\r\n\t... 14 more\r\nCaused by: org.apache.bookkeeper.mledger.ManagedLedgerException: Not enough non-faulty bookies available\r\n22:11:07.633 [pulsar-web-32-6] INFO  org.eclipse.jetty.server.RequestLog - 172.17.0.6 - - [24/Jan/2020:22:11:07 +0000] \"PUT /admin/v2/persistent/public/functions/assignments HTTP/1.1\" 500 2528 \"-\" \"Pulsar-Java-v2.5.0\" 280\r\n```\r\n\r\n#### Workaround:\r\nRestart the proxy pods once brokers pods are running\r\n\r\n#### Proposed solution:\r\nHold off starting of the proxies until at least one broker is reachable in the cluster. \r\n\r\n### Modifications\r\n\r\nChanges are inside `proxy-deployment.yaml` helm template file that defines a new init container before proxy is started. The init container waits until broker is reachable using the nslookup on the broker service with a sleep of 30 seconds between retries and up to number of brokers times.\r\n\r\nAlternative solution that doesn't always work was `'until nslookup broker-service; sleep 2; done;', but 403 would still sometimes (could have been a fluke, but I saw it happening once).\r\n\r\n### Verifying this change\r\n1) Follow the instructions on how deploying helm and run:\r\n`helm install pulsar --values pulsar/values-mini.yaml ./pulsar/`. \r\n2) Wait until all the services are up and running.  \r\n3) Connect to proxy pod and run `bin/pulsar-admin broker-stats monitoring-metrics` - no 403 or permission errors should arise\r\n4) Set up tenant, namespace\r\n5) Push data into a topic - No errors in the proxy logs and client is able to push data into cluster through proxies",
+        "closer_url": "https://github.com/apache/pulsar/pull/6158",
+        "earliest_issue_date": "2020-01-05T22:18:57Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 5997,
+        "issue_title": "websocket meet 404 when create producer in standalone mode",
+        "issue_body": "**Describe the bug**\r\nThis issue is split from issue #5979, which reported by @jeffgrunewald \r\n\r\nI am attempting to build and run pulsar locally for development mode but I receive a 404 whenever attempting to connect to the websocket to create a producer due to a missing \"serviceUrl\" param. I have set this value to my local host/port in the conf/websocket.conf file but the result is the same. Is there somewhere else this should be set or an undocumented requirement for connecting from the websocket client?\r\n\r\nI have not experienced this issue when using the standard Pulsar docker image (apache/pulsar:latest) and running the command bin/pulsar standalone as the CMD directive.\r\n\r\nJust to be clear, I am attempting this off a clone of the tip of the master branch, not the latest release tarball. I do see in the logs the `ConsumerStatsRecorderImpl` Pulsar client config is listing the serviceUrl as `\"serviceUrl\" : \"pulsar://127.0.0.1:6650\"`. Are the current websocket client connection instructions accurate for the latest unreleased version?\r\n\r\nFor further context, I am writing a pulsar client library for the Elixir language based on the websocket api. My producer and consumer is connecting to the endpoint `ws://localhost:8080/ws/v2/producer/persistent...` where localhost is dynamically supplied as part of the client configuration and my dockerized pulsar for development purposes is mapping the default service port 8080 from the container to the host. \r\n\r\n\r\n\r\n\r\n\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/5997",
+        "assignees": [
+            "sijie"
+        ],
+        "labels": [
+            "type/bug",
+            "area/websocket"
+        ],
+        "issue_closed_at": "2020-01-24T07:02:35.000Z",
+        "fix_commit_hash": "49a98972bd2aa8deef2f9a95cf7678bd1e6033a4",
+        "commit_type": "pr",
+        "commit_message": " [Websocket] Websocket doesn't set the correct cluster data (#6102)\n\n*Motivation*\r\n\r\nFixes #5997\r\nFixes #6079\r\n\r\nA regression was introduced in #5486. If websocket service as running as part of\r\npulsar standalone, the cluster data is set with null service urls. This causes\r\nservice url is not set correctly in the pulsar client and an illegal argument exception\r\n(\"Param serviceUrl must not be blank.\") will be thrown.\r\n\r\n*Modifications*\r\n\r\n1. Pass `null` when constructing the websocket service. So the local cluster data can\r\n   be refreshed when creating pulsar client.\r\n2. Set the cluster data after both broker service and web service started and ports are allocated.",
+        "closer_url": "https://github.com/apache/pulsar/pull/6102",
+        "earliest_issue_date": "2020-01-06T03:48:28Z",
+        "predicted_class": "bug"
+    }
+]

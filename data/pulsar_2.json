@@ -1,0 +1,936 @@
+[
+    {
+        "repo_name": "pulsar",
+        "issue_number": 428,
+        "issue_title": "A frame for Command Message is not found in binary protocol specification",
+        "issue_body": "According to [Framing](https://github.com/yahoo/pulsar/blob/master/docs/BinaryProtocol.md#framing), there're only 2 types of commands.\r\n\r\n> * Simple commands\r\n> [TOTAL_SIZE] [CMD_SIZE] [CMD]\r\n> \r\n> * Payload commands\r\n> [TOTAL_SIZE] [CMD_SIZE][CMD] [MAGIC_NUMBER][CHECKSUM] [METADATA_SIZE][METADATA] [PAYLOAD]\r\n\r\nI found another frame of commands when a broker pushes Command Message to a client after the broker received Flow Command in [consumer](https://github.com/yahoo/pulsar/blob/master/docs/BinaryProtocol.md#consumer) process.\r\n\r\nIn fact, Command Message uses another frame format as below. It seems that *[MAGIC_NUMBER][CHECKSUM]* is removed as compared to *Payload commands*.\r\n\r\n```java\r\nprivate static ByteBuf serializeCommandMessageWithSize(BaseCommand cmd, ByteBuf metadataAndPayload) {\r\n    // / Wire format\r\n    // [TOTAL_SIZE] [CMD_SIZE][CMD] [METADATA_SIZE][METADATA] [PAYLOAD]\r\n    ...\r\n```\r\n\r\n* https://github.com/yahoo/pulsar/blob/7badf1a/pulsar-common/src/main/java/com/yahoo/pulsar/common/api/Commands.java#L735\r\n\r\n#### Expected behavior\r\n\r\n```\r\n[TOTAL_SIZE] [CMD_SIZE][CMD] [METADATA_SIZE][METADATA] [PAYLOAD]\r\n```\r\n\r\nThe spec document should have this frame and explains related matters.\r\n\r\n#### Actual behavior\r\n\r\nThere're no documents.\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/428",
+        "assignees": [],
+        "labels": [
+            "doc"
+        ],
+        "issue_closed_at": "2017-06-15T00:11:49.000Z",
+        "fix_commit_hash": "8abafee5bc229d7e447aae3187885ab906c8290b",
+        "commit_type": "pr",
+        "commit_message": "Correct outdated comments in code about wire protocol format (#477)\n\nFixes: #428",
+        "closer_url": "https://github.com/apache/pulsar/pull/477",
+        "earliest_issue_date": "2017-05-22T10:44:23Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 458,
+        "issue_title": "no reply from websocket proxy",
+        "issue_body": "#### Expected behavior\r\nwebsocket proxy returns correct response.\r\n\r\n#### Actual behavior\r\n\r\nwe execute the following script about 2 to 100 times, websocket proxy often has come to return no more response.\r\n\r\n#### Steps to reproduce\r\n```\r\n# execute python script\r\n$for i in `seq 1 1000`;do python3.5 ./websocket_produce.py;done;\r\ncreate 0\r\ncreate 1\r\ncreate 2\r\ncreate 3\r\ncreate 4\r\ncreate 5\r\ncreate 6\r\ncreate 7\r\ncreate 8\r\ncreate 9\r\n=======================================================\r\ncreate 0\r\ncreate 2\r\ncreate 3\r\ncreate 4\r\ncreate 5\r\ncreate 6\r\ncreate 7\r\ncreate 9\r\ncreate 8\r\ncreate 1\r\n=======================================================\r\n\u30fb\r\n\u30fb\r\n#no reply\r\n```\r\n\r\nwebsocket_produce.py\r\n```\r\n# -*- coding:utf-8 -*-\r\nimport websocket, base64, json, sys\r\nfrom multiprocessing import Pool\r\nfrom multiprocessing import Process\r\n\r\ncert = '<value>'\r\ndef create_producer(i):\r\n    print('create '+str(i))\r\n    return websocket.create_connection(\r\n       'ws://<hostname>:<port>/ws/producer/persistent/prop/global/n1/topic2',  header=['cert-header-name: ' + cert])\r\n\r\ndef send_message(producer):\r\n    s=base64.b64encode(b'abcdefg').decode('utf-8')\r\n    message = \"{\\\"payload\\\":\\\"\" + s + \"\\\"}\"\r\n    producer.send(message)\r\n#    print(json.loads(producer.recv()))\r\n\r\np = Pool(10)\r\n# 1. create 10 producers\r\nproducers = p.map(create_producer, range(10))\r\n# 2. send 10messages per producer \r\nfor i in range(10):\r\n    p.map(send_message, producers)\r\n\r\nprint(\"=======================================================\")\r\n```  \r\n    \r\n   \r\n   \r\nwe confirmed following when this problem occurred.\r\n1 .  when executing ``getSession().getRemote().sendString(msg)``, suddenly ``onWebSocketError()`` is called. \r\n[ProducerHandler.java#L130](https://github.com/yahoo/pulsar/blob/afaa63fdaa53bc04554329b43ddbf95c5b158ae8/pulsar-websocket/src/main/java/com/yahoo/pulsar/websocket/ProducerHandler.java#L130)\r\n[ProducerHandler.java#L114](https://github.com/yahoo/pulsar/blob/afaa63fdaa53bc04554329b43ddbf95c5b158ae8/pulsar-websocket/src/main/java/com/yahoo/pulsar/websocket/ProducerHandler.java#L114)\r\n```\r\n14:21:16.868 [pulsar-client-io-56-1] INFO  c.y.p.w.AbstractWebSocketHandler     - [/172.21.219.252:54150] WebSocket error on topic persistent://prop/global/n1/topic2 : null\r\n```\r\n2 .  and another thread calls ``onWebSocketClose()``.\r\n```\r\n14:21:16.876 [pulsar-web-46-15] INFO  c.y.p.w.AbstractWebSocketHandler     - [/172.21.219.252:54150] Closed WebSocket session on topic persistent://prop/global/n1/topic2. status: 1006 - reason: WebSocket Read EOF\r\n```\r\n\r\n3 .  after next time, request is stoped in ``ctx.writeAndFlush(request)`` and no reply from websocket proxy\r\n[ClientCnx.java#L349](https://github.com/yahoo/pulsar/blob/029b8b09ffccad8d6021958a258d58c3ab649378/pulsar-client/src/main/java/com/yahoo/pulsar/client/impl/ClientCnx.java#L349)\r\n  \r\n4 .  no reply from admin API, too.\r\n  \r\n\r\n#### System configuration\r\n**Pulsar version**: 1.17.2  and updated the latest version(current master) but This problem still occurred.\r\nwebsocket proxy and broker run in same server.\r\n   \r\n\r\nDo you know what could be happening?",
+        "issue_url": "https://github.com/apache/pulsar/issues/458",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2017-06-14T19:45:26.000Z",
+        "fix_commit_hash": "121ed54516983dd0ee01b7aafb1f26b1867cd5cb",
+        "commit_type": "pr",
+        "commit_message": "Internal Producer/Consumer in WebSocketProxy should be closed asynchronously (#473)",
+        "closer_url": "https://github.com/apache/pulsar/pull/473",
+        "earliest_issue_date": "2017-06-08T02:02:19Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 509,
+        "issue_title": "C++ Client - Producer is never destructed",
+        "issue_body": "#### Expected behavior\r\n\r\nWhen producer goes out of scope the producer should be destructed.\r\n\r\n#### Actual behavior\r\n\r\nConsumer and Client are destructed but the producer never gets destructed.\r\n\r\n#### Steps to reproduce\r\n\r\na. Enable Debug logging\r\nb. Add inner function  ({..}) to any unit test and put 5 seconds sleep after closing braces.\r\nc. Observe the behavior in the log files - you will never see ~Producer\r\n\r\n#### System configuration\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/509",
+        "assignees": [
+            "BewareMyPower"
+        ],
+        "labels": [
+            "type/bug",
+            "help wanted",
+            "lifecycle/stale"
+        ],
+        "issue_closed_at": "2022-03-23T06:35:39.000Z",
+        "fix_commit_hash": "f7cbc1eb83ffd27b784d90d5d2dea8660c590ad2",
+        "commit_type": "pr",
+        "commit_message": "[C++] Fix producer is never destructed until client is closed (#14797)\n\nFixes #509\r\n\r\n### Motivation\r\n\r\nWhen a C++ producer is created successfully, it will start a send timer.\r\nHowever the callback has captured the shared pointer of `ProducerImpl`\r\nitself. It extends the lifetime of `ProducerImpl` so that even after the\r\n`Producer` object destructs, the underlying `ProducerImpl` object won't\r\nbe destructed. It could only be destructed after `Client::close()` is\r\ncalled.\r\n\r\n### Modifications\r\n\r\n- Pass a weak pointer of `ProducerImpl` to the send timer and add a\r\n  `asyncWaitSendTimeout` method for the combination of\r\n  `expires_from_now` and `async_wait` calls on the timer.\r\n- Add `ClientTest.testReferenceCount` to verify the reference count will\r\n  become 0 after the producer or consumer destructs.",
+        "closer_url": "https://github.com/apache/pulsar/pull/14797",
+        "earliest_issue_date": "2017-06-21T01:02:39Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 511,
+        "issue_title": "Intermittent test failure",
+        "issue_body": "```\r\ncom.yahoo.pulsar.broker.admin.AdminApiTest.testIncrementPartitionsOfTopic(com.yahoo.pulsar.broker.admin.AdminApiTest)\r\n\r\n  Run 1: AdminApiTest.testIncrementPartitionsOfTopic \u00c2\u00bb ServerSideError Some error occou...\r\n\r\n  Run 2: AdminApiTest.testIncrementPartitionsOfTopic:1766 expected [8] but found [12]\r\n\r\n\r\n\r\n2017-06-21 06:43:17,217 - ERROR - [main:TestListener@41] - ------------ Test Failed - com.yahoo.pulsar.broker.admin.AdminApiTest / testIncrementPartitionsOfTopic -- attrs: []\r\n\r\ncom.yahoo.pulsar.client.admin.PulsarAdminException$ServerSideErrorException: Some error occourred on the server\r\n\r\n\tat com.yahoo.pulsar.client.admin.internal.BaseResource.getApiException(BaseResource.java:160)\r\n\r\n\tat com.yahoo.pulsar.client.admin.internal.BaseResource$2.failed(BaseResource.java:109)\r\n\r\n\tat org.glassfish.jersey.client.JerseyInvocation$7.failed(JerseyInvocation.java:965)\r\n\r\n\tat org.glassfish.jersey.client.JerseyInvocation$7.completed(JerseyInvocation.java:952)\r\n\r\n\tat org.glassfish.jersey.client.ClientRuntime.processResponse(ClientRuntime.java:196)\r\n\r\n\tat org.glassfish.jersey.client.ClientRuntime.access$300(ClientRuntime.java:74)\r\n\r\n\tat org.glassfish.jersey.client.ClientRuntime$2$1$1.run(ClientRuntime.java:166)\r\n\r\n\tat org.glassfish.jersey.internal.Errors$1.call(Errors.java:271)\r\n\r\n\tat org.glassfish.jersey.internal.Errors$1.call(Errors.java:267)\r\n\r\n\tat org.glassfish.jersey.internal.Errors.process(Errors.java:315)\r\n\r\n\tat org.glassfish.jersey.internal.Errors.process(Errors.java:297)\r\n\r\n\tat org.glassfish.jersey.internal.Errors.process(Errors.java:267)\r\n\r\n\tat org.glassfish.jersey.process.internal.RequestScope.runInScope(RequestScope.java:340)\r\n\r\n\tat org.glassfish.jersey.client.ClientRuntime$2$1.response(ClientRuntime.java:164)\r\n\r\n\tat org.glassfish.jersey.client.internal.HttpUrlConnector$3.run(HttpUrlConnector.java:297)\r\n\r\n\tat java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511)\r\n\r\n\tat java.util.concurrent.FutureTask.run(FutureTask.java:266)\r\n\r\n\tat jersey.repackaged.com.google.common.util.concurrent.MoreExecutors$DirectExecutorService.execute(MoreExecutors.java:299)\r\n\r\n\tat java.util.concurrent.AbstractExecutorService.submit(AbstractExecutorService.java:112)\r\n\r\n\tat jersey.repackaged.com.google.common.util.concurrent.AbstractListeningExecutorService.submit(AbstractListeningExecutorService.java:50)\r\n\r\n\tat jersey.repackaged.com.google.common.util.concurrent.AbstractListeningExecutorService.submit(AbstractListeningExecutorService.java:37)\r\n\r\n\tat org.glassfish.jersey.client.internal.HttpUrlConnector.apply(HttpUrlConnector.java:293)\r\n\r\n\tat org.glassfish.jersey.client.ClientRuntime$2.run(ClientRuntime.java:180)\r\n\r\n\tat org.glassfish.jersey.internal.Errors$1.call(Errors.java:271)\r\n\r\n\tat org.glassfish.jersey.internal.Errors$1.call(Errors.java:267)\r\n\r\n\tat org.glassfish.jersey.internal.Errors.process(Errors.java:315)\r\n\r\n\tat org.glassfish.jersey.internal.Errors.process(Errors.java:297)\r\n\r\n\tat org.glassfish.jersey.internal.Errors.process(Errors.java:267)\r\n\r\n\tat org.glassfish.jersey.process.internal.RequestScope.runInScope(RequestScope.java:340)\r\n\r\n\tat org.glassfish.jersey.client.ClientRuntime$3.run(ClientRuntime.java:208)\r\n\r\n\tat java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511)\r\n\r\n\tat java.util.concurrent.FutureTask.run(FutureTask.java:266)\r\n\r\n\tat java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1142)\r\n\r\n\tat java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:617)\r\n\r\n\tat java.lang.Thread.run(Thread.java:748)\r\n\r\nCaused by: javax.ws.rs.InternalServerErrorException: HTTP 500 Internal Server Error\r\n\r\n\tat org.glassfish.jersey.client.JerseyInvocation.convertToException(JerseyInvocation.java:1032)\r\n\r\n\tat org.glassfish.jersey.client.JerseyInvocation.access$900(JerseyInvocation.java:92)\r\n\r\n\t... 32 more\r\n\r\n2017-06-21 06:43:17,220 - INFO  - [main:TestListener@29] - %%%%%%%%%%%% Before configuration - com.yahoo.pulsar.broker.admin.AdminApiTest / cleanup -- attrs: []\r\n\r\n2017-06-21 06:43:17,283 - INFO  - [main:TestListener@29] - %%%%%%%%%%%% Before configuration - com.yahoo.pulsar.broker.admin.AdminApiTest / setup -- attrs: []\r\n\r\n2017-06-21 06:43:17,738 - INFO  - [main:TestListener@53] - @@@@@@@@@@@@@ STARTING TEST - com.yahoo.pulsar.broker.admin.AdminApiTest / testIncrementPartitionsOfTopic -- attrs: []\r\n\r\n2017-06-21 06:43:18,919 - ERROR - [main:TestListener@41] - ------------ Test Failed - com.yahoo.pulsar.broker.admin.AdminApiTest / testIncrementPartitionsOfTopic -- attrs: []\r\n\r\njava.lang.AssertionError: expected [8] but found [12]\r\n\r\n\tat org.testng.Assert.fail(Assert.java:94)\r\n\r\n\tat org.testng.Assert.failNotEquals(Assert.java:494)\r\n\r\n\tat org.testng.Assert.assertEquals(Assert.java:123)\r\n\r\n\tat org.testng.Assert.assertEquals(Assert.java:370)\r\n\r\n\tat org.testng.Assert.assertEquals(Assert.java:380)\r\n\r\n\tat com.yahoo.pulsar.broker.admin.AdminApiTest.testIncrementPartitionsOfTopic(AdminApiTest.java:1766)\r\n\r\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\r\n\r\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)\r\n\r\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n\r\n\tat java.lang.reflect.Method.invoke(Method.java:498)\r\n\r\n\tat org.testng.internal.MethodInvocationHelper.invokeMethod(MethodInvocationHelper.java:84)\r\n\r\n\tat org.testng.internal.Invoker.invokeMethod(Invoker.java:714)\r\n\r\n\tat org.testng.internal.Invoker.invokeTestMethod(Invoker.java:901)\r\n\r\n\tat org.testng.internal.Invoker.invokeTestMethods(Invoker.java:1231)\r\n\r\n\tat org.testng.internal.TestMethodWorker.invokeTestMethods(TestMethodWorker.java:127)\r\n\r\n\tat org.testng.internal.TestMethodWorker.run(TestMethodWorker.java:111)\r\n\r\n\tat org.testng.TestRunner.privateRun(TestRunner.java:767)\r\n\r\n\tat org.testng.TestRunner.run(TestRunner.java:617)\r\n\r\n\tat org.testng.SuiteRunner.runTest(SuiteRunner.java:334)\r\n\r\n\tat org.testng.SuiteRunner.runSequentially(SuiteRunner.java:329)\r\n\r\n\tat org.testng.SuiteRunner.privateRun(SuiteRunner.java:291)\r\n\r\n\tat org.testng.SuiteRunner.run(SuiteRunner.java:240)\r\n\r\n\tat org.testng.SuiteRunnerWorker.runSuite(SuiteRunnerWorker.java:52)\r\n\r\n\tat org.testng.SuiteRunnerWorker.run(SuiteRunnerWorker.java:86)\r\n\r\n\tat org.testng.TestNG.runSuitesSequentially(TestNG.java:1224)\r\n\r\n\tat org.testng.TestNG.runSuitesLocally(TestNG.java:1149)\r\n\r\n\tat org.testng.TestNG.run(TestNG.java:1057)\r\n\r\n\tat org.apache.maven.surefire.testng.TestNGExecutor.run(TestNGExecutor.java:132)\r\n\r\n\tat org.apache.maven.surefire.testng.TestNGDirectoryTestSuite.executeMulti(TestNGDirectoryTestSuite.java:193)\r\n\r\n\tat org.apache.maven.surefire.testng.TestNGDirectoryTestSuite.execute(TestNGDirectoryTestSuite.java:94)\r\n\r\n\tat org.apache.maven.surefire.testng.TestNGProvider.invoke(TestNGProvider.java:147)\r\n\r\n\tat org.apache.maven.surefire.booter.ForkedBooter.invokeProviderInSameClassLoader(ForkedBooter.java:290)\r\n\r\n\tat org.apache.maven.surefire.booter.ForkedBooter.runSuitesInProcess(ForkedBooter.java:242)\r\n\r\n\tat org.apache.maven.surefire.booter.ForkedBooter.main(ForkedBooter.java:121)\r\n```",
+        "issue_url": "https://github.com/apache/pulsar/issues/511",
+        "assignees": [
+            "rdhabalia"
+        ],
+        "labels": [],
+        "issue_closed_at": "2017-06-21T18:33:07.000Z",
+        "fix_commit_hash": "2ca1a7a9b0e9db66af6d2c71c64b6e66c8797cb7",
+        "commit_type": "pr",
+        "commit_message": "fix AdminApi test by creating separate mock-pulsar instances for different broker (#512)",
+        "closer_url": "https://github.com/apache/pulsar/pull/512",
+        "earliest_issue_date": "2017-06-21T06:59:54Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 551,
+        "issue_title": "Problems in lookup flow in C++ Client",
+        "issue_body": "# Issues:-\r\n\r\n1. **Client Stops Doing Lookups**\r\nIn case of non graceful shutdown, if the ClientConnection object is not destroyed within first backoff time (0.1 seconds) then the consumer/producer will no longer attempt to reconnect to the broker - which may lead to Timeouts and queue full in case of producer and backlog in case of consumer.\r\n\r\n2. **Locking inconsistencies in Lookup Logic**\r\nIn the following methods, we check/change the clientConnection_ weakPtr outside a lock\r\n- ProducerImpl.disconnectProducer()\r\n- ConsumerImpl.disconnectConsumer()\r\n- HandlerBase.grabCnx()\r\n- ConsumerImpl.handleCreateConsumer() \r\n\r\n3. **Duplicate lookups happen on the client side**\r\n(A) During a graceful shutdown, the broker sends CLOSE_PRODUCER / CLOSE_CONSUMER command to the client, which triggers the reconnection logic. \r\n(B) After the connection is closed the ClientConnection.close() also triggers the reconnection logic for all registered consumers/producers. \r\n\r\nIf (A) doesn't complete before (B) then lookups and CREATE_PRODUCER / CREATE_CONSUMER commands are sent twice - this is not a functional issue because the broker returns success for the duplicate command but this leads a twice the required number of lookups.\r\n\r\n4. **Duplicate CLOSE_PRODUCER and CLOSE_CONSUMER triggered by the broker**\r\nNot sure why this is happening or it's side effects.\r\n\r\n**Note:** Will attach the relevant log files with the Pull Request for the fixes.\r\n\r\n\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/551",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2017-12-22T00:19:49.000Z",
+        "fix_commit_hash": "87b8944fa16ec6a898d26cb3e9bd32fee82086e8",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "CPP Client Test for Lookup Issue (#551) (#595)\n\n* CPP Client Test for Lookup Issue (#551)\r\n\r\n* Fixed a typo",
+        "closer_url": null,
+        "earliest_issue_date": "2017-07-07T00:44:33Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 578,
+        "issue_title": "Intermittent test failure: Websocket.LookupProtocolTest",
+        "issue_body": "Intermittent test failure of [Websocket.LookupProtocolTest](https://github.com/apache/incubator-pulsar/blob/master/pulsar-websocket/src/test/java/org/apache/pulsar/websocket/LookupProtocolTest.java)\r\n\r\n\r\n```\r\nRunning TestSuite\r\nTests run: 6, Failures: 4, Errors: 0, Skipped: 0, Time elapsed: 40.726 sec <<< FAILURE! - in TestSuite\r\nbinaryLookupTest(org.apache.pulsar.websocket.LookupProtocolTest)  Time elapsed: 10.009 sec  <<< FAILURE!\r\norg.testng.internal.thread.ThreadTimeoutException: Method org.testng.internal.TestNGMethod.binaryLookupTest() didn't finish within the time-out 10000\r\n\tat org.apache.pulsar.websocket.LookupProtocolTest.binaryLookupTest(LookupProtocolTest.java:68)\r\n\r\nbinaryTlsLookupTest(org.apache.pulsar.websocket.LookupProtocolTest)  Time elapsed: 10.002 sec  <<< FAILURE!\r\norg.testng.internal.thread.ThreadTimeoutException: Method org.testng.internal.TestNGMethod.binaryTlsLookupTest() didn't finish within the time-out 10000\r\n\tat org.apache.pulsar.websocket.LookupProtocolTest.binaryTlsLookupTest(LookupProtocolTest.java:85)\r\n\r\nhttpLookupTest(org.apache.pulsar.websocket.LookupProtocolTest)  Time elapsed: 10.001 sec  <<< FAILURE!\r\norg.testng.internal.thread.ThreadTimeoutException: Method org.testng.internal.TestNGMethod.httpLookupTest() didn't finish within the time-out 10000\r\n\tat org.apache.pulsar.websocket.LookupProtocolTest.httpLookupTest(LookupProtocolTest.java:36)\r\n\r\nhttpsLookupTest(org.apache.pulsar.websocket.LookupProtocolTest)  Time elapsed: 10.006 sec  <<< FAILURE!\r\norg.testng.internal.thread.ThreadTimeoutException: Method org.testng.internal.TestNGMethod.httpsLookupTest() didn't finish within the time-out 10000\r\n\tat org.apache.pulsar.websocket.LookupProtocolTest.httpsLookupTest(LookupProtocolTest.java:52)\r\n\r\n\r\nResults :\r\n\r\nFailed tests: \r\n  LookupProtocolTest.binaryLookupTest:68 \u00bb ThreadTimeout Method org.testng.inter...\r\n  LookupProtocolTest.binaryTlsLookupTest:85 \u00bb ThreadTimeout Method org.testng.in...\r\n  LookupProtocolTest.httpLookupTest:36 \u00bb ThreadTimeout Method org.testng.interna...\r\n  LookupProtocolTest.httpsLookupTest:52 \u00bb ThreadTimeout Method org.testng.intern...\r\n```",
+        "issue_url": "https://github.com/apache/pulsar/issues/578",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2017-07-18T07:20:49.000Z",
+        "fix_commit_hash": "9dae207041e6835878b94669cddc26513387e312",
+        "commit_type": "commit",
+        "commit_message": "Fix #578: Force early load of epoll library to avoid race condition (#580)",
+        "closer_url": "https://github.com/apache/pulsar/commit/9dae207041e6835878b94669cddc26513387e312",
+        "earliest_issue_date": "2017-07-17T23:47:42Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 612,
+        "issue_title": "Intermittent test failure on NonPersistentTopicTest",
+        "issue_body": "Seen at \r\nhttps://builds.apache.org/job/pulsar-pull-request/org.apache.pulsar$pulsar-broker/11/testReport/junit/org.apache.pulsar.client.api/NonPersistentTopicTest/testProducerRateLimit/\r\n\r\n```\r\njava.lang.AssertionError: expected [false] but found [true]\r\n\tat org.testng.Assert.fail(Assert.java:94)\r\n\tat org.testng.Assert.failNotEquals(Assert.java:494)\r\n\tat org.testng.Assert.assertFalse(Assert.java:63)\r\n\tat org.testng.Assert.assertFalse(Assert.java:73)\r\n\tat org.apache.pulsar.client.api.NonPersistentTopicTest.testProducerRateLimit(NonPersistentTopicTest.java:284)\r\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\r\n```",
+        "issue_url": "https://github.com/apache/pulsar/issues/612",
+        "assignees": [
+            "merlimat"
+        ],
+        "labels": [
+            "area/test"
+        ],
+        "issue_closed_at": "2017-08-03T00:38:00.000Z",
+        "fix_commit_hash": "d8e8813c550ab6ad8361de363f9f9c4107711c87",
+        "commit_type": "commit",
+        "commit_message": "Fix #612: NonPersistentTopicTest test timeout was too short and sometimes failed (#629)",
+        "closer_url": "https://github.com/apache/pulsar/commit/d8e8813c550ab6ad8361de363f9f9c4107711c87",
+        "earliest_issue_date": "2017-08-01T17:09:38Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 617,
+        "issue_title": "Intermittent test failure in PersistentTopicTest.testClosingReplicationProducerTwice",
+        "issue_body": "As seen in https://builds.apache.org/job/pulsar-pull-request/org.apache.pulsar$pulsar-broker/17/testReport/junit/org.apache.pulsar.broker.service/PersistentTopicTest/testClosingReplicationProducerTwice/\r\n\r\n### Error Message\r\n```\r\npulsarClientImpl.createProducerAsync(\r\n    \"persistent://prop/global/ns/testClosingReplicationProducerTwice\",\r\n    org.apache.pulsar.client.api.ProducerConfiguration@79f3359e,\r\n    \"pulsar.repl.local\"\r\n);\r\nWanted 1 time:\r\n-> at org.apache.pulsar.broker.service.PersistentTopicTest.testClosingReplicationProducerTwice(PersistentTopicTest.java:965)\r\nBut was 2 times. Undesired invocation:\r\n-> at org.apache.pulsar.broker.service.AbstractReplicator.startProducer(AbstractReplicator.java:114)\r\n```\r\n\r\n### Stacktrace\r\n```\r\norg.mockito.exceptions.verification.TooManyActualInvocations: \r\n\r\npulsarClientImpl.createProducerAsync(\r\n    \"persistent://prop/global/ns/testClosingReplicationProducerTwice\",\r\n    org.apache.pulsar.client.api.ProducerConfiguration@79f3359e,\r\n    \"pulsar.repl.local\"\r\n);\r\nWanted 1 time:\r\n-> at org.apache.pulsar.broker.service.PersistentTopicTest.testClosingReplicationProducerTwice(PersistentTopicTest.java:965)\r\nBut was 2 times. Undesired invocation:\r\n-> at org.apache.pulsar.broker.service.AbstractReplicator.startProducer(AbstractReplicator.java:114)\r\n\r\n\tat org.apache.pulsar.broker.service.PersistentTopicTest.testClosingReplicationProducerTwice(PersistentTopicTest.java:965)\r\n```",
+        "issue_url": "https://github.com/apache/pulsar/issues/617",
+        "assignees": [],
+        "labels": [
+            "help wanted",
+            "area/test"
+        ],
+        "issue_closed_at": "2018-04-25T08:36:40.000Z",
+        "fix_commit_hash": "e35087c3d3ec7613060f50f56f5b4975a86d42c3",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Fix race in PersistentTopicTest#testClosingReplicationProducerTwice (#1360)\n\nA race existed where the replicator was making a startProducer call on\r\nconstruction before the client was mocked. This startProducer would\r\nfail on producer creation, which would trigger a backoff and a\r\nretry. If this fell exactly the wrong way, it could cause\r\ncreateProducerAsync to be called multiple times on the mock before the\r\ncheck, which would fail the test.\r\n\r\nThis fix addresses issue #617 and it's duplicate #1145",
+        "closer_url": null,
+        "earliest_issue_date": "2017-08-01T21:51:00Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 630,
+        "issue_title": "Intermittent C++ test failure in LatchTest.testTimedWait",
+        "issue_body": "As seen on https://builds.apache.org/job/pulsar-pull-request/45/console \r\n```\r\n[35/75] LatchTest.testTimedWait (108 ms)\r\nlog4cxx: Could not read configuration file [log4cxx.conf].\r\n\u001b[0;33mNote: Google Test filter = LatchTest.testTimedWait\r\n\u001b[m\u001b[0;32m[==========] \u001b[mRunning 1 test from 1 test case.\r\n\u001b[0;32m[----------] \u001b[mGlobal test environment set-up.\r\n\u001b[0;32m[----------] \u001b[m1 test from LatchTest\r\n\u001b[0;32m[ RUN      ] \u001b[mLatchTest.testTimedWait\r\nlog4cxx: No appender could be found for logger (pulsar./pulsar/pulsar-client-cpp/tests/LatchTest.cc).\r\nlog4cxx: Please initialize the log4cxx system properly.\r\n/pulsar/pulsar-client-cpp/tests/LatchTest.cc:80: Failure\r\nValue of: latch1.wait(millisec(70))\r\n  Actual: false\r\nExpected: true\r\n\u001b[0;31m[  FAILED  ] \u001b[mLatchTest.testTimedWait (74 ms)\r\n\u001b[0;32m[----------] \u001b[m1 test from LatchTest (74 ms total)\r\n\r\n\u001b[0;32m[----------] \u001b[mGlobal test environment tear-down\r\n\u001b[0;32m[==========] \u001b[m1 test from 1 test case ran. (74 ms total)\r\n\u001b[0;32m[  PASSED  ] \u001b[m0 tests.\r\n\u001b[0;31m[  FAILED  ] \u001b[m1 test, listed below:\r\n\u001b[0;31m[  FAILED  ] \u001b[mLatchTest.testTimedWait\r\n```\r\n\r\ncc @jai1 ",
+        "issue_url": "https://github.com/apache/pulsar/issues/630",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "area/test",
+            "type/flaky-tests"
+        ],
+        "issue_closed_at": "2020-02-12T16:59:44.000Z",
+        "fix_commit_hash": "a103c93a1c57565afe41164eb39fb6825c6f1dd7",
+        "commit_type": "pr",
+        "commit_message": "[C++] Improve LatchTest.testTimedWait timing (#6294)",
+        "closer_url": "https://github.com/apache/pulsar/pull/6294",
+        "earliest_issue_date": "2017-08-02T23:43:05Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 644,
+        "issue_title": "Intermittent test failure on BrokerServiceThrottlingTest.testLookupThrottlingForClientByBroker",
+        "issue_body": "As seen on https://builds.apache.org/job/pulsar-master/org.apache.pulsar$pulsar-broker/14/testReport/junit/org.apache.pulsar.broker.service/BrokerServiceThrottlingTest/testLookupThrottlingForClientByBroker/\r\n\r\n```\r\njava.lang.NullPointerException\r\n\tat org.apache.pulsar.broker.service.BrokerServiceThrottlingTest.testLookupThrottlingForClientByBroker(BrokerServiceThrottlingTest.java:177)\r\n```",
+        "issue_url": "https://github.com/apache/pulsar/issues/644",
+        "assignees": [],
+        "labels": [
+            "help wanted",
+            "area/test"
+        ],
+        "issue_closed_at": "2017-08-07T17:08:38.000Z",
+        "fix_commit_hash": "4f22047cccf07b3dfc166b4c31b67ef59f4d9869",
+        "commit_type": "commit",
+        "commit_message": "Fix #644: BrokerServiceThrottlingTest.testLookupThrottlingForClientByBroker intermittent failures (#645)",
+        "closer_url": "https://github.com/apache/pulsar/commit/4f22047cccf07b3dfc166b4c31b67ef59f4d9869",
+        "earliest_issue_date": "2017-08-05T17:01:07Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 651,
+        "issue_title": "Intermittent test failure PulsarClientToolTest.testInitialzation",
+        "issue_body": "As seen in https://builds.apache.org/job/pulsar-master/org.apache.pulsar$pulsar-client-tools/17/testReport/junit/org.apache.pulsar.client.cli/PulsarClientToolTest/testInitialzation/\r\n\r\n```\r\nError Message\r\n\r\nMethod org.testng.internal.TestNGMethod.testInitialzation() didn't finish within the time-out 10000\r\nStacktrace\r\n\r\norg.testng.internal.thread.ThreadTimeoutException: Method org.testng.internal.TestNGMethod.testInitialzation() didn't finish within the time-out 10000\r\n```",
+        "issue_url": "https://github.com/apache/pulsar/issues/651",
+        "assignees": [
+            "hrsakai"
+        ],
+        "labels": [
+            "area/test"
+        ],
+        "issue_closed_at": "2017-10-20T17:02:07.000Z",
+        "fix_commit_hash": "2c1cbc899fe378b4e8f1c2773f77289fb340a636",
+        "commit_type": "pr",
+        "commit_message": "Fixed PulsarClientToolTest.testInitialzation (#843)",
+        "closer_url": "https://github.com/apache/pulsar/pull/843",
+        "earliest_issue_date": "2017-08-07T20:43:20Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 657,
+        "issue_title": "Intermittent C++ test failure BatchMessageTest.testProducerConfig",
+        "issue_body": "As seen in https://builds.apache.org/job/pulsar-master/22/console\r\n\r\n```\r\n[17/75] BatchMessageTest.testProducerConfig (30 ms)\r\nlog4cxx: Could not read configuration file [log4cxx.conf].\r\nNote: Google Test filter = BatchMessageTest.testProducerConfig\r\n[==========] Running 1 test from 1 test case.\r\n[----------] Global test environment set-up.\r\n[----------] 1 test from BatchMessageTest\r\n[ RUN      ] BatchMessageTest.testProducerConfig\r\n\r\n[WARNING] /usr/src/gtest/src/gtest-death-test.cc:825:: Death tests use fork(), which is unsafe particularly in a threaded context. For this test, Google Test couldn't detect the number of threads.\r\n/pulsar/pulsar-client-cpp/tests/BatchMessageTest.cc:75: Failure\r\nDeath test: conf.setBatchingMaxMessages(1)\r\n    Result: failed to die.\r\n Error msg:\r\n[  DEATH   ]\r\n[  FAILED  ] BatchMessageTest.testProducerConfig (5 ms)\r\n[----------] 1 test from BatchMessageTest (5 ms total)\r\n\r\n[----------] Global test environment tear-down\r\n[==========] 1 test from 1 test case ran. (6 ms total)\r\n[  PASSED  ] 0 tests.\r\n[  FAILED  ] 1 test, listed below:\r\n[  FAILED  ] BatchMessageTest.testProducerConfig\r\n\r\n 1 FAILED TEST\r\n[17/75] BatchMessageTest.testProducerConfig returned/aborted with exit code 1 (30 ms)\r\n```",
+        "issue_url": "https://github.com/apache/pulsar/issues/657",
+        "assignees": [],
+        "labels": [
+            "area/test"
+        ],
+        "issue_closed_at": "2017-08-11T20:49:48.000Z",
+        "fix_commit_hash": "c51eaad9745d36d737b30d645fa1db753ae87246",
+        "commit_type": "commit",
+        "commit_message": "Fix #657: Use exceptions instead of assert() to do runtime parameter validations (#673)",
+        "closer_url": "https://github.com/apache/pulsar/commit/c51eaad9745d36d737b30d645fa1db753ae87246",
+        "earliest_issue_date": "2017-08-08T17:34:50Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 667,
+        "issue_title": "Python client wrapper should handle",
+        "issue_body": "When hitting `Ctrl-C` on the console where a Python pulsar client is running, the script doesn't get interrupted.\r\n\r\nThe problem seems to be that when the application is calling `consumer.receive()` the Python thread is blocked and it's not handling the signals. \r\n\r\nIn the C++ extension code, we should make sure to check for the signals status every once in a while, to make sure the process doesn't appear to be unresponsive on Ctrl-C. \r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/667",
+        "assignees": [],
+        "labels": [
+            "type/enhancement",
+            "help wanted"
+        ],
+        "issue_closed_at": "2017-08-15T21:33:22.000Z",
+        "fix_commit_hash": "8440e3d2ba6488abc5143e5a94bdf69fb2546543",
+        "commit_type": "pr",
+        "commit_message": "Interrupt the Python consumer when receiving SIGINT (#675)",
+        "closer_url": "https://github.com/apache/pulsar/pull/675",
+        "earliest_issue_date": "2017-08-09T23:13:34Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 674,
+        "issue_title": "Assertion failure in RocksDB when opening the index db",
+        "issue_body": "In some cases, the bookie from the standalone pulsar service is crashing on startup. \r\n\r\n```\r\n2017-08-10 13:03:51,646 - INFO  - [main:Bookie@506] - using ledger storage: org.apache.bookkeeper.bookie.storage.ldb.DbLedgerStorage\r\n2017-08-10 13:03:51,711 - INFO  - [main:DbLedgerStorage@132] - Started Db Ledger Storage\r\n2017-08-10 13:03:51,711 - INFO  - [main:DbLedgerStorage@133] -  - Write cache size: 256 MB\r\n2017-08-10 13:03:51,712 - INFO  - [main:DbLedgerStorage@134] -  - Read Cache: 64 MB\r\n2017-08-10 13:03:51,712 - INFO  - [main:DbLedgerStorage@135] -  - Read Ahead Batch size: : 100\r\nAssertion failed: (filter->size() > 0), function GetFilter, file table/block_based_table_reader.cc, line 1133.\r\nAbort trap: 6\r\n```\r\n\r\nOnce it gets into that state is not recovering.\r\n\r\n\r\nStack traces:\r\n\r\n```\r\n thread #6, stop reason = signal SIGSTOP\r\n    frame #0: 0x00007fffd445cd42 libsystem_kernel.dylib`__pthread_kill + 10\r\n    frame #1: 0x00007fffd454a457 libsystem_pthread.dylib`pthread_kill + 90\r\n    frame #2: 0x00007fffd43c2420 libsystem_c.dylib`abort + 129\r\n    frame #3: 0x00007fffd4389893 libsystem_c.dylib`__assert_rtn + 320\r\n    frame #4: 0x000000013da81279 librocksdbjni1259198247081385980.jnilib`rocksdb::BlockBasedTable::GetFilter(rocksdb::BlockHandle const&, bool, bool) const + 1017\r\n    frame #5: 0x000000013da7e202 librocksdbjni1259198247081385980.jnilib`rocksdb::BlockBasedTable::Open(rocksdb::ImmutableCFOptions const&, rocksdb::EnvOptions const&, rocksdb::BlockBasedTableOptions const&, rocksdb::InternalKeyComparator const&, std::__1::unique_ptr<rocksdb::RandomAccessFileReader, std::__1::default_delete<rocksdb::RandomAccessFileReader> >&&, unsigned long long, std::__1::unique_ptr<rocksdb::TableReader, std::__1::default_delete<rocksdb::TableReader> >*, bool, bool, int) + 4338\r\n    frame #6: 0x000000013da7958a librocksdbjni1259198247081385980.jnilib`rocksdb::BlockBasedTableFactory::NewTableReader(rocksdb::TableReaderOptions const&, std::__1::unique_ptr<rocksdb::RandomAccessFileReader, std::__1::default_delete<rocksdb::RandomAccessFileReader> >&&, unsigned long long, std::__1::unique_ptr<rocksdb::TableReader, std::__1::default_delete<rocksdb::TableReader> >*, bool) const + 90\r\n    frame #7: 0x000000013d996912 librocksdbjni1259198247081385980.jnilib`rocksdb::TableCache::GetTableReader(rocksdb::EnvOptions const&, rocksdb::InternalKeyComparator const&, rocksdb::FileDescriptor const&, bool, unsigned long, bool, rocksdb::HistogramImpl*, std::__1::unique_ptr<rocksdb::TableReader, std::__1::default_delete<rocksdb::TableReader> >*, bool, int, bool) + 546\r\n    frame #8: 0x000000013d996dfa librocksdbjni1259198247081385980.jnilib`rocksdb::TableCache::FindTable(rocksdb::EnvOptions const&, rocksdb::InternalKeyComparator const&, rocksdb::FileDescriptor const&, rocksdb::Cache::Handle**, bool, bool, rocksdb::HistogramImpl*, bool, int, bool) + 602\r\n    frame #9: 0x000000013d99716a librocksdbjni1259198247081385980.jnilib`rocksdb::TableCache::NewIterator(rocksdb::ReadOptions const&, rocksdb::EnvOptions const&, rocksdb::InternalKeyComparator const&, rocksdb::FileDescriptor const&, rocksdb::RangeDelAggregator*, rocksdb::TableReader**, rocksdb::HistogramImpl*, bool, rocksdb::Arena*, bool, int) + 394\r\n    frame #10: 0x000000013d85b35d librocksdbjni1259198247081385980.jnilib`rocksdb::BuildTable(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&, rocksdb::Env*, rocksdb::ImmutableCFOptions const&, rocksdb::MutableCFOptions const&, rocksdb::EnvOptions const&, rocksdb::TableCache*, rocksdb::InternalIterator*, std::__1::unique_ptr<rocksdb::InternalIterator, std::__1::default_delete<rocksdb::InternalIterator> >, rocksdb::FileMetaData*, rocksdb::InternalKeyComparator const&, std::__1::vector<std::__1::unique_ptr<rocksdb::IntTblPropCollectorFactory, std::__1::default_delete<rocksdb::IntTblPropCollectorFactory> >, std::__1::allocator<std::__1::unique_ptr<rocksdb::IntTblPropCollectorFactory, std::__1::default_delete<rocksdb::IntTblPropCollectorFactory> > > > const*, unsigned int, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&, std::__1::vector<unsigned long long, std::__1::allocator<unsigned long long> >, unsigned long long, rocksdb::CompressionType, rocksdb::CompressionOptions const&, bool, rocksdb::InternalStats*, rocksdb::TableFileCreationReason, rocksdb::EventLogger*, int, rocksdb::Env::IOPriority, rocksdb::TableProperties*, int) + 3981\r\n    frame #11: 0x000000013d912099 librocksdbjni1259198247081385980.jnilib`rocksdb::DBImpl::WriteLevel0TableForRecovery(int, rocksdb::ColumnFamilyData*, rocksdb::MemTable*, rocksdb::VersionEdit*) + 1337\r\n    frame #12: 0x000000013d910563 librocksdbjni1259198247081385980.jnilib`rocksdb::DBImpl::RecoverLogFiles(std::__1::vector<unsigned long long, std::__1::allocator<unsigned long long> > const&, unsigned long long*, bool) + 2355\r\n    frame #13: 0x000000013d90f3ca librocksdbjni1259198247081385980.jnilib`rocksdb::DBImpl::Recover(std::__1::vector<rocksdb::ColumnFamilyDescriptor, std::__1::allocator<rocksdb::ColumnFamilyDescriptor> > const&, bool, bool, bool) + 1370\r\n    frame #14: 0x000000013d91371e librocksdbjni1259198247081385980.jnilib`rocksdb::DB::Open(rocksdb::DBOptions const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&, std::__1::vector<rocksdb::ColumnFamilyDescriptor, std::__1::allocator<rocksdb::ColumnFamilyDescriptor> > const&, std::__1::vector<rocksdb::ColumnFamilyHandle*, std::__1::allocator<rocksdb::ColumnFamilyHandle*> >*, rocksdb::DB**) + 2238\r\n    frame #15: 0x000000013d912c27 librocksdbjni1259198247081385980.jnilib`rocksdb::DB::Open(rocksdb::Options const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&, rocksdb::DB**) + 1351\r\n    frame #16: 0x000000013d83610c librocksdbjni1259198247081385980.jnilib`___lldb_unnamed_symbol106$$librocksdbjni1259198247081385980.jnilib + 28\r\n    frame #17: 0x000000013d8302a3 librocksdbjni1259198247081385980.jnilib`rocksdb_open_helper(JNIEnv_*, long, _jstring*, std::__1::function<rocksdb::Status (rocksdb::Options const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&, rocksdb::DB**)>) + 147\r\n    frame #18: 0x000000013d8303a9 librocksdbjni1259198247081385980.jnilib`Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2 + 73\r\n```",
+        "issue_url": "https://github.com/apache/pulsar/issues/674",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2018-06-01T14:54:53.000Z",
+        "fix_commit_hash": "89dd66b2fa063a5f0eaee678054c2de362850f56",
+        "commit_type": "pr",
+        "commit_message": "Upgrade RocksDb to 5.13.1 (#1887)",
+        "closer_url": "https://github.com/apache/pulsar/pull/1887",
+        "earliest_issue_date": "2017-08-10T20:05:26Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 683,
+        "issue_title": "ReflectionFactory is internal proprietary API and may be removed",
+        "issue_body": "#### Expected behavior\r\nNo warnings during build\r\n\r\n#### Actual behavior\r\n```\r\n[INFO] --- maven-compiler-plugin:2.3.2:testCompile (default-testCompile) @ managed-ledger ---\r\n[INFO] Compiling 30 source files to /Users/masakazu/git/pulsar/managed-ledger/target/test-classes\r\n[WARNING] /Users/masakazu/git/pulsar/managed-ledger/src/test/java/org/apache/zookeeper/MockZooKeeper.java:[81,23] ReflectionFactory is internal proprietary API and may be removed in a future release\r\n[WARNING] /Users/masakazu/git/pulsar/managed-ledger/src/test/java/org/apache/zookeeper/MockZooKeeper.java:[81,58] ReflectionFactory is internal proprietary API and may be removed in a future release\r\n```\r\n\r\n#### Steps to reproduce\r\n\r\n```\r\nmvn install -DskipTests\r\n```\r\n\r\n#### System configuration\r\n**Pulsar version**: master c51eaad\r\n**OS**: macOS 10.12\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/683",
+        "assignees": [
+            "merlimat"
+        ],
+        "labels": [
+            "help wanted",
+            "area/build"
+        ],
+        "issue_closed_at": "2020-07-17T19:03:46.000Z",
+        "fix_commit_hash": "c404b1e2519f18a439aefffd8ceb64edfde82eeb",
+        "commit_type": "pr",
+        "commit_message": "#683 - Replace internal proprietary sun.reflect.ReflectionFactory API with Objenesis API (#7582)\n\n* #683 - Replace internal proprietary API sun.reflect.ReflectionFactory with Objenisis API\r\n\r\n* #683 - Replace internal proprietary API sun.reflect.ReflectionFactory with Objenisis API\r\n\r\n* #683 - Replace deprecated KeeperException.Code constant references with corresponding enums\r\n\r\n* #683 - Fixed pom header formatting\r\n\r\n* #683 - Made objenesis variable a static final member variable",
+        "closer_url": "https://github.com/apache/pulsar/pull/7582",
+        "earliest_issue_date": "2017-08-12T08:02:56Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 686,
+        "issue_title": "DuplicatedByteBuf is deprecated",
+        "issue_body": "#### Expected behavior\r\n\r\nNo warnings during build.\r\n\r\n#### Actual behavior\r\n```\r\n[WARNING] /Users/masakazu/git/pulsar/pulsar-common/src/main/java/io/netty/buffer/RecyclableSlicedByteBuf.java:[69,37] [deprecation] DuplicatedByteBuf in io.netty.buffer has been deprecated\r\n```\r\n\r\n#### Steps to reproduce\r\n```\r\nmvn install -DskipTests\r\n```\r\n\r\n#### System configuration\r\n**Pulsar version**: master c51eaad\r\n**OS**: macOS 10.12\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/686",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2017-11-29T02:32:44.000Z",
+        "fix_commit_hash": "75de0a9b79671ebaddca7e9798b51230ca27a3e3",
+        "commit_type": "pr",
+        "commit_message": "Netty 4.1 (#689)\n\n* Upgrade to Netty-4.1\r\n\r\n* Updated Recycler usages\r\n\r\n* Converted usages of ByteBuf.order()\r\n\r\n* Upgrade AsyncHttpClient\r\n\r\n* Upgraded BK to 4.3.1.82-yahoo\r\n\r\n* Fixed method name that changed in async-http-client-2.1\r\n\r\n* Upgrade to Guava 20.0 to match same BK version\r\n\r\n* Converted usages of templatized Recycler in protobuf generated code\r\n\r\n* Fixed capacity in DoubleByteBuf\r\n\r\n* Fixed usages of Objects.toStringHelper\r\n\r\n* Use same netty version as BK\r\n\r\n* Fixed kafka compat tests\r\n\r\n* Include AsyncHttpClient default properties file in shaded jar\r\n\r\n* Added ref count check in DoubleByteBufTest",
+        "closer_url": "https://github.com/apache/pulsar/pull/689",
+        "earliest_issue_date": "2017-08-13T09:34:49Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 738,
+        "issue_title": "Example code for Node.js doesn't work",
+        "issue_body": "#### Expected behavior\r\n\r\nProvide examples that actually work\r\n\r\n#### Actual behavior\r\n\r\nConsumer example for Node.js doesn't work.\r\n\r\n```\r\nReferenceError: socket is not defined\r\n```\r\n\r\nAlso, coding style and naming are inconsistent:\r\n  `socket.onmessage(...` vs `ws.on('message', ...`\r\n  `function(message)` vs `function(packet)`\r\n\r\n#### Steps to reproduce\r\n\r\n1. Go http://pulsar.incubator.apache.org/docs/latest/clients/WebSocket/\r\n1. Run examples on Node.js\r\n\r\n#### System configuration\r\nN/A\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/738",
+        "assignees": [],
+        "labels": [
+            "doc"
+        ],
+        "issue_closed_at": "2017-09-05T21:31:07.000Z",
+        "fix_commit_hash": "5f5015bd47dc28017d6af901e87e3506d1c003b0",
+        "commit_type": "pr",
+        "commit_message": "Added reader endpoint description to WebSocket.md (#729)\n\n* Added reader endpoint description to WebSocket.md\r\n\r\n* Fixed sample code in WebSocket.md\r\n\r\n* Use on('message',listener) in node.js sample code",
+        "closer_url": "https://github.com/apache/pulsar/pull/729",
+        "earliest_issue_date": "2017-08-31T11:08:55Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 749,
+        "issue_title": "Message duplication can occur when cursor is reset",
+        "issue_body": "When a cursor is reset, duplicate messages are sometimes delivered to different consumers under the following conditions:\r\n\r\n- A subscription type is `Failover`.\r\n- Multiple consumers are connecting.\r\n\r\nI'm thinking that the following happened, but there is no clear evidence.\r\n\r\n1. For example, there are two connected consumers whose name are \"alice\" and \"bob\" on a `Failover` subscription (priority is \"alice\" > \"bob\").\r\n2. When a cursor of the subscription is reset, both of the consumers will be disconnected once.\r\n3. Assume that \"bob\" has reconnected first and received messages.\r\n4. If \"alice\" has reconnected before \"bob\" has not acknowledged the messages yet, a broker will redeliver the unacked messages to \"alice\".\r\n5. Consequently, both of the consumers have received the same messages.",
+        "issue_url": "https://github.com/apache/pulsar/issues/749",
+        "assignees": [
+            "massakam"
+        ],
+        "labels": [
+            "type/enhancement"
+        ],
+        "issue_closed_at": "2017-10-10T17:52:12.000Z",
+        "fix_commit_hash": "f6ae797f37697488329e747b7e4e6a2e01142da4",
+        "commit_type": "pr",
+        "commit_message": "Prevent message duplication when active consumer is changed (#807)",
+        "closer_url": "https://github.com/apache/pulsar/pull/807",
+        "earliest_issue_date": "2017-09-08T01:45:01Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 759,
+        "issue_title": "Negative unacked messages",
+        "issue_body": "We're experiencing a behavior were consumers have negative unackedMesasges count, huge backlogs, have availablePermits, are not blocked and yet are not receiving messages.\r\nConsumer machines report that the have almost no messages in queue.\r\nWe're running 1.19-incubating.\r\n\r\nThis example is of topic `persistent://fury/global/948c07dd9c6a4c5faa106651d0d2cafd-account-movements/948c07dd9c6a4c5faa106651d0d2cafd-account-movements-partition-0`\r\n```json\r\n    \"925c59c3045f4a39af9b34472623f73c-melipayments-receipts-movements\" : {\r\n      \"msgRateOut\" : 0.0,\r\n      \"msgThroughputOut\" : 0.0,\r\n      \"msgRateRedeliver\" : 0.0,\r\n      \"msgBacklog\" : 1219175,\r\n      \"blockedSubscriptionOnUnackedMsgs\" : true,\r\n      \"unackedMessages\" : 152277,\r\n      \"type\" : \"Shared\",\r\n      \"msgRateExpired\" : 0.0,\r\n      \"consumers\" : [ {\r\n        \"msgRateOut\" : 0.0,\r\n        \"msgThroughputOut\" : 0.0,\r\n        \"msgRateRedeliver\" : 0.0,\r\n        \"consumerName\" : \"i-09c2ad7fd2a49d057-10.73.103.15\",\r\n        \"availablePermits\" : 91,\r\n        \"unackedMessages\" : -49860,\r\n        \"blockedConsumerOnUnackedMsgs\" : false,\r\n        \"address\" : \"/10.73.103.15:47300\",\r\n        \"connectedSince\" : \"2017-08-30 20:44:19.126+0000\",\r\n        \"clientVersion\" : \"1.19.0-incubating\"\r\n      }, {\r\n        \"msgRateOut\" : 0.0,\r\n        \"msgThroughputOut\" : 0.0,\r\n        \"msgRateRedeliver\" : 0.0,\r\n        \"consumerName\" : \"i-0694bdfc5817f7af3-10.73.105.189\",\r\n        \"availablePermits\" : 87,\r\n        \"unackedMessages\" : 118754,\r\n        \"blockedConsumerOnUnackedMsgs\" : false,\r\n        \"address\" : \"/10.73.105.189:58453\",\r\n        \"connectedSince\" : \"2017-08-30 20:44:20.118+0000\",\r\n        \"clientVersion\" : \"1.19.0-incubating\"\r\n      }, {\r\n        \"msgRateOut\" : 0.0,\r\n        \"msgThroughputOut\" : 0.0,\r\n        \"msgRateRedeliver\" : 0.0,\r\n        \"consumerName\" : \"i-04ea2b6ee82a2ade9-10.73.104.203\",\r\n        \"availablePermits\" : 98,\r\n        \"unackedMessages\" : 58328,\r\n        \"blockedConsumerOnUnackedMsgs\" : false,\r\n        \"address\" : \"/10.73.104.203:53460\",\r\n        \"connectedSince\" : \"2017-08-30 20:44:28.898+0000\",\r\n        \"clientVersion\" : \"1.19.0-incubating\"\r\n      }, {\r\n        \"msgRateOut\" : 0.0,\r\n        \"msgThroughputOut\" : 0.0,\r\n        \"msgRateRedeliver\" : 0.0,\r\n        \"consumerName\" : \"i-09262b38b611871c9-10.73.103.239\",\r\n        \"availablePermits\" : 75,\r\n        \"unackedMessages\" : -44463,\r\n        \"blockedConsumerOnUnackedMsgs\" : false,\r\n        \"address\" : \"/10.73.103.239:45222\",\r\n        \"connectedSince\" : \"2017-08-30 20:44:50.145+0000\",\r\n        \"clientVersion\" : \"1.19.0-incubating\"\r\n      }, {\r\n        \"msgRateOut\" : 0.0,\r\n        \"msgThroughputOut\" : 0.0,\r\n        \"msgRateRedeliver\" : 0.0,\r\n        \"consumerName\" : \"i-02cffb4d69393aa51-10.73.104.10\",\r\n        \"availablePermits\" : 85,\r\n        \"unackedMessages\" : 73966,\r\n        \"blockedConsumerOnUnackedMsgs\" : false,\r\n        \"address\" : \"/10.73.104.10:58965\",\r\n        \"connectedSince\" : \"2017-08-30 20:44:54.732+0000\",\r\n        \"clientVersion\" : \"1.19.0-incubating\"\r\n      }, {\r\n        \"msgRateOut\" : 0.0,\r\n        \"msgThroughputOut\" : 0.0,\r\n        \"msgRateRedeliver\" : 0.0,\r\n        \"consumerName\" : \"i-0f4e04a029a239613-10.73.105.79\",\r\n        \"availablePermits\" : 65,\r\n        \"unackedMessages\" : 2183,\r\n        \"blockedConsumerOnUnackedMsgs\" : false,\r\n        \"address\" : \"/10.73.105.79:33272\",\r\n        \"connectedSince\" : \"2017-09-12 17:26:25.868+0000\",\r\n        \"clientVersion\" : \"1.19.0-incubating\"\r\n      }, {\r\n        \"msgRateOut\" : 0.0,\r\n        \"msgThroughputOut\" : 0.0,\r\n        \"msgRateRedeliver\" : 0.0,\r\n        \"consumerName\" : \"i-046c50f69cb36846d-10.73.103.139\",\r\n        \"availablePermits\" : 56,\r\n        \"unackedMessages\" : -443,\r\n        \"blockedConsumerOnUnackedMsgs\" : false,\r\n        \"address\" : \"/10.73.103.139:43031\",\r\n        \"connectedSince\" : \"2017-09-12 17:26:29.296+0000\",\r\n        \"clientVersion\" : \"1.19.0-incubating\"\r\n      }, {\r\n        \"msgRateOut\" : 0.0,\r\n        \"msgThroughputOut\" : 0.0,\r\n        \"msgRateRedeliver\" : 0.0,\r\n        \"consumerName\" : \"i-091165aafb986c96c-10.73.106.158\",\r\n        \"availablePermits\" : 90,\r\n        \"unackedMessages\" : -3035,\r\n        \"blockedConsumerOnUnackedMsgs\" : false,\r\n        \"address\" : \"/10.73.106.158:37738\",\r\n        \"connectedSince\" : \"2017-09-12 17:26:39.390+0000\",\r\n        \"clientVersion\" : \"1.19.0-incubating\"\r\n      }, {\r\n        \"msgRateOut\" : 0.0,\r\n        \"msgThroughputOut\" : 0.0,\r\n        \"msgRateRedeliver\" : 0.0,\r\n        \"consumerName\" : \"i-074e75743c602e69f-10.73.104.223\",\r\n        \"availablePermits\" : 75,\r\n        \"unackedMessages\" : 1837,\r\n        \"blockedConsumerOnUnackedMsgs\" : false,\r\n        \"address\" : \"/10.73.104.223:60664\",\r\n        \"connectedSince\" : \"2017-09-12 17:26:39.435+0000\",\r\n        \"clientVersion\" : \"1.19.0-incubating\"\r\n      }, {\r\n        \"msgRateOut\" : 0.0,\r\n        \"msgThroughputOut\" : 0.0,\r\n        \"msgRateRedeliver\" : 0.0,\r\n        \"consumerName\" : \"i-01137dae0559e78e8-10.73.106.241\",\r\n        \"availablePermits\" : 77,\r\n        \"unackedMessages\" : -2551,\r\n        \"blockedConsumerOnUnackedMsgs\" : false,\r\n        \"address\" : \"/10.73.106.241:40963\",\r\n        \"connectedSince\" : \"2017-09-12 17:27:02.569+0000\",\r\n        \"clientVersion\" : \"1.19.0-incubating\"\r\n      }, {\r\n        \"msgRateOut\" : 0.0,\r\n        \"msgThroughputOut\" : 0.0,\r\n        \"msgRateRedeliver\" : 0.0,\r\n        \"consumerName\" : \"i-07f6a2096808b30c3-10.73.106.41\",\r\n        \"availablePermits\" : 99,\r\n        \"unackedMessages\" : -2439,\r\n        \"blockedConsumerOnUnackedMsgs\" : false,\r\n        \"address\" : \"/10.73.106.41:48132\",\r\n        \"connectedSince\" : \"2017-09-12 17:27:16.081+0000\",\r\n        \"clientVersion\" : \"1.19.0-incubating\"\r\n      }, {\r\n        \"msgRateOut\" : 0.0,\r\n        \"msgThroughputOut\" : 0.0,\r\n        \"msgRateRedeliver\" : 0.0,\r\n        \"consumerName\" : \"i-0cc9c33a29333699e-10.73.106.181\",\r\n        \"availablePermits\" : 100,\r\n        \"unackedMessages\" : 0,\r\n        \"blockedConsumerOnUnackedMsgs\" : false,\r\n        \"address\" : \"/10.73.106.181:60881\",\r\n        \"connectedSince\" : \"2017-09-13 20:10:37.227+0000\",\r\n        \"clientVersion\" : \"1.19.0-incubating\"\r\n      } ]\r\n    }\r\n```\r\n\r\nInternal Stats for the partition shows:\r\n```json\r\n    \"925c59c3045f4a39af9b34472623f73c-melipayments-receipts-movements\" : {\r\n      \"markDeletePosition\" : \"7774731:289032\",\r\n      \"readPosition\" : \"7774731:289033\",\r\n      \"waitingReadOp\" : false,\r\n      \"pendingReadOps\" : 0,\r\n      \"messagesConsumedCounter\" : 26329750,\r\n      \"cursorLedger\" : 7773772,\r\n      \"cursorLedgerLastEntry\" : 14392,\r\n      \"individuallyDeletedMessages\" : \"[]\",\r\n      \"lastLedgerSwitchTimestamp\" : \"2017-09-12 15:55:13.214+0000\",\r\n      \"state\" : \"Open\"\r\n    }\r\n```\r\n\r\nInfo Internal for the subscription shows:\r\n```json\r\n{\r\n  \"markDelete\": {\r\n    \"entryId\": 352016,\r\n    \"ledgerId\": 7765017\r\n  },\r\n  \"individualDeletedMessages\": [\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352027,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352017,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352038,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352028,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352049,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352039,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352060,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352050,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352068,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352061,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352071,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352069,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352079,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352072,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352082,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352080,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352090,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352083,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352093,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352091,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352101,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352094,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352104,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352102,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352112,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352105,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352115,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352113,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352123,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352116,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352126,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352124,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352134,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352127,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352138,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352135,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352146,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352139,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352149,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352147,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352157,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352150,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352160,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352158,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352168,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352161,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352171,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352169,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352175,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352172,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352179,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352176,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352182,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352180,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352186,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352183,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352190,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352187,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352193,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352191,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352197,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352194,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352202,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352198,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352205,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352203,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352209,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352206,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352213,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352210,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352216,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352214,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352220,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352217,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352224,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352221,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352227,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352225,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352231,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352228,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352235,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352232,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352238,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352236,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352242,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352239,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352246,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352243,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352249,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352247,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352253,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352250,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352257,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352254,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352260,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352258,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352264,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352261,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352268,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352265,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352272,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352269,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352276,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352273,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352280,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352277,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352283,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352281,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352288,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352284,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352292,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352289,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352295,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352293,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352299,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352296,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352303,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352300,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352306,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352304,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352311,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352307,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352315,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352312,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352319,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352316,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352323,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352320,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352327,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352324,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352330,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352328,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352334,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352331,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352338,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352335,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352341,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352339,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352345,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352342,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352349,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352346,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352355,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352350,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352359,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352356,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352365,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352360,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352369,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352366,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352372,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352370,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352376,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352373,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352380,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352377,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352383,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352381,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352387,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352384,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352391,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352388,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352394,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352392,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352398,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352395,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352402,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352399,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352405,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352403,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352409,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352406,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352413,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352410,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352416,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352414,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352420,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352417,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352424,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352421,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352427,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352425,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352431,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352428,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352435,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352432,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352438,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352436,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352442,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352439,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352446,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352443,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352449,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352447,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352453,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352450,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352457,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352454,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352460,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352458,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352464,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352461,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352468,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352465,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352471,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352469,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352475,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352472,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352479,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352476,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352482,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352480,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352486,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352483,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352490,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352487,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352494,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352492,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352498,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352495,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352502,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352499,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352505,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352503,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352509,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352506,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352513,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352510,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352516,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352514,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352520,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352517,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352524,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352521,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352528,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352525,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352532,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352529,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352536,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352533,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352539,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352537,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352543,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352540,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352547,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352544,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352550,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352548,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352554,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352551,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352558,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352555,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352561,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352559,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352566,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352563,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352570,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352567,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352573,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352571,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352577,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352574,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352581,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352578,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352584,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352582,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    },\r\n    {\r\n      \"to\": {\r\n        \"entryId\": 352592,\r\n        \"ledgerId\": 7765017\r\n      },\r\n      \"from\": {\r\n        \"entryId\": 352590,\r\n        \"ledgerId\": 7765017\r\n      }\r\n    }\r\n  ],\r\n  \"cursorsLedgerId\": 7773772,\r\n  \"version\": 809,\r\n  \"modificationDate\": \"2017-09-12 15:55:13.224+0000\",\r\n  \"creationDate\": \"2017-03-20 20:12:03.197+0000\"\r\n}\r\n``` \r\n\r\nOther subscriptions on the same topic seems OK.\r\nI'm uploading a heap dump of the broker holding the topic atm.",
+        "issue_url": "https://github.com/apache/pulsar/issues/759",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2017-10-02T21:07:20.000Z",
+        "fix_commit_hash": "fea1b3357df19e6f396bf865f6f9befe7d559f4e",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Correctly process the ack for a message that was outstanding on a different consumer (#791)\n\nFixes #759",
+        "closer_url": null,
+        "earliest_issue_date": "2017-09-13T20:56:47Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 776,
+        "issue_title": "Intermittent CPP test failure: ClientDeduplicationTest.testProducerSequenceAfterReconnect",
+        "issue_body": "[Jenkins job](https://builds.apache.org/job/pulsar-pull-request/419/console)\r\n```\r\nFAILED TESTS (1/88):\r\n      62 ms: ./main ClientDeduplicationTest.testProducerSequenceAfterReconnect\r\nBuild step 'Execute shell' marked build as failure\r\nSetting status of d41dd4796f74ddbe7ec77e7701443b110de1e18f to FAILURE with url https://builds.apache.org/job/pulsar-pull-request/419/ and message: 'FAILURE\r\n```\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/776",
+        "assignees": [],
+        "labels": [
+            "area/build"
+        ],
+        "issue_closed_at": "2017-09-21T02:50:30.000Z",
+        "fix_commit_hash": "79a7790f90c4e1f8a4c51a51e4b7fc600992e43f",
+        "commit_type": "pr",
+        "commit_message": "Fix ClientDeduplicationTest intermittent failure with parallel tests (#777)\n\n* Fix ClientDeduplicationTest intermittent failure with parallel tests\r\n\r\nFix #776\r\n\r\n* Fixed url for creating namespace",
+        "closer_url": "https://github.com/apache/pulsar/pull/777",
+        "earliest_issue_date": "2017-09-21T00:01:35Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 784,
+        "issue_title": "Intermittent failure in C++ BasicEndToEndTest ",
+        "issue_body": "As seen in  https://builds.apache.org/job/pulsar-pull-request/446/console\r\n\r\n```\r\n\u001b[m\u001b[0;32m[==========] \u001b[mRunning 1 test from 1 test case.\r\n\u001b[0;32m[----------] \u001b[mGlobal test environment set-up.\r\n\u001b[0;32m[----------] \u001b[m1 test from BasicEndToEndTest\r\n\u001b[0;32m[ RUN      ] \u001b[mBasicEndToEndTest.testStatsLatencies\r\nlog4cxx: No appender could be found for logger (pulsar./pulsar/pulsar-client-cpp/lib/ClientImpl.cc).\r\nlog4cxx: Please initialize the log4cxx system properly.\r\n/pulsar/pulsar-client-cpp/tests/BasicEndToEndTest.cc:928: Failure\r\nValue of: (uint64_t )totalLatencies[1]\r\n  Actual: 2755832\r\nExpected: (uint64_t )latencies[1]\r\nWhich is: 3129901\r\n\u001b[0;31m[  FAILED  ] \u001b[mBasicEndToEndTest.testStatsLatencies (5585 ms)\r\n\u001b[0;32m[----------] \u001b[m1 test from BasicEndToEndTest (5585 ms total)\r\n\r\n\u001b[0;32m[----------] \u001b[mGlobal test environment tear-down\r\n\u001b[0;32m[==========] \u001b[m1 test from 1 test case ran. (5585 ms total)\r\n\u001b[0;32m[  PASSED  ] \u001b[m0 tests.\r\n\u001b[0;31m[  FAILED  ] \u001b[m1 test, listed below:\r\n\u001b[0;31m[  FAILED  ] \u001b[mBasicEndToEndTest.testStatsLatencies\r\n```\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/784",
+        "assignees": [
+            "jai1"
+        ],
+        "labels": [
+            "area/test"
+        ],
+        "issue_closed_at": "2018-04-16T01:27:27.000Z",
+        "fix_commit_hash": "d8af1369c837378cdf46f1132bee108dede94cdc",
+        "commit_type": "pr",
+        "commit_message": "Fix for C++ test BasicEndToEndTest.testStatsLatencies (#1581)\n\n* Fix fot C++ test BasicEndToEndTest.testStatsLatencies\r\n\r\n* Removed unwanted change in standalone conf",
+        "closer_url": "https://github.com/apache/pulsar/pull/1581",
+        "earliest_issue_date": "2017-09-22T22:57:46Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 813,
+        "issue_title": "Global and local zookeeper should use different stats server ports",
+        "issue_body": "Global and local both try to use port 8080 so they can't be started on the same machine out of the box. -Dstats_server_port will work around the issue.\r\n\r\nNote that from zookeeper 3.5.0 onwards, zookeeper itself runs an admin server on 8080.\r\n\r\n#### Expected behavior\r\nI expect to be able to start a global zookeeper and local zookeeper node on the same machine\r\n\r\n#### Actual behavior\r\nOne will fail because they are both trying to bind 8080 for the stats server.\r\n\r\n#### Steps to reproduce\r\nTry to set up a cluster with global and local on same node.\r\n\r\n#### System configuration\r\n1.20.0-incubating (rc0)",
+        "issue_url": "https://github.com/apache/pulsar/issues/813",
+        "assignees": [
+            "massakam"
+        ],
+        "labels": [
+            "type/enhancement"
+        ],
+        "issue_closed_at": "2017-11-06T17:46:20.000Z",
+        "fix_commit_hash": "9433f36768f3e027d25564444c746207d77bb647",
+        "commit_type": "pr",
+        "commit_message": "Separate ports used by global and local zookeeper (#876)",
+        "closer_url": "https://github.com/apache/pulsar/pull/876",
+        "earliest_issue_date": "2017-10-05T09:33:50Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 814,
+        "issue_title": "Intermittent test failure DispatcherBlockConsumerTest.testRedeliveryOnBlockedDistpatcher",
+        "issue_body": "[Jenkins](https://builds.apache.org/job/pulsar-pull-request/org.apache.pulsar$pulsar-broker/520/testReport/junit/org.apache.pulsar.client.api/DispatcherBlockConsumerTest/testRedeliveryOnBlockedDistpatcher/)/[log](https://gist.github.com/rdhabalia/13236f10c3630277b09fc7ae4b117306)\r\n\r\n```\r\nError Message\r\n\r\nexpected [true] but found [false]\r\nStacktrace\r\n\r\njava.lang.AssertionError: expected [true] but found [false]\r\n\tat org.apache.pulsar.client.api.DispatcherBlockConsumerTest.testRedeliveryOnBlockedDistpatcher(DispatcherBlockConsumerTest.java:517)\r\n```",
+        "issue_url": "https://github.com/apache/pulsar/issues/814",
+        "assignees": [],
+        "labels": [
+            "area/test"
+        ],
+        "issue_closed_at": "2018-01-30T04:12:10.000Z",
+        "fix_commit_hash": "059149c494592a3913a4fb24ed6939e1b068fc58",
+        "commit_type": "pr",
+        "commit_message": "Fix race condition in testRedeliveryOnBlockedDistpatcher (#1144)",
+        "closer_url": "https://github.com/apache/pulsar/pull/1144",
+        "earliest_issue_date": "2017-10-05T18:24:13Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 834,
+        "issue_title": "Intermittent exception during SimpleProducerConsumerTest.testEncryptionFailure",
+        "issue_body": "There is an intermittent test failure in`SimpleProducerConsumerTest.testEncryptionFailure`\r\nhttps://builds.apache.org/job/pulsar-pull-request/org.apache.pulsar$pulsar-broker/575/testReport/junit/org.apache.pulsar.client.api/SimpleProducerConsumerTest/testEncryptionFailure/\r\n\r\nThe exception though it's a NPE in the actual code and not just in the test code.\r\n\r\n```\r\njava.lang.NullPointerException\r\n\tat org.apache.pulsar.client.api.SimpleProducerConsumerTest.testEncryptionFailure(\r\n               SimpleProducerConsumerTest.java:2435)\r\n```\r\n\r\nInternal exception:\r\n\r\n```\r\n178836 [pulsar-client-io-1679-1] WARN org.apache.pulsar.client.impl.ClientCnx - [id: 0x3ce1b0d9, L:/127.0.0.1:43538 - R:localhost/127.0.0.1:15002] Exception caught: null\r\njava.lang.NullPointerException\r\n\tat org.apache.pulsar.client.impl.MessageCrypto.decryptData(MessageCrypto.java:515)\r\n\tat org.apache.pulsar.client.impl.MessageCrypto.getKeyAndDecryptData(MessageCrypto.java:540)\r\n\tat org.apache.pulsar.client.impl.MessageCrypto.decrypt(MessageCrypto.java:570)\r\n\tat org.apache.pulsar.client.impl.ConsumerImpl.decryptPayloadIfNeeded(ConsumerImpl.java:1008)\r\n\tat org.apache.pulsar.client.impl.ConsumerImpl.messageReceived(ConsumerImpl.java:744)\r\n\tat org.apache.pulsar.client.impl.ClientCnx.handleMessage(ClientCnx.java:203)\r\n\tat org.apache.pulsar.common.api.PulsarDecoder.channelRead(PulsarDecoder.java:159)\r\n...\r\n```",
+        "issue_url": "https://github.com/apache/pulsar/issues/834",
+        "assignees": [
+            "saandrews"
+        ],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2017-10-18T06:02:46.000Z",
+        "fix_commit_hash": "1d9d596ebe65dc6cefae5d5406179146c785cbb4",
+        "commit_type": "pr",
+        "commit_message": "Check data buffer before release() (#835)",
+        "closer_url": "https://github.com/apache/pulsar/pull/835",
+        "earliest_issue_date": "2017-10-17T18:33:47Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 867,
+        "issue_title": "Intermittent test failure in NonPersistentTopicTest.testMsgDropStat",
+        "issue_body": "```\r\nError Message\r\n\r\nIndex: 0, Size: 0\r\n\r\nStacktrace\r\n\r\njava.lang.IndexOutOfBoundsException: Index: 0, Size: 0\r\n\tat java.util.ArrayList.rangeCheck(ArrayList.java:653)\r\n\tat java.util.ArrayList.get(ArrayList.java:429)\r\n\tat org.apache.pulsar.client.api.NonPersistentTopicTest.testMsgDropStat(NonPersistentTopicTest.java:764)\r\n```\r\n\r\nhttps://builds.apache.org/job/pulsar-pull-request/org.apache.pulsar$pulsar-broker/641/testReport/junit/org.apache.pulsar.client.api/NonPersistentTopicTest/testMsgDropStat/",
+        "issue_url": "https://github.com/apache/pulsar/issues/867",
+        "assignees": [],
+        "labels": [
+            "area/test"
+        ],
+        "issue_closed_at": "2017-10-31T21:44:36.000Z",
+        "fix_commit_hash": "5a4dd113822913431406844051a3d592d22fca84",
+        "commit_type": "pr",
+        "commit_message": "Fix: Non-persistent topic acking sequence for dropped message (#874)",
+        "closer_url": "https://github.com/apache/pulsar/pull/874",
+        "earliest_issue_date": "2017-10-27T18:58:07Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 935,
+        "issue_title": "Missing Kubernetes files in v 1.20.0",
+        "issue_body": "#### Expected behavior\r\n\r\nWhenever v 1.20.0 is downloaded, \".yaml\" files should appear in \"kubernetes\"  folder\r\n\r\n#### Actual behavior\r\n\r\nOnly \"README.md\" in \"kubernetes\" folder\r\n\r\n#### Steps to reproduce\r\n```bash\r\nwget http://archive.apache.org/dist/incubator/pulsar/pulsar-1.20.0-incubating/apache-pulsar-1.20.0-incubating-src.tar.gz\r\ntar xvfz apache-pulsar-1.20.0-incubating-src.tar.gz\r\nls apache-pulsar-1.20.0-incubating/kubernetes\r\n```\r\n![missing kubernetes files](https://user-images.githubusercontent.com/1934424/33516625-d73ebd00-d72a-11e7-8ad4-0dc18eb5751c.gif)\r\n\r\n\r\n#### System configuration\r\n**Pulsar version**: 1.20.0\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/935",
+        "assignees": [
+            "merlimat"
+        ],
+        "labels": [
+            "area/build"
+        ],
+        "issue_closed_at": "2017-12-05T19:59:28.000Z",
+        "fix_commit_hash": "11a6872974fee4a078f9c1823613bb586d012d58",
+        "commit_type": "pr",
+        "commit_message": "Issue #935: Included Kubernetes deployment files in src package (#936)",
+        "closer_url": "https://github.com/apache/pulsar/pull/936",
+        "earliest_issue_date": "2017-12-02T14:35:14Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 946,
+        "issue_title": "Message duplication on PartitionedConsumer redelivery",
+        "issue_body": "When redelivery is activated, `ConsumerImpl` removes messages from its queue if they are present, but when using `PartitionedConsumerImpl` messages should not be in the internal `ConsumerImpl` queue but instead in the `PartitionedConsumerImpl` queue. These messages get redelivered but are never removed from the `PartitionedConsumerImpl` queue, this generates a lot of duplicate messages.\r\n\r\nI remember that `PartitionedConsumerImpl` used to have an `UnAckedMessageTracker` why was this removed?\r\nWe need to fix the communication between `PartitionedConsumerImpl`  and `ConsumerImpl` on redelivery, simply adding an `UnAckedMessageTracker` on `PartitionedConsumerImpl` is not gonna cut it, when a message is received by `PartitionedConsumerImpl` it should stop being tracked by `ConsumerImpl` and instead be tracked by `PartitionedConsumerImpl`",
+        "issue_url": "https://github.com/apache/pulsar/issues/946",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2017-12-21T23:00:05.000Z",
+        "fix_commit_hash": "df9d4e553898e9025ca75c857d24412456cfcd65",
+        "commit_type": "pr",
+        "commit_message": "Partitioned Consumer UnAckedMessageTracker (#963)\n\n* add unacked message tracker to partitioned consumer\r\n\r\n* ensure partitioned consumer always uses growable queue\r\n\r\n* refactor locks",
+        "closer_url": "https://github.com/apache/pulsar/pull/963",
+        "earliest_issue_date": "2017-12-06T20:11:15Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1017,
+        "issue_title": "Hashcode of message key is inconsistent between different language clients",
+        "issue_body": "#### Expected behavior\r\n\r\nHashcode of message key should be consistent between different language clients. Otherwise two messages of same message key might have different hash codes using different language clients (e.g. java vs cpp).\r\n\r\n#### Actual behavior\r\n\r\nBased on my understand of pulsar code, the message key is calculated using `String.hashCode()` using java client, while `boost::hash` is used for calculating the hash code when using cpp client.\r\n\r\n\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/1017",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2018-01-31T05:21:08.000Z",
+        "fix_commit_hash": "8d159efa5a4f25191fade5a9fddb45a245ef2e6b",
+        "commit_type": "pr",
+        "commit_message": "Fix MessageRouter hash inconsistent on C++/Java client (#1029)\n\n* Fix hash inconsistent on between C++ and Java clients.\r\n\r\n* Add HashingScheme to select hash function on Java client\r\n\r\n* Fix the bug of Murmur3_32Hash on C++ client\r\n\r\n* Add Javadoc on makeHash method\r\n\r\n* Use JavaStringHash as default hash on Java client\r\n\r\n* Use BoostHash as default hash on C++ client\r\n\r\n* Make hash method always returns a signed integer\r\n\r\n* Re-implement hash classes as singleton on Java client\r\n\r\n* Move hash classes from include to lib\r\n\r\n* Change constructor argument of hash classes\r\n\r\n* Remove unused headers\r\n\r\n* Remove `auto` type\r\n\r\n* Fix C++ client Hash classes so that these return non-negative signed integer\r\nThis is the same behavior as Hash classes on Java client\r\n\r\n* Add tests for C++/Java client Hash",
+        "closer_url": "https://github.com/apache/pulsar/pull/1029",
+        "earliest_issue_date": "2017-12-27T23:04:43Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1049,
+        "issue_title": "Pulsar standalone crashes with Assertion Failure",
+        "issue_body": "#### Expected behavior\r\n\r\nrun `bin/pulsar standalone`, produce messages, kill pulsar standalone, and restart standalone again. The standalone is expected to run correctly.\r\n\r\n#### Actual behavior\r\n\r\nThe standalone is crashed with `Assertion failed: (filter->size() > 0), function GetFilter, file table/block_based_table_reader.cc, line 1235.`\r\n\r\n#### Steps to reproduce\r\n\r\nas stated at `Expected behavior` section.\r\n\r\n#### System configuration\r\n**Pulsar version**: 1.21.0\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/1049",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2018-06-20T20:18:35.000Z",
+        "fix_commit_hash": "9ad54466b462c69db395ceb3897bd1a87dd35f2a",
+        "commit_type": "pr",
+        "commit_message": "Upgrade to RocksDB-5.13.3 (#1999)\n\n### Motivation\r\n\r\nFixes #1049 . The actual fix was included in RocksDB-5.13.3 https://github.com/facebook/rocksdb/issues/2717 and it's now available in Maven central.\r\n\r\nThe commit that fixed the assertion for empty SSTs was at https://github.com/facebook/rocksdb/commit/8d7396418c11063481ab5b332188509ec0301a7f",
+        "closer_url": "https://github.com/apache/pulsar/pull/1999",
+        "earliest_issue_date": "2018-01-10T07:59:53Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1061,
+        "issue_title": "Consumers in failover subscription stops consuming after restart",
+        "issue_body": "#### Expected behavior\r\n\r\nThere should always an active consumer in a failover subscription consuming the messages\r\n\r\n#### Actual behavior / Steps to reproduce\r\n\r\n- start a bunch of consumers in a failover subscription\r\n- kill all the consumers\r\n- start the consumers again\r\n- there is no active consumer any more. the whole consumer group stops consuming.\r\n\r\n#### System configuration\r\n**Pulsar version**: latest master\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/1061",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2018-01-16T06:13:11.000Z",
+        "fix_commit_hash": "ec1995ae25b97041ab8333c67649403a2750a185",
+        "commit_type": "pr",
+        "commit_message": "Issue 1061: Consumers in failover subscription stops consuming after restart (#1062)",
+        "closer_url": "https://github.com/apache/pulsar/pull/1062",
+        "earliest_issue_date": "2018-01-13T02:04:36Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1067,
+        "issue_title": "Problems with Partitioned Topics which name contains -partition-N",
+        "issue_body": "Someone accidentally created a partitioned topic in one of our cluster with a name which contains `-partition-2`.\r\nThis raised all sorts of issues, it would seem that only one partition was created for this topic, but metadata exists saying that it has 10 partitions.\r\nWhen trying to get the subscriptions on the topic via HTTP the requests hang forever because we never merged https://github.com/apache/incubator-pulsar/pull/564\r\nWhen trying to get partitioned-stats for the topic a warning is logged saying that no partition metadata was found.\r\n\r\nWe should probably:\r\n1 - Don't allow partitioned topics which contain `-partition-` on its name\r\n2 - Fix logic to allow those topics",
+        "issue_url": "https://github.com/apache/pulsar/issues/1067",
+        "assignees": [
+            "sijie"
+        ],
+        "labels": [
+            "type/bug",
+            "area/client"
+        ],
+        "issue_closed_at": "2018-08-11T02:40:44.000Z",
+        "fix_commit_hash": "cb16f5584d316de275aa60f69a6391f449a3e3d1",
+        "commit_type": "pr",
+        "commit_message": "Issue 1067: Problems with Partitioned Topics which name contains -partition-N (#2342)\n\n* Issue 1067: Problems with Partitioned Topics which name contains -partition-N\r\n\r\n ### Motivation\r\n\r\nFixes #1067.\r\n\r\nSomeone accidentally created a partitioned topic in one of our cluster with a name which contains -partition-2.\r\nThis raised all sorts of issues, it would seem that only one partition was created for this topic, but metadata exists saying that it has 10 partitions.\r\n\r\n ### Changes\r\n\r\nDisallow creating a partitioned topic contains '-partition-' in the name.\r\n\r\n* only validate partitioned topic name when create/delete/update partitioned topics\r\n\r\n* Changed to use a CONSTANT",
+        "closer_url": "https://github.com/apache/pulsar/pull/2342",
+        "earliest_issue_date": "2018-01-16T16:24:37Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1081,
+        "issue_title": "Intermittent test failures in DiscoveryServiceTest.testClientServerConnectionTls",
+        "issue_body": "https://builds.apache.org/job/pulsar-master/org.apache.pulsar$pulsar-discovery-service/219/testReport/junit/org.apache.pulsar.discovery.service/DiscoveryServiceTest/testClientServerConnectionTls/\r\n\r\n```\r\njava.lang.AssertionError: expected [true] but found [false]\r\n\tat org.testng.Assert.fail(Assert.java:96)\r\n\tat org.testng.Assert.failNotEquals(Assert.java:776)\r\n\tat org.testng.Assert.assertTrue(Assert.java:44)\r\n\tat org.testng.Assert.assertTrue(Assert.java:54)\r\n\tat org.apache.pulsar.discovery.service.DiscoveryServiceTest.testClientServerConnectionTls(DiscoveryServiceTest.java:149)\r\n```",
+        "issue_url": "https://github.com/apache/pulsar/issues/1081",
+        "assignees": [
+            "ivankelly"
+        ],
+        "labels": [
+            "type/bug",
+            "area/test"
+        ],
+        "issue_closed_at": "2018-09-12T08:08:21.000Z",
+        "fix_commit_hash": "774cafa25d6340c778c5c281045446086aff96a0",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Fix flake in DiscoveryServiceTest (#1081) (#2406)\n\nThis test was flaking because it was only waiting for 1 second for\r\nconnection and message exchange to complete, which is not enough time\r\nwhen there's heavy load on the machine (simulated with stress-ng).\r\n\r\nThe fix is to increase the timeout to 10 seconds. I've also cleaned up\r\nthe test to use a CompletableFuture rather than a CountDownLatch so\r\ntha the test thread can be notified of failures in the handlers.",
+        "closer_url": null,
+        "earliest_issue_date": "2018-01-18T17:55:25Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1117,
+        "issue_title": "Exception during namespace bundle split",
+        "issue_body": "This particular exception was reported. It was during an automatically initiated bundle split. \r\n\r\n```\r\n2018-01-26 00:38:08,489 - ERROR - [pulsar-web-61-28:PulsarWebResource@381] - [null] Failed to validate namespace bundle netflix/prod/ns1/0x84000000_0x86000000\r\njava.lang.IllegalArgumentException: Invalid upper boundary for bundle\r\n    at com.google.common.base.Preconditions.checkArgument(Preconditions.java:122)\r\n    at org.apache.pulsar.common.naming.NamespaceBundles.validateBundle(NamespaceBundles.java:110)\r\n    at org.apache.pulsar.broker.web.PulsarWebResource.validateNamespaceBundleRange(PulsarWebResource.java:378)\r\n    at org.apache.pulsar.broker.web.PulsarWebResource.validateNamespaceBundleOwnership(PulsarWebResource.java:404)\r\n    at org.apache.pulsar.broker.admin.Namespaces.splitNamespaceBundle(Namespaces.java:876)\r\n    at sun.reflect.GeneratedMethodAccessor127.invoke(Unknown Source)\r\n    at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n    at java.lang.reflect.Method.invoke(Method.java:498)\r\n    at org.glassfish.jersey.server.model.internal.ResourceMethodInvocationHandlerFactory$1.invoke(ResourceMethodInvocationHandlerFactory.java:81)\r\n    at org.glassfish.jersey.server.model.internal.AbstractJavaResourceMethodDispatcher$1.run(AbstractJavaResourceMethodDispatcher.java:144)\r\n    at org.glassfish.jersey.server.model.internal.AbstractJavaResourceMethodDispatcher.invoke(AbstractJavaResourceMethodDispatcher.java:161)\r\n    at org.glassfish.jersey.server.model.internal.JavaResourceMethodDispatcherProvider$VoidOutInvoker.doDispatch(JavaResourceMethodDispatcherProvider.java:143)\r\n    at org.glassfish.jersey.server.model.internal.AbstractJavaResourceMethodDispatcher.dispatch(AbstractJavaResourceMethodDispatcher.java:99)\r\n    at org.glassfish.jersey.server.model.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:389)\r\n    at org.glassfish.jersey.server.model.ResourceMethodInvoker.apply(ResourceMethodInvoker.java:347)\r\n    at org.glassfish.jersey.server.model.ResourceMethodInvoker.apply(ResourceMethodInvoker.java:102)\r\n    at org.glassfish.jersey.server.ServerRuntime$2.run(ServerRuntime.java:326)\r\n```\r\n\r\nI think that the race condition is happening since all 4 initial bundles are getting split around the same time and the bundle cache gets updated while the new bundle split is being processed. \r\n\r\nThe result doesn't cause any particular issue, just that the bundle split fails with invalid bundle range, but the current bundle will continue to run unaffacted until the next split will take place.",
+        "issue_url": "https://github.com/apache/pulsar/issues/1117",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2018-03-27T21:25:10.000Z",
+        "fix_commit_hash": "ea391488145d7e59309ee1c243bd38b9f9768773",
+        "commit_type": "pr",
+        "commit_message": "Issue #1117: handle race in concurrent bundle split (#1428)\n\n*  handle race in bundle split\r\n\r\n* change following comments\r\n\r\n* rebase master, fix test error",
+        "closer_url": "https://github.com/apache/pulsar/pull/1428",
+        "earliest_issue_date": "2018-01-26T01:36:41Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1138,
+        "issue_title": "Test Timeouts in ReplicatorTest",
+        "issue_body": "I have been seeing a lot of CI builds timing out after 100 minutes, all were blocked on the `ReplicatorTest`. For example: \r\n\r\nhttps://builds.apache.org/job/pulsar-pull-request/1321/console\r\n\r\n```\r\n[INFO] Running org.apache.pulsar.broker.service.SubscriptionSeekTest\r\n[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 7.457 s - in org.apache.pulsar.broker.service.SubscriptionSeekTest\r\n[INFO] Running org.apache.pulsar.broker.service.ReplicatorTest\r\nBuild timed out (after 100 minutes). Marking the build as aborted.\r\n\r\n```",
+        "issue_url": "https://github.com/apache/pulsar/issues/1138",
+        "assignees": [
+            "merlimat"
+        ],
+        "labels": [
+            "area/test"
+        ],
+        "issue_closed_at": "2018-04-25T08:25:48.000Z",
+        "fix_commit_hash": "da142eb839d6ffa384b4683de86c94056ad150aa",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Cleanup failed connection from background thread (#1345)\n\nThis is a fix for #1138",
+        "closer_url": null,
+        "earliest_issue_date": "2018-01-29T22:29:55Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1142,
+        "issue_title": "Broker should respond with error when invalid topic name is used",
+        "issue_body": "#### Expected behavior\r\n\r\nBroker should respond with error when invalid topic name is used instead of getting exception and forcefully close the connection.\r\n\r\nEg: \r\n\r\n```\r\n2018-01-29 16:42:18,530 - WARN  - [pulsar-io-71-1:ServerCnx@163] - [/127.0.0.1:63891] Got exception: Invalid destination name: bad-topic-name -- Domain is missing\r\njava.lang.IllegalArgumentException: Invalid destination name: bad-topic-name -- Domain is missing\r\n    at org.apache.pulsar.common.naming.DestinationName.<init>(DestinationName.java:96)\r\n    at org.apache.pulsar.common.naming.DestinationName.<init>(DestinationName.java:40)\r\n    at org.apache.pulsar.common.naming.DestinationName$1.load(DestinationName.java:62)\r\n    at org.apache.pulsar.common.naming.DestinationName$1.load(DestinationName.java:59)\r\n    at com.google.common.cache.LocalCache$LoadingValueReference.loadFuture(LocalCache.java:3628)\r\n    at com.google.common.cache.LocalCache$Segment.loadSync(LocalCache.java:2336)\r\n    at com.google.common.cache.LocalCache$Segment.lockedGetOrLoad(LocalCache.java:2295)\r\n    at com.google.common.cache.LocalCache$Segment.get(LocalCache.java:2208)\r\n    at com.google.common.cache.LocalCache.get(LocalCache.java:4053)\r\n    at com.google.common.cache.LocalCache.getOrLoad(LocalCache.java:4057)\r\n    at com.google.common.cache.LocalCache$LocalLoadingCache.get(LocalCache.java:4986)\r\n    at org.apache.pulsar.common.naming.DestinationName.get(DestinationName.java:74)\r\n    at org.apache.pulsar.broker.service.ServerCnx.handleLookup(ServerCnx.java:180)\r\n    at org.apache.pulsar.common.api.PulsarDecoder.channelRead(PulsarDecoder.java:106)\r\n    at io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:362)\r\n    at io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:348)\r\n    at io.netty.channel.AbstractChannelHandlerContext.fireChannelRead(AbstractChannelHandlerContext.java:340)\r\n    at io.netty.handler.codec.ByteToMessageDecoder.fireChannelRead(ByteToMessageDecoder.java:310)\r\n    at io.netty.handler.codec.ByteToMessageDecoder.channelRead(ByteToMessageDecoder.java:284)\r\n    at io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:362)\r\n    at io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:348)\r\n    at io.netty.channel.AbstractChannelHandlerContext.fireChannelRead(AbstractChannelHandlerContext.java:340)\r\n    at io.netty.channel.DefaultChannelPipeline$HeadContext.channelRead(DefaultChannelPipeline.java:1334)\r\n    at io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:362)\r\n    at io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:348)\r\n    at io.netty.channel.DefaultChannelPipeline.fireChannelRead(DefaultChannelPipeline.java:926)\r\n    at io.netty.channel.nio.AbstractNioByteChannel$NioByteUnsafe.read(AbstractNioByteChannel.java:134)\r\n    at io.netty.channel.nio.NioEventLoop.processSelectedKey(NioEventLoop.java:644)\r\n    at io.netty.channel.nio.NioEventLoop.processSelectedKeysOptimized(NioEventLoop.java:579)\r\n    at io.netty.channel.nio.NioEventLoop.processSelectedKeys(NioEventLoop.java:496)\r\n    at io.netty.channel.nio.NioEventLoop.run(NioEventLoop.java:458)\r\n    at io.netty.util.concurrent.SingleThreadEventExecutor$5.run(SingleThreadEventExecutor.java:858)\r\n    at io.netty.util.concurrent.DefaultThreadFactory$DefaultRunnableDecorator.run(DefaultThreadFactory.java:138)\r\n    at java.lang.Thread.run(Thread.java:748)\r\n2018-01-29 16:42:18,533 - INFO  - [pulsar-io-71-1:ServerCnx@128] - Closed connection from /127.0.0.1:63891\r\n```\r\n\r\nThis should be applied to topic lookup, partitions metadata and producer/consumer/reader creation. \r\n\r\nExample of fix could be: \r\n\r\n```diff\r\ndiff --git a/pulsar-broker/src/main/java/org/apache/pulsar/broker/service/ServerCnx.java b/pulsar-broker/src/main/java/org/apache/pulsar/broker/service/ServerCnx.java\r\nindex bd49fc76..035ab34f 100644\r\n--- a/pulsar-broker/src/main/java/org/apache/pulsar/broker/service/ServerCnx.java\r\n+++ b/pulsar-broker/src/main/java/org/apache/pulsar/broker/service/ServerCnx.java\r\n@@ -191,9 +191,22 @@ public class ServerCnx extends PulsarHandler {\r\n         if (log.isDebugEnabled()) {\r\n             log.debug(\"[{}] Received Lookup from {} for {}\", topic, remoteAddress, requestId);\r\n         }\r\n+\r\n+        DestinationName topicName;\r\n+        try {\r\n+            topicName = DestinationName.get(topic);\r\n+        } catch (Throwable t) {\r\n+            if (log.isDebugEnabled()) {\r\n+                log.debug(\"[{}] Failed to parse topic name '{}'\", remoteAddress, topic, t);\r\n+            }\r\n+            ctx.writeAndFlush(newLookupErrorResponse(ServerError.TopicNotFound, \"Invalid topic name: \" + t.getMessage(),\r\n+                    requestId));\r\n+            return;\r\n+        }\r\n+\r\n         final Semaphore lookupSemaphore = service.getLookupRequestSemaphore();\r\n         if (lookupSemaphore.tryAcquire()) {\r\n-            lookupDestinationAsync(getBrokerService().pulsar(), DestinationName.get(topic), lookup.getAuthoritative(),\r\n+            lookupDestinationAsync(getBrokerService().pulsar(), topicName, lookup.getAuthoritative(),\r\n                     getRole(), lookup.getRequestId()).handle((lookupResponse, ex) -> {\r\n                         if (ex == null) {\r\n                             ctx.writeAndFlush(lookupResponse);\r\n\r\n```\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/1142",
+        "assignees": [],
+        "labels": [
+            "type/enhancement"
+        ],
+        "issue_closed_at": "2018-02-07T00:15:41.000Z",
+        "fix_commit_hash": "28ce0adaef76c52341231104daac4df3e2c55f53",
+        "commit_type": "pr",
+        "commit_message": "Validate topic name on broker side (#1178)\n\n* Validate topic name on broker side\r\n\r\n* Refactored to put them in a single validation method\r\n\r\n* Addressed comment",
+        "closer_url": "https://github.com/apache/pulsar/pull/1178",
+        "earliest_issue_date": "2018-01-30T00:06:08Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1143,
+        "issue_title": "Errors in increasing number of partitions for a partitioned topic",
+        "issue_body": "There are few errors that are happening under certain conditions when increasing the number of partitions for a topic.\r\n\r\n1. Increasing the partitions for a topic that was not used results in a 500 error with exception in the broker logs: \r\n\r\n```bash\r\nbin/pulsar-admin persistent create-partitioned-topic $TOPIC -p 10\r\n# and immediately after :\r\nbin/pulsar-admin persistent update-partitioned-topic $TOPIC -p 20\r\n```\r\n\r\n```\r\n2018-01-30 00:53:39,353 - WARN  - [bookkeeper-ml-workers-51-1:PersistentTopics$3@1506] - [null] Failed to get list of cursors of test/local/ns/persistent/my-topic-partition-1\r\n2018-01-30 00:53:39,353 - ERROR - [pulsar-web-69-23:PersistentTopics@463] - [null] Failed to update partitioned topic persistent://test/local/ns/my-topic\r\n org.apache.bookkeeper.mledger.ManagedLedgerException$MetaStoreException: org.apache.zookeeper.KeeperException$NoNodeException: KeeperErrorCode = NoNode\r\n Caused by: org.apache.zookeeper.KeeperException$NoNodeException: KeeperErrorCode = NoNode\r\n at org.apache.zookeeper.KeeperException.create(KeeperException.java:111)\r\n at org.apache.bookkeeper.mledger.impl.MetaStoreImplZookeeper.lambda$null$5(MetaStoreImplZookeeper.java:202)\r\nJan 30 00:53:39 ip-10-0-0-96.us-west-2.compute.internal pulsar[12513]: at org.apache.bookkeeper.mledger.util.SafeRun$1.safeRun(SafeRun.java:30)\r\nJan 30 00:53:39 ip-10-0-0-96.us-west-2.compute.internal pulsar[12513]: at org.apache.bookkeeper.util.SafeRunnable.run(SafeRunnable.java:31)\r\nJan 30 00:53:39 ip-10-0-0-96.us-west-2.compute.internal pulsar[12513]: at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)\r\nJan 30 00:53:39 ip-10-0-0-96.us-west-2.compute.internal pulsar[12513]: at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)\r\nJan 30 00:53:39 ip-10-0-0-96.us-west-2.compute.internal pulsar[12513]: at io.netty.util.concurrent.DefaultThreadFactory$DefaultRunnableDecorator.run(DefaultThreadFactory.java:138)\r\nJan 30 00:53:39 ip-10-0-0-96.us-west-2.compute.internal pulsar[12513]: at java.lang.Thread.run(Thread.java:748)\r\nJan 30 00:53:39 ip-10-0-0-96.us-west-2.compute.internal pulsar[12513]: 2018-01-30 00:53:39,358 - INFO  - [pulsar-web-69-23:Slf4jRequestLog@60] - 10.0.0.100 - - [30/Jan/2018:00:53:39 +0000] \"POST //10.0.0.96:8080/admin/persistent/test/local/ns/my-topic/partitions HTTP/1.1\" 500 1045 \"-\" \"Jersey/2.23.2 (HttpU\r\n```\r\n\r\nThis is due to the broker trying to get the list of existing subscriptions for the topic (with the purpose of pre-creating the subscriptions on the new partitions) and failing at it.\r\n\r\n 2. In some condition the update also fails when the partitioned topic is fully created, because the HTTP request is not routed to the broker owning the particular partition (again when trying to pre-create the subscription).\r\n\r\n```\r\n2018-01-30 00:58:48,482 - WARN  - [bookkeeper-ml-workers-44-1:BrokerService@867] - Namespace not served by this instance. Please redo the lookup. Request is denied: namespace=test/local/ns\r\n2018-01-30 00:58:48,482 - WARN  - [bookkeeper-ml-workers-44-1:BrokerService@439] - [persistent://test/local/ns/my-topic-partition-10] Service unit is not ready when loading the topic\r\n``` \r\n\r\nIn this case the broker fails to validate the ownership and the REST request stays stuck with no response sent back to caller.\r\n\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/1143",
+        "assignees": [
+            "merlimat"
+        ],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2018-02-03T16:29:34.000Z",
+        "fix_commit_hash": "d482c0518f06204079024d2890a7fda3ac1b7050",
+        "commit_type": "pr",
+        "commit_message": "Fixed increment partitions operation (#1153)",
+        "closer_url": "https://github.com/apache/pulsar/pull/1153",
+        "earliest_issue_date": "2018-01-30T02:11:45Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1145,
+        "issue_title": "Intermittent test failure in PersistentTopicTest.testClosingReplicationProducerTwice",
+        "issue_body": "As seen in \r\n\r\nhttps://builds.apache.org/job/pulsar-pull-request/org.apache.pulsar$pulsar-broker/1344/testReport/junit/org.apache.pulsar.broker.service/PersistentTopicTest/testClosingReplicationProducerTwice/\r\n\r\n```\r\norg.mockito.exceptions.verification.TooManyActualInvocations: \r\n\r\npulsarClientImpl.createProducerAsync(\r\n    \"persistent://prop/global/ns/testClosingReplicationProducerTwice\",\r\n    org.apache.pulsar.client.api.ProducerConfiguration@f74e835\r\n);\r\nWanted 1 time:\r\n-> at org.apache.pulsar.broker.service.PersistentTopicTest.testClosingReplicationProducerTwice(PersistentTopicTest.java:965)\r\nBut was 2 times. Undesired invocation:\r\n-> at org.apache.pulsar.broker.service.AbstractReplicator.startProducer(AbstractReplicator.java:124)\r\n\r\n\tat org.apache.pulsar.broker.service.PersistentTopicTest.testClosingReplicationProducerTwice(PersistentTopicTest.java:965)\r\n\r\n```",
+        "issue_url": "https://github.com/apache/pulsar/issues/1145",
+        "assignees": [],
+        "labels": [
+            "area/test"
+        ],
+        "issue_closed_at": "2018-04-25T08:27:29.000Z",
+        "fix_commit_hash": "e35087c3d3ec7613060f50f56f5b4975a86d42c3",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Fix race in PersistentTopicTest#testClosingReplicationProducerTwice (#1360)\n\nA race existed where the replicator was making a startProducer call on\r\nconstruction before the client was mocked. This startProducer would\r\nfail on producer creation, which would trigger a backoff and a\r\nretry. If this fell exactly the wrong way, it could cause\r\ncreateProducerAsync to be called multiple times on the mock before the\r\ncheck, which would fail the test.\r\n\r\nThis fix addresses issue #617 and it's duplicate #1145",
+        "closer_url": null,
+        "earliest_issue_date": "2018-01-30T04:07:28Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1149,
+        "issue_title": "Network interface max speed information can be unreliable on VMs",
+        "issue_body": "#### Expected behavior\r\n\r\nThe Pulsar load manager is relying on the network traffic information of a broker to decide whether it's overloaded or not. To calculate the network usage absolute and %, we currently rely on the info coming from Linux as reported on \r\n\r\n```\r\n/sys/class/net/$NIC/speed\r\n```\r\n\r\n#### Actual behavior\r\n\r\nThis works reliably on bare metal machines and reports either 1Gbps or 10Gbps depending on the NIC. On the contrary, in VMs environments such as EC2, Linux is reporting the max speed as 10Gbps but the traffic is actually throttled at 1Gbps.\r\n\r\nThe result is that Pulsar thinks the current network usage is 1/10th of the available bandwidth and doesn't mark the broker as overloaded.\r\n\r\nWe need to have a way to override the max NIC speed to the real available bandwidth.\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/1149",
+        "assignees": [],
+        "labels": [
+            "type/enhancement"
+        ],
+        "issue_closed_at": "2018-02-01T02:18:07.000Z",
+        "fix_commit_hash": "6154e3cb911154197c8850db8f2db5b99c17cc78",
+        "commit_type": "pr",
+        "commit_message": "Allow to override the auto-detected NIC speed limit (#1157)",
+        "closer_url": "https://github.com/apache/pulsar/pull/1157",
+        "earliest_issue_date": "2018-01-30T18:52:11Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1160,
+        "issue_title": "Intermittent test failure in ResendRequestTest.testSharedSingleAckedPartitionedTopic",
+        "issue_body": "Seen in https://builds.apache.org/job/pulsar-pull-request/org.apache.pulsar$pulsar-broker/1393/testReport/junit/org.apache.pulsar.broker.service/ResendRequestTest/testSharedSingleAckedPartitionedTopic/\r\n\r\n```\r\nError Message\r\n\r\nexpected [10] but found [9]\r\n\r\nStacktrace\r\n\r\njava.lang.AssertionError: expected [10] but found [9]\r\n\tat org.testng.Assert.fail(Assert.java:96)\r\n\tat org.testng.Assert.failNotEquals(Assert.java:776)\r\n\tat org.testng.Assert.assertEqualsImpl(Assert.java:137)\r\n\tat org.testng.Assert.assertEquals(Assert.java:118)\r\n\tat org.testng.Assert.assertEquals(Assert.java:652)\r\n\tat org.testng.Assert.assertEquals(Assert.java:662)\r\n\tat org.apache.pulsar.broker.service.ResendRequestTest.testSharedSingleAckedPartitionedTopic(ResendRequestTest.java:558)\r\n\tat sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\r\n\tat sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)\r\n\tat sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n\tat java.lang.reflect.Method.invoke(Method.java:498)\r\n\tat org.testng.internal.MethodInvocationHelper.invokeMethod(MethodInvocationHelper.java:124)\r\n\tat org.testng.internal.InvokeMethodRunnable.runOne(InvokeMethodRunnable.java:54)\r\n\tat org.testng.internal.InvokeMethodRunnable.run(InvokeMethodRunnable.java:44)\r\n\tat java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:511)\r\n\tat java.util.concurrent.FutureTask.run(FutureTask.java:266)\r\n\tat java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)\r\n\tat java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)\r\n\tat java.lang.Thread.run(Thread.java:748)\r\n\r\n```",
+        "issue_url": "https://github.com/apache/pulsar/issues/1160",
+        "assignees": [
+            "ivankelly"
+        ],
+        "labels": [
+            "area/test"
+        ],
+        "issue_closed_at": "2018-07-11T21:46:03.000Z",
+        "fix_commit_hash": "dbfe9b7fc352f3691a5b35ece74727a696fc6d8a",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Fix race in MultiTopicsConsumerImpl#redeliverUnacknowledgedMessages (#1952)\n\nThis method calls #redeliverUnacknowledgedMessages on all underlying\r\nconsumers and clears the incomingMessages queue. There was a race that\r\nthe redelivery could happen before the incomingMessages was cleared,\r\nand therefore redelivered messages could be lost. Previously this\r\nblock was protected by synchronized(this) block, but this didn't\r\nprotect against any other blocks.\r\n\r\nThis patch changes the synchronization to use the writeLock of the\r\nsame lock which is acquired before messages are pushed onto the queue.\r\n\r\nThis race was the source of flake in\r\nResendRequestTest.testSharedSingleAckedPartitionedTopic\r\n\r\nIssue: #1160",
+        "closer_url": null,
+        "earliest_issue_date": "2018-01-31T20:01:38Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1250,
+        "issue_title": "Metadata lookup for a non-persistent partitioned topic returns there are no partitions",
+        "issue_body": "When using a non-persistent topic with partitions, the metadata can be set correctly through the `pulsar-admin` tool. \r\nHowever, when a producer tries to use this topic, it will not discover that this is partitioned and will use it as a single topic.",
+        "issue_url": "https://github.com/apache/pulsar/issues/1250",
+        "assignees": [],
+        "labels": [
+            "type/bug"
+        ],
+        "issue_closed_at": "2018-02-19T18:43:46.000Z",
+        "fix_commit_hash": "4f1dc52c7eeb77222bf1b6c39074c1df624e15d3",
+        "commit_type": "pr",
+        "commit_message": "Fix lookup problem with partions in a non-persistent topics (#1251)",
+        "closer_url": "https://github.com/apache/pulsar/pull/1251",
+        "earliest_issue_date": "2018-02-19T16:03:15Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1266,
+        "issue_title": "Pass all Apache Podling Website Checks",
+        "issue_body": "#### Expected behavior\r\n\r\nAll Apache Podling Website Checks are green\r\nhttps://whimsy.apache.org/pods/project/pulsar\r\n\r\n#### Actual behavior\r\n\r\nSome are red\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/1266",
+        "assignees": [
+            "merlimat",
+            "maskit"
+        ],
+        "labels": [
+            "doc"
+        ],
+        "issue_closed_at": "2018-09-26T21:52:44.000Z",
+        "fix_commit_hash": "3e1465aaf70d6f5595cd1a04206cb1d7e6f8edef",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Updated ASF links on index page. (#1305)\n\nThis includes fixes from some of the issues reported in #1266",
+        "closer_url": null,
+        "earliest_issue_date": "2018-02-21T16:35:32Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1267,
+        "issue_title": "Improve failover subscription for non-partitioned topic",
+        "issue_body": "*Problem*\r\n\r\nCurrently failover subscription is sorting the consumers. so if a consumer who consumer name is always the first consumer after sorting and the consumer has flaky network where it joins and leaves, this would cause the whole subscription getting into a *flaky* state, where the \"active\" consumer joins and leaves, no consumer is actually elected as \"active\" and consuming the messages.\r\n\r\nThe sorting logic is useful for partitioned topics. However it is not necessarily required by non-partitioned topic. So we should change the logic to not sort the consumers and make the \"active\" consumer stabilize no matter how other consumers joining the subscription.",
+        "issue_url": "https://github.com/apache/pulsar/issues/1267",
+        "assignees": [],
+        "labels": [
+            "type/enhancement"
+        ],
+        "issue_closed_at": "2019-06-27T17:40:42.000Z",
+        "fix_commit_hash": "22f1d7d1bea3a0f8746694be824081ed06ef9912",
+        "commit_type": "pr",
+        "commit_message": "Update logic for picking active consumer for failover subscription on non-partitioned topic. (#4604)\n\nInstead of sorting the consumers based on priority level and consumer name then pick a active consumer, which could cause subscription getting into a flaky state, where the \"active\" consumer joins and leaves, no consumer is actually elected as \"active\" and consuming the messages.\r\nFix logic to always pick the first consumer in the consumer list without sorting consumers. So consumers will be picked as acive consumer based on the order of their subscription.",
+        "closer_url": "https://github.com/apache/pulsar/pull/4604",
+        "earliest_issue_date": "2018-02-21T20:01:52Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1299,
+        "issue_title": "BackoffTests uses Thread.sleep to test",
+        "issue_body": "The test can be flaky. This should instead use a mocked clock ([Clock](https://docs.oracle.com/javase/8/docs/api/java/time/Clock.html)) instead of hard coded calls to System.currentTimeMillis() and Thread.sleep()\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/1299",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2018-02-27T23:02:19.000Z",
+        "fix_commit_hash": "90fb9b2c7cfabf8035496936de0441008aa2dc32",
+        "commit_type": "commit",
+        "commit_message": "Make BackoffTest deterministic, fixes #1299 (#1301)",
+        "closer_url": "https://github.com/apache/pulsar/commit/90fb9b2c7cfabf8035496936de0441008aa2dc32",
+        "earliest_issue_date": "2018-02-27T16:58:45Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1338,
+        "issue_title": "ZookeeperCacheTest gets stuck indefinitely",
+        "issue_body": "I have noticed that since few days, few tests have started to get stuck and the build gets timed out after 100 minutes. It is happening very frequently and it was not happening before, so I suspect this is related to some recent changes.\r\n\r\nIt gets stuck mostly on `ZookeeperCacheTest` though I have also seen in other places.\r\n\r\nhttps://builds.apache.org/job/pulsar-pull-request/1941/console\r\n\r\n```\r\n[INFO] Running org.apache.pulsar.zookeeper.ZookeeperCacheTest\r\nBuild timed out (after 100 minutes). Marking the build as aborted.\r\n...\r\n```",
+        "issue_url": "https://github.com/apache/pulsar/issues/1338",
+        "assignees": [],
+        "labels": [
+            "area/test"
+        ],
+        "issue_closed_at": "2018-03-06T02:46:37.000Z",
+        "fix_commit_hash": "6230ab4542c733f3390bd7ae7d4d6b0d5a661fb1",
+        "commit_type": "commit",
+        "commit_message": " Integrate function cli into pulsar-admin cli (#1331)\n\n* Move pulsar functions dependency version to root pom and remove duplicated license headers\r\n\r\nThis addresses some comments in pulsar functions PR #1314\r\n\r\n* shade worker\r\n\r\n* Fix broken master\r\n\r\n* Upgrade the bookkeeper storage client dependency to the official bookkeeper version\r\n\r\nThis removes the temp dependency in `pulsar-functions-instance`\r\n\r\n* set `protobuf2.version` in pulsar-common\r\n\r\n* provide a shaded worker\r\n\r\n* include worker dependency at broker\r\n\r\n* Embeded function worker at broker\r\n\r\n* rename 'function worker' to 'functions worker'\r\n\r\n* add \"--no-functions-worker\" for pulsar-client-cpp tests\r\n\r\n* Integrate function cli into pulsar-admin cli\r\n\r\n- rename `pulsar-client-tools-shaded` to `pulsar-client-admin-shaded-for-functions`, because this module is used by functions only to avoid protobuf conflicts\r\n- move protobuf3 references to Utils, so it won't be referenced out side of pulsar-functions\r\n- integrate function cli into pulsar-admin cli\r\n\r\n* Fix license header issues\r\n\r\n* Fixed ZK cache test exectutor configuration.\r\n\r\nFixes #1338",
+        "closer_url": "https://github.com/apache/pulsar/commit/6230ab4542c733f3390bd7ae7d4d6b0d5a661fb1",
+        "earliest_issue_date": "2018-03-05T20:33:37Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1395,
+        "issue_title": "Python 3 example on the getting started",
+        "issue_body": "#### Expected behavior\r\n\r\nWorking \"getting-started\" guide example.\r\n\r\n#### Actual behavior\r\n\r\nThe script producer script is raising an error:\r\n```\r\nTraceback (most recent call last):\r\n  File \"pulsar_pub.py\", line 7, in <module>\r\n    producer.send('hello-pulsar-%d' % i)\r\n  File \"./test/pulsar/venv/lib/python3.6/site-packages/pulsar.py\", line 568, in send\r\n    replication_clusters, disable_replication)\r\n  File \"./test/pulsar/venv/lib/python3.6/site-packages/pulsar.py\", line 629, in _build_msg\r\n    _check_type(bytes, content, 'content')\r\n  File \"./test/pulsar/venv/lib/python3.6/site-packages/pulsar.py\", line 803, in _check_type\r\n    raise ValueError(\"Argument %s is expected to be of type '%s'\" % (name, var_type.__name__))\r\nValueError: Argument content is expected to be of type 'bytes'\r\n```\r\n\r\n#### Steps to reproduce\r\n\r\nJust try the examples on page: https://pulsar.apache.org/docs/latest/getting-started/docker/\r\nwith Python3.\r\n\r\n#### Steps to resolve\r\n\r\nFrom a client side, replaced the send by:\r\n```python\r\nproducer.send(('hello-pulsar-%d' % i).encode('utf8')) \r\n```\r\n\r\nThis should work with python2 too, at least recent versions of it.\r\n\r\n#### System configuration\r\n**Pulsar version**: Docker version 1.22.0-incubating\r\n**Pulsar-client version**: pulsar-client==1.22.0 (from pip)\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/1395",
+        "assignees": [
+            "merlimat"
+        ],
+        "labels": [
+            "doc"
+        ],
+        "issue_closed_at": "2018-04-29T02:01:41.000Z",
+        "fix_commit_hash": "66fa03f7eab93d660d4bd09a064e218677592abe",
+        "commit_type": "pr",
+        "commit_message": "Updated Python examples to work with py-2 and py-3 (#1680)",
+        "closer_url": "https://github.com/apache/pulsar/pull/1680",
+        "earliest_issue_date": "2018-03-15T20:40:51Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1411,
+        "issue_title": "Admin REST API not returning helpful error message",
+        "issue_body": "#### Expected behavior\r\n\r\nI do:\r\n\r\n`pulsar-admin persistent lookup persistent://myapp/global/entity-updates/test-entity-id`\r\n\r\nAnd expect the result, or at least a helpful error message.\r\n\r\n#### Actual behavior\r\n\r\nI get:\r\n\r\n`HTTP 412 Precondition Failed`\r\n\r\nWhen I check the broker log, I do find the actual error message (\"2018-03-21 15:57:08,843 - ERROR - [pulsar-web-76-4:DestinationLookup@99] - Validation check failed: Global namespace does not have any clusters configured\") but it would be nice to have that error message returned to the admin/client as well.\r\n\r\n#### Steps to reproduce\r\n\r\nCreate \"myapp\" property and \"entity-updates\" namespace. Then try to do:\r\n\r\n`pulsar-admin persistent lookup persistent://myapp/global/entity-updates/test-entity-id`\r\n\r\n#### System configuration\r\n**Pulsar version**: 1.22.0-incubating\r\n",
+        "issue_url": "https://github.com/apache/pulsar/issues/1411",
+        "assignees": [],
+        "labels": [
+            "type/enhancement"
+        ],
+        "issue_closed_at": "2018-04-29T02:02:29.000Z",
+        "fix_commit_hash": "21abb34ed93b192fcc5a058488856720437964cb",
+        "commit_type": "pr",
+        "commit_message": "Provide meaningful error message in \"pulsar-admin topics lookup\" (#1679)",
+        "closer_url": "https://github.com/apache/pulsar/pull/1679",
+        "earliest_issue_date": "2018-03-21T15:03:44Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1416,
+        "issue_title": "Docs about garbage collection are inaccurate/lacking",
+        "issue_body": "In the docs (http://pulsar.apache.org/docs/latest/admin/GeoReplication/#creating-global-namespaces) the section \"Delete a global topic\" says:\r\n\r\n> In Pulsar, a topic is automatically deleted when it\u2019s no longer used, that is to say, when no producers or consumers are connected and there are no subscriptions\r\n\r\nI believe it should say that it will also not be garbage collected if there are messages with retention > 0. And could be worth mentioning that you can turn this off with brokerDeleteInactiveTopicsEnabled=false.",
+        "issue_url": "https://github.com/apache/pulsar/issues/1416",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "doc"
+        ],
+        "issue_closed_at": "2018-06-29T22:30:37.000Z",
+        "fix_commit_hash": "99c0ed2d9309ae272a049852889827d227a87882",
+        "commit_type": "pr",
+        "commit_message": "Issue 1416: Docs about garbage collection are inaccurate/lacking (#2049)\n\n*Motivation*\r\n\r\nFixes #1416. Improve documentation around garbage collecting topic in [GeoReplication](http://pulsar.apache.org/docs/latest/admin/GeoReplication/#creating-global-namespaces) documentation page.\r\n\r\n*Solution*\r\n\r\n- explicitly callout topics only being deleted when no messages are kept for retention.\r\n- callout the flag to disable garabge collecting inactive topics.",
+        "closer_url": "https://github.com/apache/pulsar/pull/2049",
+        "earliest_issue_date": "2018-03-21T19:10:34Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1435,
+        "issue_title": "Build fails with JDK10 due to Lombok",
+        "issue_body": "#### Expected behavior\r\n\r\nBuild succeeds with JDK10.\r\n\r\n#### Actual behavior\r\n\r\nBuild fails.\r\n```\r\n[INFO] --- maven-compiler-plugin:3.7.0:compile (default-compile) @ pulsar-common ---\r\n[INFO] Changes detected - recompiling the module!\r\n[INFO] Compiling 100 source files to /Users/masakazu/git/pulsar/pulsar-common/target/classes\r\nWARNING: An illegal reflective access operation has occurred\r\nWARNING: Illegal reflective access by lombok.javac.apt.LombokProcessor to field com.sun.tools.javac.processing.JavacProcessingEnvironment.discoveredProcs\r\nWARNING: Please consider reporting this to the maintainers of lombok.javac.apt.LombokProcessor\r\nWARNING: Use --illegal-access=warn to enable warnings of further illegal reflective access operations\r\nWARNING: All illegal access operations will be denied in a future release\r\n```\r\n\r\n#### Steps to reproduce\r\n\r\nRun `mvn install -DskiptTests=1` with JDK10\r\n\r\n#### System configuration\r\n**Pulsar version**: master (561d954763d0e5cebfaef99c9ac5ca3f55d125a0)\r\n\r\n```\r\n$ java --version\r\njava 10 2018-03-20\r\nJava(TM) SE Runtime Environment 18.3 (build 10+46)\r\nJava HotSpot(TM) 64-Bit Server VM 18.3 (build 10+46, mixed mode)\r\n```",
+        "issue_url": "https://github.com/apache/pulsar/issues/1435",
+        "assignees": [],
+        "labels": [
+            "area/build"
+        ],
+        "issue_closed_at": "2018-06-06T18:34:14.000Z",
+        "fix_commit_hash": "91cfd2cb6cd4fb3219a841554b2791c149452e78",
+        "commit_type": "pr",
+        "commit_message": "Upgrade Lombok to 1.18.0 to work with JDK 10 (#1923)",
+        "closer_url": "https://github.com/apache/pulsar/pull/1923",
+        "earliest_issue_date": "2018-03-24T03:50:26Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1452,
+        "issue_title": "reachedEndOfTopic is called twice if a topic has been terminated before subscription",
+        "issue_body": "When you terminate a topic and then subscribe, MessageListener.reachedEndOfTopic is called two times.\r\n\r\nThere is a unit test that reproduces the issue:\r\n\r\n```\r\n    @Test\r\n    public void testDoubledReachedEndOfTopic() throws Exception\r\n    {\r\n        String topicName = \"persistent://test-prop/vv/ns1/test-\" + UUID.randomUUID();\r\n        PulsarClient pulsarClient = PulsarClient.create(\"pulsar://vv:6650\");\r\n\r\n        Producer producer = pulsarClient.createProducer(topicName);\r\n        producer.close();\r\n\r\n        PulsarAdmin admin = new PulsarAdmin(new URL(\"http://vv:8080\"), new ClientConfiguration());\r\n        admin.persistentTopics().terminateTopicAsync(topicName).get();\r\n        admin.close();\r\n\r\n        CountDownLatch latch = new CountDownLatch(2);\r\n        Consumer consumer = pulsarClient.subscribe(topicName, \"subscription\", new ConsumerConfiguration()\r\n                .setMessageListener(new MessageListener()\r\n                {\r\n                    @Override\r\n                    public void reachedEndOfTopic(Consumer consumer)\r\n                    {\r\n                        System.out.println(\"reachedEndOfTopic\");\r\n                        latch.countDown();\r\n                    }\r\n\r\n                    @Override\r\n                    public void received(Consumer consumer, Message message)\r\n                    {\r\n                        // do nothing\r\n                    }\r\n                })\r\n        );\r\n\r\n        assertFalse(latch.await(3, TimeUnit.SECONDS));\r\n        assertTrue(latch.getCount() == 1);\r\n\r\n        consumer.close();\r\n        pulsarClient.close();\r\n    }\r\n```",
+        "issue_url": "https://github.com/apache/pulsar/issues/1452",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "area/client"
+        ],
+        "issue_closed_at": "2018-08-05T23:49:43.000Z",
+        "fix_commit_hash": "3f8944f28ef2188d4bdab8f9394650fd799bc786",
+        "commit_type": "pr",
+        "commit_message": "Issue #1452: remove reachedEndOfTopic in addConsumer (#2301)\n\n### Motivation\r\n\r\nFixes #1452 \r\n\r\nIn issue #1452 , reachedEndOfTopic was called twice if a topic has been terminated before subscription.\r\nIt may be better to call `reachedEndOfTopic`, when real read/ack happened to the subscription, so delete the calling in `addConsumer` to avoid dup calling.\r\n\r\n### Modifications\r\n\r\nremove dup calling in `addConsumer` .\r\nadd related ut.\r\n\r\n### Result\r\n\r\nExpected all ut passed.",
+        "closer_url": "https://github.com/apache/pulsar/pull/2301",
+        "earliest_issue_date": "2018-03-27T02:15:04Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "pulsar",
+        "issue_number": 1455,
+        "issue_title": "MessageID has always batch index 0 when sending messages in a batch",
+        "issue_body": "When I send messages I always get 0 in batchIndex component of MessageID in the result of sendAsync method. Here is a unit test that reproduce the issue:\r\n```\r\n    @Test\r\n    public void testSameBatchIndex() throws Exception\r\n    {\r\n        String topicName = \"persistent://test-prop/vv/ns1/test-\" + UUID.randomUUID();\r\n        PulsarClient pulsarClient = PulsarClient.create(\"pulsar://vv:6650\");\r\n\r\n        Producer producer = pulsarClient.createProducer(topicName, new ProducerConfiguration()\r\n                .setBatchingEnabled(true)\r\n                .setBatchingMaxMessages(1000)\r\n                .setBatchingMaxPublishDelay(1, TimeUnit.SECONDS)\r\n        );\r\n\r\n        Consumer consumer = pulsarClient.subscribe(topicName, \"subscription\", new ConsumerConfiguration()\r\n                .setMessageListener((consumer1, message) -> System.out.println(\"Read: \" + message.getMessageId()))\r\n        );\r\n\r\n        producer.sendAsync(\"A\".getBytes()).whenCompleteAsync((messageId, throwable) -> {\r\n            System.out.println(\"A: \" + messageId);\r\n        });\r\n        producer.sendAsync(\"B\".getBytes()).whenCompleteAsync((messageId, throwable) -> {\r\n            System.out.println(\"B: \" + messageId);\r\n        });\r\n        producer.sendAsync(\"C\".getBytes()).whenCompleteAsync((messageId, throwable) -> {\r\n            System.out.println(\"C: \" + messageId);\r\n        });\r\n\r\n        Thread.sleep(3333);\r\n\r\n        consumer.close();\r\n        producer.close();\r\n        pulsarClient.close();\r\n    }\r\n\r\n```\r\nActual output is \r\n```\r\nA: 1286:0:-1:0\r\nB: 1286:0:-1:0\r\nC: 1286:0:-1:0\r\nRead: 1286:0:-1:0\r\nRead: 1286:0:-1:1\r\nRead: 1286:0:-1:2\r\n```\r\n\r\nExpected output is\r\n```\r\nA: 1286:0:-1:0\r\nB: 1286:0:-1:1\r\nC: 1286:0:-1:2\r\nRead: 1286:0:-1:0\r\nRead: 1286:0:-1:1\r\nRead: 1286:0:-1:2\r\n```\r\n\r\nversion: 1.22.0-incubating",
+        "issue_url": "https://github.com/apache/pulsar/issues/1455",
+        "assignees": [],
+        "labels": [
+            "type/bug",
+            "area/client"
+        ],
+        "issue_closed_at": "2018-07-06T15:37:08.000Z",
+        "fix_commit_hash": "83e31579f5df941ad49fb54ec269c1d917821504",
+        "commit_type": "pr",
+        "commit_message": "Issue 1455: MessageID has always batch index 0 when sending messages in a batch (#2099)\n\n*Motivation*\r\n\r\nFixes #1455.\r\n\r\nPulsar uses a callback chain for completing the list of callbacks for a batch. However the callback chain doesn't reference the message instance for completing the callback.\r\nso when callback chain is triggered, it always uses the first message id to complete the chain of callbacks.\r\n\r\n*Changes*\r\n\r\nIntroduce a field to keep message instance in the callback chain. So when the chain is invoked, each callback can use the right message instance to complete the callback.\r\n\r\nAdded an integration test to ensure it works correctly.",
+        "closer_url": "https://github.com/apache/pulsar/pull/2099",
+        "earliest_issue_date": "2018-03-27T14:45:05Z",
+        "predicted_class": "bug"
+    }
+]
