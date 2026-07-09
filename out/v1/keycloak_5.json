@@ -1,0 +1,1204 @@
+[
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10749,
+        "issue_title": "Capacity to change hibernate dialect",
+        "issue_body": "### Describe the bug\r\n\r\nIs not possible to change the dialect of Oracle Database\r\n\r\n### Version\r\n\r\n17.0.0\r\n\r\n### Expected behavior\r\n\r\nBe capable to change the currrent dialect through the command above:\r\n```\r\nsudo /opt/keycloak-17.0.0/bin/kc.sh   build \\\r\n --db=oracle \\\r\n--metrics-enabled=true  \\\r\n--cache-config-file=../conf/cache-ispn.xml  \\\r\n-Dkc.db-dialect=org.hibernate.dialect.Oracle12cDialect\r\n```\r\n\r\n### Actual behavior\r\n\r\nThe build above:\r\n```\r\nsudo /opt/keycloak-17.0.0/bin/kc.sh   build \\\r\n --db=oracle \\\r\n--metrics-enabled=true  \\\r\n--cache-config-file=../conf/cache-ispn.xml  \\\r\n-Dkc.db-dialect=org.hibernate.dialect.Oracle12cDialect\r\n```\r\nGenerate this config:\r\n```\r\nsudo /opt/keycloak-17.0.0/bin/kc.sh show-config\r\nRuntime Configuration:\r\n        kc.cache =  ispn (PersistedConfigSource)\r\n        kc.cache-config-file =  ../conf/cache-ispn.xml (PersistedConfigSource)\r\n        kc.config.args =  show-config (SysPropConfigSource)\r\n        kc.db =  oracle (PersistedConfigSource)\r\n        kc.db-dialect =  org.hibernate.dialect.Oracle12cDialect (PersistedConfigSource)\r\n        kc.home.dir =  /opt/keycloak-17.0.0/bin/../ (SysPropConfigSource)\r\n        kc.http-enabled =  false (PropertiesConfigSource[source=jar:file:///opt/keycloak-17.0.0/lib/lib/main/org.keycloak.keycloak-quarkus-server-17.0.0.jar!/META-INF/keycloak.conf])\r\n        kc.http-relative-path =  / (PersistedConfigSource)\r\n        kc.metrics-enabled =  true (PersistedConfigSource)\r\n        kc.quarkus-properties-enabled =  true (PersistedConfigSource)\r\n        kc.show.config =  none (SysPropConfigSource)\r\n        kc.version =  17.0.0 (SysPropConfigSource)\r\n```\r\nBut the defined dialect is not aplied, is possible to confirm the bug during startup time through the presence of an LIMIT clause in the above query \r\n\r\n\r\n```\r\nCaused by: Error : 933, Position : 188, Sql = select migrationm0_.ID as id1_39_, migrationm0_.UPDATE_TIME as update_t2_39_, migrationm0_.VERSION as version3_39_ from MIGRATION_MODEL migrationm0_ order by migrationm0_.UPDATE_TIME DESC limit :1 , OriginalSql = select migrationm0_.ID as id1_39_, migrationm0_.UPDATE_TIME as update_t2_39_, migrationm0_.VERSION as version3_39_ from MIGRATION_MODEL migrationm0_ order by migrationm0_.UPDATE_TIME DESC limit ?, Error Msg = ORA-00933: SQL command not properly ended\r\n```\r\n\r\n\r\n\r\n\r\n### How to Reproduce?\r\n\r\nBuilding the code through the command above \r\n\r\n```\r\nsudo /opt/keycloak-17.0.0/bin/kc.sh  build \\\r\n--db=oracle \\\r\n--metrics-enabled=true\\\r\n--cache-config-file=../conf/cache-ispn.xml \\\r\n-Dkc.db-dialect=org.hibernate.dialect.Oracle12cDialect\r\n\r\n```\r\nAnd runing with an oracle database\r\n\r\n\r\n### Anything else?\r\n\r\n i havent tested with other dialects and databases yet",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10749",
+        "assignees": [
+            "pedroigor"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/dist/quarkus"
+        ],
+        "issue_closed_at": "2022-03-18T20:02:55.000Z",
+        "fix_commit_hash": "210ef5984394f0d402f9d64336fe20aaf25451da",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Capacity to change hibernate dialect\n\nCloses #10749",
+        "closer_url": null,
+        "earliest_issue_date": "2022-03-14T21:36:58Z",
+        "predicted_class": "bug",
+        "bic": [
+            "3fa4a96256db3abd8221a7d4d927f51cd9eb8da8"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10755,
+        "issue_title": "Replace operation set wrong lifespan in remote infinispan database and leads to session eviction",
+        "issue_body": "### Describe the bug\n\nHi,\r\n\r\nThis discussion describes the bug and leads to fix it : https://github.com/keycloak/keycloak/discussions/10577 \r\n\r\n**To sum up here :** new session lifespan gets corrupted in database (set in past) when trying to refresh it and session entry is evicted from Infinispan database\r\n\r\n\r\n**Technical stack :** \r\nKeycloak 17.0.0 (legacy, wildfly) (will be migrated to Quarkus in a few months)\r\nInfinispan 13.0.6.Final with JDBC persistence (PostgreSQL 14.X)\r\n\r\nNumber of nodes in cluster does not matter.\r\n\r\n**Note** : this bug does not occur with a remote Infinispan cluster without JDBC persistence.\n\n### Version\n\n17.0.0\n\n### Expected behavior\n\nWhen a remote-store is configured pointing to an external Infinispan cluster with JDBC persistence, the following update must be done for the `timestamp `field in Infinispan database  : \r\n\r\n1. Create a new Session on App A. In database, new lifespan value (`timestamp`) is set to :  _now () + SSO Session Max configured in Realm_\r\n2. Navigate to another app App B of same realm (or even same app A in another tab).  Lifespan value (`timestamp`) should be updated to : _now() + SSO Session Max configured in Realm_\r\n\n\n### Actual behavior\n\n1. Create a new Session on App A. In database, new lifespan value (timestamp) is set to :  _now () + SSO Session Max configured in Realm_\r\n2. Navigate to another app App B of same realm (or even same app A in another tab).  Lifespan value (timestamp) is updated to : _Unix timestamp (01/01/1970 ) + SSO Session Max configured in Realm_\r\n3. As a consequence, because this lifespan is in the past, User session is evicted quickly and user is logged out\r\n\n\n### How to Reproduce?\n\nFull example here : https://github.com/olivierboudet/keycloak-infinispan-jdbc \r\n\r\n\n\n### Anything else?\n\nLead from @thomasdarimont here : https://github.com/keycloak/keycloak/discussions/10577#discussioncomment-2333456 ",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10755",
+        "assignees": [
+            "martin-kanis"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/storage",
+            "area/infinispan"
+        ],
+        "issue_closed_at": "2022-11-23T11:03:53.000Z",
+        "fix_commit_hash": "08061afbd4cd6c0da136a53d3835ac88b3e36a62",
+        "commit_type": "pr",
+        "commit_message": "Replace operation set wrong lifespan in remote infinispan database and leads to session eviction (#15619)\n\nCloses #10755",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/15619",
+        "earliest_issue_date": "2022-03-15T22:26:11Z",
+        "predicted_class": "bug",
+        "bic": [
+            "f4b5942c6c1b5ef2f3b86d904e8bff9c43cc96b6"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10762,
+        "issue_title": "Hang Detection Timeout kicks in Operator Tests",
+        "issue_body": "### Describe the bug\n\nThe default timeout is 10 minutes and sometimes it kicks in.\n\n### Version\n\nnext\n\n### Expected behavior\n\n_No response_\n\n### Actual behavior\n\n_No response_\n\n### How to Reproduce?\n\n_No response_\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10762",
+        "assignees": [
+            "andreaTP"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/operator"
+        ],
+        "issue_closed_at": "2022-03-16T13:17:14.000Z",
+        "fix_commit_hash": "0e398b947b624b2cccb39ebd3a5560ae535f8722",
+        "commit_type": "pr",
+        "commit_message": "Increase Hang Detection Timeout in Operator Tests",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/10741",
+        "earliest_issue_date": "2022-03-16T09:59:56Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10779,
+        "issue_title": "Attestation Conveyance Verification with YubiKey",
+        "issue_body": "### Describe the bug\n\n# Disclaimer\r\n\r\nThis might be a bug, or might be a fixed issue from a previous version, which now is causing the error. The questioning behind the classification is explained in the description of the possible bug.\r\n\r\n# Description\r\n\r\nWhen trying to use Direct as Attestation Conveyance, keycloak reports an error (described in the actual behaviour). On previous version of keycloak (15.0), this error did not happen.\r\n\r\n# References\r\n\r\nhttps://github.com/keycloak/keycloak-community/blob/main/design/web-authn-authenticator.md\r\nhttps://issues.redhat.com/browse/KEYCLOAK-11372\r\nhttps://www.keycloak.org/docs/latest/server_installation/index.html#_truststore\r\nhttps://developers.yubico.com/yubico-piv-tool/Attestation.html\r\nhttps://www.w3.org/TR/webauthn/#attestation-statement\r\n\r\n# Considerations\r\n\r\nWe are using a physical YubiKey.\r\nUsing Chrome\r\n\r\n# General Steps\r\n\r\nThis steps are required in both the expected behaviour and the actual behaviour. To avoid repetition, they are included in this section.\r\n\r\n1. Enable WebAuthn Verification following the steps defined in https://github.com/keycloak/keycloak-documentation/blob/main/server_admin/topics/authentication/webauthn.adoc\r\n2. Under Authentication > WebAuthn Policy > Attestation Conveyance Preference set it to Direct\r\n3. Acceptable AAGUID's > the AAGUID's of the accepted YubiKeys.\n\n### Version\n\n17 (Quarkus)\n\n### Expected behavior\n\nWhen the Attestation Conveyance Preference is set to direct, according to the [WebAuthn Stadard](https://www.w3.org/TR/webauthn/), we expect Keycloak to verify the Attestation provided by the Authentication / Browser and register the key information.\r\n\r\nSteps:\r\n\r\n1. User goes to login page\r\n2. User is presented with username and password (first login)\r\n3. User is required to register USB key to keycloak as specified in the General Steps\r\n4. User registers key successfully and keycloak saves the key information on the database\r\n5. User proceeds to initially intended web page\r\n\n\n### Actual behavior\n\nOn the actual behaviour, when Keycloak tries to register the key information, it shows the following error message:\r\n\r\n```\r\n2022-03-17 05:51:46,146 ERROR [org.keycloak.services.error.KeycloakErrorHandler] (executor-thread-20) Uncaught server error: java.lang.NoClassDefFoundError: org/apache/kerby/asn1/type/Asn1OctetString\r\n        at com.webauthn4j.validator.attestation.statement.packed.PackedAttestationStatementValidator.extractAAGUIDFromAttestationCertificate(PackedAttestationStatementValidator.java:106)\r\n        at com.webauthn4j.validator.attestation.statement.packed.PackedAttestationStatementValidator.validateX5c(PackedAttestationStatementValidator.java:90)\r\n        at com.webauthn4j.validator.attestation.statement.packed.PackedAttestationStatementValidator.validate(PackedAttestationStatementValidator.java:62)\r\n        at com.webauthn4j.validator.AttestationValidator.validateAttestationStatement(AttestationValidator.java:161)\r\n        at com.webauthn4j.validator.AttestationValidator.validate(AttestationValidator.java:97)\r\n        at com.webauthn4j.validator.RegistrationDataValidator.validate(RegistrationDataValidator.java:180)\r\n        at com.webauthn4j.WebAuthnRegistrationManager.validate(WebAuthnRegistrationManager.java:276)\r\n        at org.keycloak.authentication.requiredactions.WebAuthnRegister.processAction(WebAuthnRegister.java:231)\r\n        at org.keycloak.services.resources.LoginActionsService.processRequireAction(LoginActionsService.java:1040)\r\n        at org.keycloak.services.resources.LoginActionsService.requiredActionPOST(LoginActionsService.java:975)\r\n        at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\r\n        at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)\r\n        at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n        at java.base/java.lang.reflect.Method.invoke(Method.java:566)\r\n        at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:170)\r\n        at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:130)\r\n        at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:660)\r\n        at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:524)\r\n        at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:474)\r\n        at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:364)\r\n        at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:476)\r\n        at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:434)\r\n        at org.jboss.resteasy.core.ResourceLocatorInvoker.invokeOnTargetObject(ResourceLocatorInvoker.java:192)\r\n        at org.jboss.resteasy.core.ResourceLocatorInvoker.invoke(ResourceLocatorInvoker.java:141)\r\n        at org.jboss.resteasy.core.ResourceLocatorInvoker.invoke(ResourceLocatorInvoker.java:32)\r\n        at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:492)\r\n        at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invoke$4(SynchronousDispatcher.java:261)\r\n        at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:161)\r\n        at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:364)\r\n        at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:164)\r\n        at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:247)\r\n        at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:73)\r\n        at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)\r\n        at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.handle(VertxRequestHandler.java:82)\r\n        at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.handle(VertxRequestHandler.java:42)\r\n        at io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1212)\r\n        at io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:163)\r\n        at io.vertx.ext.web.impl.RoutingContextImpl.next(RoutingContextImpl.java:141)\r\n        at io.quarkus.vertx.http.runtime.StaticResourcesRecorder$2.handle(StaticResourcesRecorder.java:67)\r\n        at io.quarkus.vertx.http.runtime.StaticResourcesRecorder$2.handle(StaticResourcesRecorder.java:55)\r\n        at io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1212)\r\n        at io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:163)\r\n        at io.vertx.ext.web.impl.RoutingContextImpl.next(RoutingContextImpl.java:141)\r\n        at io.quarkus.vertx.http.runtime.VertxHttpRecorder$5.handle(VertxHttpRecorder.java:362)\r\n        at io.quarkus.vertx.http.runtime.VertxHttpRecorder$5.handle(VertxHttpRecorder.java:340)\r\n        at io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1212)\r\n        at io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:163)\r\n        at io.vertx.ext.web.impl.RoutingContextImpl.next(RoutingContextImpl.java:141)\r\n        at org.keycloak.quarkus.runtime.integration.web.QuarkusRequestFilter.lambda$createBlockingHandler$1(QuarkusRequestFilter.java:66)\r\n        at io.vertx.core.impl.ContextImpl.lambda$null$0(ContextImpl.java:159)\r\n        at io.vertx.core.impl.AbstractContext.dispatch(AbstractContext.java:100)\r\n```\r\n\n\n### How to Reproduce?\n\nThe key to reproduce is:\r\n\r\n1. Have Attestation Conveyance Preference set to Direct\r\n2. Have accepted AAGUID set up\n\n### Anything else?\n\nIn case of needing more information please let me know, I'll try to provide as much as I can. \r\nWe also tried other approaches:\r\n\r\n1. Adding truststore\r\n2. Adding keystore\r\n\r\nOne main area of concern is that, if keycloak is supposed to verify the attestation of the authenticator, it needs the root ca of the provider of the authenticator. Couldn't find documentation as how that is supposed to be done.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10779",
+        "assignees": [
+            "mabartos"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/dist/quarkus",
+            "area/authentication/webauthn"
+        ],
+        "issue_closed_at": "2022-04-19T12:04:23.000Z",
+        "fix_commit_hash": "e495a3d4031a719187492f6141154b72f35ba88f",
+        "commit_type": "pr",
+        "commit_message": "Add Apache Kerby to Quarkus runtime dependencies (#10994)\n\nApache Kerby is used by WebAuthn attestation verification\r\nWithout this library the assertion verification fails in Quarkus\r\ndistribution\r\n\r\nCloses #10779",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/10994",
+        "earliest_issue_date": "2022-03-17T05:55:57Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10802,
+        "issue_title": "Keycloak is not fully supporting XML boolean values for SAML",
+        "issue_body": "### Describe the bug\n\nAs described in [w3c XML Schema definition](https://www.w3.org/TR/xmlschema11-2/#boolean), XML boolean values can be false/true but also can be 0/1.\r\nMore specifically, when reading a SAML document coming from a client who is encoding boolean values with 0 or 1, both values are recognized as false in Keycloak since StaxParserUtil::getBooleanAttributeValue is evaluated with: `return value == null ? null : Boolean.valueOf(value)`\r\n\r\nFor clients who are supporting 0/1 as boolean values, Keycloak can't process SAML correctly.\r\n\r\nShould we submit a PR?\n\n### Version\n\nAt least from 14.0.0 to master\n\n### Expected behavior\n\nWhen receiving SAML statements, Keycloak should understand that 1 is a true boolean value\n\n### Actual behavior\n\nWhen receiving SAML statements, Keycloak considers legitimate value 1 as false\n\n### How to Reproduce?\n\nUse a client who is using 0/1 as boolean values.\r\nEx: <saml2p:NameIDPolicy AllowCreate=\"1\" />\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10802",
+        "assignees": [
+            "hmlnarik"
+        ],
+        "labels": [
+            "area/saml",
+            "kind/bug"
+        ],
+        "issue_closed_at": "2022-03-31T07:36:35.000Z",
+        "fix_commit_hash": "7555063ed9e745d5a7ba1ec3fb9b8bae299e996f",
+        "commit_type": "pr",
+        "commit_message": "Support 0/1 values for XML boolean attributes\n\nCloses #10802",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/10941",
+        "earliest_issue_date": "2022-03-17T12:51:08Z",
+        "predicted_class": "bug",
+        "bic": [
+            "e6a64e234b276f49503f9b4bdbe03a342d9b9018"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10806,
+        "issue_title": "Keycloak Quarkus distribution fail to start using h2 on OpenShift",
+        "issue_body": "### Describe the bug\n\nDue to the default security context in OpenShift Keycloak distribution fails to start with h2 database (both in mem and on file) since the `data` folder doesn't exists.\n\n### Version\n\nlatest\n\n### Expected behavior\n\n_No response_\n\n### Actual behavior\n\n_No response_\n\n### How to Reproduce?\n\n_No response_\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10806",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/dist/quarkus"
+        ],
+        "issue_closed_at": "2022-03-17T17:50:38.000Z",
+        "fix_commit_hash": "b66115c1df0388b9140b05c0c5a6d23a09fb814f",
+        "commit_type": "pr",
+        "commit_message": "Create missing data folder in docker image (#10783)\n\nResolves #10806",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/10783",
+        "earliest_issue_date": "2022-03-17T17:44:58Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10818,
+        "issue_title": "Re-augmentation is recording runtime properties as runtime default values",
+        "issue_body": "### Describe the bug\r\n\r\nDuring augmentation, Quarkus resolves runtime properties used during the augmentation (e.g.: `build`) (other than env variables) and set them as runtime default values. These properties are recorded and available from a generated config source called \"specified runtime default values\".\r\n\r\nBecause of that, when you run `start-dev` for the very first time:\r\n\r\n```\r\nkc.sh start-dev --proxy=edge\r\n```\r\n\r\nAnd then you run again the same command without the `--proxy` option:\r\n\r\n```\r\nkc.sh start-dev\r\n```\r\n\r\nThe value `edge` is still set at runtime even though no longer available from the command line.\r\n\r\nWe should remove any runtime option when running the build command and particularly when running `auto-build` so that Quarkus does not record these options and does not use them as runtime defaults.\r\n\r\n\r\n### Version\r\n\r\n17.0.0\r\n\r\n### Expected behavior\r\n\r\nAny runtime option set when running `auto-build` is not recorded and can be reverted to the default when starting the server.\r\n\r\n### Actual behavior\r\n\r\nRuntime options do not revert to their default values if not set after re-augmentation.\r\n\r\n### How to Reproduce?\r\n\r\nRun `start-dev` for the very first time to force a `build`:\r\n\r\n```\r\nkc.sh start-dev --proxy edge\r\n```\r\n\r\nNow start the server without passing the `proxy` option:\r\n\r\n```\r\nkc.sh start\r\n```\r\n\r\nCheck if the `proxy` option is set to `edge`. It should not but set to `none`.\r\n\r\n### Anything else?\r\n\r\nAs a workaround, you can run `kc.sh build` without passing any argument to \"reset\" the server state.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10818",
+        "assignees": [
+            "pedroigor"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/dist/quarkus"
+        ],
+        "issue_closed_at": "2022-06-09T11:32:31.000Z",
+        "fix_commit_hash": "5e5cfff4e2f34b9a46b05085fff557d13ced1b67",
+        "commit_type": "pr",
+        "commit_message": "Resolve default values for runtime options when running re-aug\n\nCloses #10818",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/12401",
+        "earliest_issue_date": "2022-03-18T12:57:00Z",
+        "predicted_class": "bug",
+        "bic": [
+            "cd5ccdbf3e0b91e9bdbe206cbe4b82cc570c0e82"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10840,
+        "issue_title": "keycloak-common module has Java 1.8 API calls while the module is set to use Java 1.7",
+        "issue_body": "### Describe the bug\n\nhttps://github.com/keycloak/keycloak/pull/10334 introduces some API calls that are [available in Java 1.8](https://docs.oracle.com/javase/8/docs/api/java/lang/reflect/Method.html) but [not in 1.7](https://docs.oracle.com/javase/7/docs/api/java/lang/reflect/Method.html). The module target version [is 1.7](https://github.com/keycloak/keycloak/blob/92c4e6d585dca4d2f741ac4ac6b50ea0c0940a9a/common/pom.xml#L35-L36).\n\n### Version\n\n18.0.0-SNAPSHOT\n\n### Expected behavior\n\n```\r\n/Users/vmuzikar/Documents/keycloak/common/src/main/java/org/keycloak/common/util/reflections/Types.java:166:19\r\njava: cannot find symbol\r\n  symbol:   method getParameterCount()\r\n  location: variable method of type java.lang.reflect.Method\r\n/Users/vmuzikar/Documents/keycloak/common/src/main/java/org/keycloak/common/util/reflections/Types.java:166:53\r\njava: cannot find symbol\r\n  symbol:   method getParameterCount()\r\n  location: variable intfMethod of type java.lang.reflect.Method\r\n/Users/vmuzikar/Documents/keycloak/common/src/main/java/org/keycloak/common/util/reflections/Types.java:168:35\r\njava: cannot find symbol\r\n  symbol:   method getParameterCount()\r\n  location: variable method of type java.lang.reflect.Method\r\n```\n\n### Actual behavior\n\n_No response_\n\n### How to Reproduce?\n\nBuild the project in your IDE. Maven seems to be ok with it for some reason, so it's not reproducible with it.\n\n### Anything else?\n\nWorkaround for IntelliJ IDEA: override the target bytecode version for \"keycloam-common\" module in the IDEA Settings --> Build, Execution, Deployment --> Compiler --> Java Compiler\r\nThis works, at least until next POMs re-import when this will get again set to what's in the POM.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10840",
+        "assignees": [
+            "ahus1"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/blocker",
+            "area/core"
+        ],
+        "issue_closed_at": "2022-03-22T09:23:25.000Z",
+        "fix_commit_hash": "fb92b95c33a6d036c0f9ee00aaa8a999d6410aff",
+        "commit_type": "pr",
+        "commit_message": "Revert from getParameterCount() to getParameterTypes().length to be Java 1.7 compatible.\n\nThis reverts commit bc27c7c464988e88ca36217b434e1014ecdcdc2a.\n\nCloses #10840",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/10841",
+        "earliest_issue_date": "2022-03-21T14:08:41Z",
+        "predicted_class": "bug",
+        "bic": [
+            "bc27c7c464988e88ca36217b434e1014ecdcdc2a"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10842,
+        "issue_title": "Maven builds doesn't recognize JDK 1.7 API violations",
+        "issue_body": "### Description\r\n\r\nThe Maven builds runs with JDK 11, and some modules still claim want to bei JDK 7 compatible. \r\n\r\nBy using JDK 11 to build, it misses when Java adds a new API in JDK 8-11: The code still compiles, still it will fail when running on JDK 7. \r\n\r\nTo prevent this, Keycloak should apply a tool like https://www.mojohaus.org/animal-sniffer/ in its build process. The build will then fail when an API is used that is too recent.\r\n\r\nAt the same time: The Keycloak documentation states OpenJDK 8 should be used, and Maven compiles to 1.7. Strange.\r\n\r\n### Motivation\r\n\r\nPrevent a situation as it happend in #10840.\r\n",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10842",
+        "assignees": [
+            "ahus1"
+        ],
+        "labels": [
+            "kind/enhancement",
+            "area/core",
+            "area/ci",
+            "status/triage"
+        ],
+        "issue_closed_at": "2022-06-20T17:44:34.000Z",
+        "fix_commit_hash": "850af55edc1eaed7b9bec0c7a6b247296a44bc8e",
+        "commit_type": "pr",
+        "commit_message": "Ensure that only JDK 8 APIs are used where JDK 8 is still required.\n\nCloses #10842",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11991",
+        "earliest_issue_date": "2022-03-21T14:44:19Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10867,
+        "issue_title": "Add missing `JsonPropertyDescription` to fields in Keycloak CRD",
+        "issue_body": "",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10867",
+        "assignees": [
+            "andreaTP"
+        ],
+        "labels": [
+            "kind/enhancement",
+            "area/operator"
+        ],
+        "issue_closed_at": "2022-04-08T09:55:44.000Z",
+        "fix_commit_hash": "3bfc6721b343ec446b2c64cacef79c026052e432",
+        "commit_type": "pr",
+        "commit_message": "Add JsonPropertyDescription on all CR fields (#11052)",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11052",
+        "earliest_issue_date": "2022-03-22T10:36:47Z",
+        "predicted_class": "bug",
+        "bic": [
+            "c0255cbeea608f67ea3d81500fce09ffaa0225af"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10879,
+        "issue_title": "MigrationModelTest broken with version 999",
+        "issue_body": "### Describe the bug\n\nDue to change in snapshot version format in #10784, the [migration model test](https://github.com/keycloak/keycloak/blob/e493b08fa757cc165ff2ca30be361d8a7e371dbd/testsuite/model/src/test/java/org/keycloak/testsuite/model/MigrationModelTest.java#L68) fails with\r\n```\r\nError:  org.keycloak.testsuite.model.MigrationModelTest.test  Time elapsed: 0.059 s  <<< FAILURE!\r\norg.junit.ComparisonFailure: expected:<999[]> but was:<999[.0.0]>\r\n\tat org.junit.Assert.assertEquals(Assert.java:117)\r\n\tat org.junit.Assert.assertEquals(Assert.java:146)\r\n\tat org.keycloak.testsuite.model.MigrationModelTest.lambda$test$0(MigrationModelTest.java:68)\r\n\tat org.keycloak.testsuite.model.KeycloakModelTest.lambda$inComittedTransaction$12(KeycloakModelTest.java:616)\r\n\tat org.keycloak.models.utils.KeycloakModelUtils.runJobInTransaction(KeycloakModelUtils.java:242)\r\n\tat org.keycloak.testsuite.model.KeycloakModelTest.inComittedTransaction(KeycloakModelTest.java:604)\r\n\tat org.keycloak.testsuite.model.KeycloakModelTest.inComittedTransaction(KeycloakModelTest.java:591)\r\n\tat org.keycloak.testsuite.model.MigrationModelTest.test(MigrationModelTest.java:58)\r\n```\n\n### Version\n\nmain\n\n### Expected behavior\n\n_No response_\n\n### Actual behavior\n\n_No response_\n\n### How to Reproduce?\n\n_No response_\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10879",
+        "assignees": [
+            "ahus1"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/storage"
+        ],
+        "issue_closed_at": "2022-03-23T09:34:44.000Z",
+        "fix_commit_hash": "78549fe024a3d70e1f6f8d91580580e9c6c57041",
+        "commit_type": "pr",
+        "commit_message": "Avoid duplicating parsing logic in ModelVersion\n\nThis now allows handling of the 999-SNAPSHOT version.\n\nCloses #10879",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/10881",
+        "earliest_issue_date": "2022-03-23T06:55:28Z",
+        "predicted_class": "bug",
+        "bic": [
+            "83255e1b088c672c51ee650aca286071170e394d"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10894,
+        "issue_title": "SAML Adapters tests start failing in recent versions of EAP/wildfly",
+        "issue_body": "### Describe the bug\r\n\r\n[ELYWEB-163](https://issues.redhat.com/browse/ELYWEB-163) fixed a bug in elytron-web that re-encodes (twice) the query parameters. It seems that OIDC/SAML did a workaround to fix this just re-decoding the values also two times ([here](https://github.com/keycloak/keycloak/blob/15.0.2/adapters/oidc/wildfly-elytron/src/main/java/org/keycloak/adapters/elytron/ElytronHttpFacade.java#L200-L218), first `getQuery` do one decoding and after that the code perform the second one). My feeling that this was not even a workaround, it just worked and no one thought about being doing a first decoding calling `getQuery` (`getRawQuery` in URI returns the query string without deconding, but calling `getQuery` it is decoded).\r\n\r\nAfter the fix the double decoding makes the signature parameter in SAML REDIRECT binding fail (it is wrong after the second decoding).\r\n\r\nMore info: https://issues.redhat.com/browse/RHSSO-1943\r\n\r\n### Version\r\n\r\n17.0.0 15.0.2\r\n\r\n### Expected behavior\r\n\r\nIt's weird but probably we need to make it work in both situations (with and without the fix). Because if not the adapters will fail when installed in a version without ELYWEB-163 applied.\r\n\r\n### Actual behavior\r\n\r\n```\r\n[org.keycloak.adapters.saml.profile.webbrowsersso.WebBrowserSsoAuthenticationHandler] (default task-1) null: java.security.SignatureException: Signature length not correct: got 126 but was expecting 128\r\n at sun.security.rsa.RSASignature.engineVerify(RSASignature.java:211)\r\n at java.security.Signature$Delegate.engineVerify(Signature.java:1394)\r\n at java.security.Signature.verify(Signature.java:771)\r\n at org.keycloak.adapters.saml.profile.AbstractSamlAuthenticationHandler.validateRedirectBindingSignatureForKey(AbstractSamlAuthenticationHandler.java:744)\r\n at org.keycloak.adapters.saml.profile.AbstractSamlAuthenticationHandler.validateRedirectBindingSignature(AbstractSamlAuthenticationHandler.java:695)\r\n at org.keycloak.adapters.saml.profile.AbstractSamlAuthenticationHandler.verifyRedirectBindingSignature(AbstractSamlAuthenticationHandler.java:678)\r\n at org.keycloak.adapters.saml.profile.AbstractSamlAuthenticationHandler.validateSamlSignature(AbstractSamlAuthenticationHandler.java:317)\r\n at org.keycloak.adapters.saml.profile.AbstractSamlAuthenticationHandler.handleSamlResponse(AbstractSamlAuthenticationHandler.java:248)\r\n at org.keycloak.adapters.saml.profile.AbstractSamlAuthenticationHandler.doHandle(AbstractSamlAuthenticationHandler.java:148)\r\n at org.keycloak.adapters.saml.profile.webbrowsersso.WebBrowserSsoAuthenticationHandler.handle(WebBrowserSsoAuthenticationHandler.java:51)\r\n at org.keycloak.adapters.saml.SamlAuthenticator.authenticate(SamlAuthenticator.java:48)\r\n at org.keycloak.adapters.saml.elytron.KeycloakHttpServerAuthenticationMechanism.evaluateRequest(KeycloakHttpServerAuthenticationMechanism.java:102)\r\n at org.wildfly.security.http.util.SetMechanismInformationMechanismFactory$1.evaluateRequest(SetMechanismInformationMechanismFactory.java:119)\r\n at org.wildfly.security.http.util.SocketAddressCallbackServerMechanismFactory$1.evaluateRequest(SocketAddressCallbackServerMechanismFactory.java:82)\r\n at org.wildfly.security.auth.server.SecurityIdentityServerMechanismFactory$1.evaluateRequest(SecurityIdentityServerMechanismFactory.java:85)\r\n at org.wildfly.security.http.HttpAuthenticator$AuthenticationExchange.authenticate(HttpAuthenticator.java:326)\r\n at org.wildfly.security.http.HttpAuthenticator$AuthenticationExchange.access$800(HttpAuthenticator.java:301)\r\n at org.wildfly.security.http.HttpAuthenticator.authenticate(HttpAuthenticator.java:94)\r\n at org.wildfly.elytron.web.undertow.server.SecurityContextImpl.authenticate(SecurityContextImpl.java:107)\r\n at org.wildfly.elytron.web.undertow.server.servlet.ServletSecurityContextImpl.authenticate(ServletSecurityContextImpl.java:115)\r\n at io.undertow.servlet.handlers.security.ServletAuthenticationCallHandler.handleRequest(ServletAuthenticationCallHandler.java:55)\r\n at io.undertow.server.handlers.DisableCacheHandler.handleRequest(DisableCacheHandler.java:33)\r\n at io.undertow.server.handlers.PredicateHandler.handleRequest(PredicateHandler.java:43)\r\n at io.undertow.security.handlers.AuthenticationConstraintHandler.handleRequest(AuthenticationConstraintHandler.java:53)\r\n at io.undertow.security.handlers.AbstractConfidentialityHandler.handleRequest(AbstractConfidentialityHandler.java:46)\r\n at io.undertow.servlet.handlers.security.ServletConfidentialityConstraintHandler.handleRequest(ServletConfidentialityConstraintHandler.java:64)\r\n at io.undertow.servlet.handlers.security.ServletSecurityConstraintHandler.handleRequest(ServletSecurityConstraintHandler.java:59)\r\n at io.undertow.security.handlers.AbstractSecurityContextAssociationHandler.handleRequest(AbstractSecurityContextAssociationHandler.java:43)\r\n at org.wildfly.elytron.web.undertow.server.servlet.CleanUpHandler.handleRequest(CleanUpHandler.java:38)\r\n at io.undertow.server.handlers.PredicateHandler.handleRequest(PredicateHandler.java:43)\r\n at org.wildfly.extension.undertow.security.jacc.JACCContextIdHandler.handleRequest(JACCContextIdHandler.java:61)\r\n at io.undertow.server.handlers.PredicateHandler.handleRequest(PredicateHandler.java:43)\r\n at org.wildfly.extension.undertow.deployment.GlobalRequestControllerHandler.handleRequest(GlobalRequestControllerHandler.java:68)\r\n at io.undertow.servlet.handlers.SendErrorPageHandler.handleRequest(SendErrorPageHandler.java:52)\r\n at io.undertow.server.handlers.PredicateHandler.handleRequest(PredicateHandler.java:43)\r\n at io.undertow.servlet.handlers.ServletInitialHandler.handleFirstRequest(ServletInitialHandler.java:275)\r\n at io.undertow.servlet.handlers.ServletInitialHandler.access$100(ServletInitialHandler.java:79)\r\n at io.undertow.servlet.handlers.ServletInitialHandler$2.call(ServletInitialHandler.java:134)\r\n at io.undertow.servlet.handlers.ServletInitialHandler$2.call(ServletInitialHandler.java:131)\r\n at io.undertow.servlet.core.ServletRequestContextThreadSetupAction$1.call(ServletRequestContextThreadSetupAction.java:48)\r\n at io.undertow.servlet.core.ContextClassLoaderSetupAction$1.call(ContextClassLoaderSetupAction.java:43)\r\n at org.wildfly.extension.undertow.deployment.UndertowDeploymentInfoService$UndertowThreadSetupAction.lambda$create$0(UndertowDeploymentInfoService.java:1551)\r\n at org.wildfly.extension.undertow.deployment.UndertowDeploymentInfoService$UndertowThreadSetupAction.lambda$create$0(UndertowDeploymentInfoService.java:1551)\r\n at org.wildfly.extension.undertow.deployment.UndertowDeploymentInfoService$UndertowThreadSetupAction.lambda$create$0(UndertowDeploymentInfoService.java:1551)\r\n at org.wildfly.extension.undertow.deployment.UndertowDeploymentInfoService$UndertowThreadSetupAction.lambda$create$0(UndertowDeploymentInfoService.java:1551)\r\n at io.undertow.servlet.handlers.ServletInitialHandler.dispatchRequest(ServletInitialHandler.java:255)\r\n at io.undertow.servlet.handlers.ServletInitialHandler.access$000(ServletInitialHandler.java:79)\r\n at io.undertow.servlet.handlers.ServletInitialHandler$1.handleRequest(ServletInitialHandler.java:100)\r\n at io.undertow.server.Connectors.executeRootHandler(Connectors.java:387)\r\n at io.undertow.server.HttpServerExchange$1.run(HttpServerExchange.java:852)\r\n at org.jboss.threads.ContextClassLoaderSavingRunnable.run(ContextClassLoaderSavingRunnable.java:35)\r\n at org.jboss.threads.EnhancedQueueExecutor.safeRun(EnhancedQueueExecutor.java:1990)\r\n at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.doRunTask(EnhancedQueueExecutor.java:1486)\r\n at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1377)\r\n at org.xnio.XnioWorker$WorkerThreadFactory$1$1.run(XnioWorker.java:1280)\r\n at java.lang.Thread.run(Thread.java:748) &amp#27;[0m&amp#27;[32m04:38:17,662 DEBUG [org.keycloak.adapters.saml.profile.webbrowsersso.WebBrowserSsoAuthenticationHandler] (default task-1) Verification failed: %s: java.security.SignatureException: Signature length not correct: got 126 but was expecting 128\r\n at sun.security.rsa.RSASignature.engineVerify(RSASignature.java:211)\r\n at java.security.Signature$Delegate.engineVerify(Signature.java:1394)\r\n at java.security.Signature.verify(Signature.java:771)\r\n at org.keycloak.adapters.saml.profile.AbstractSamlAuthenticationHandler.validateRedirectBindingSignatureForKey(AbstractSamlAuthenticationHandler.java:744)\r\n at org.keycloak.adapters.saml.profile.AbstractSamlAuthenticationHandler.validateRedirectBindingSignature(AbstractSamlAuthenticationHandler.java:711)\r\n at org.keycloak.adapters.saml.profile.AbstractSamlAuthenticationHandler.verifyRedirectBindingSignature(AbstractSamlAuthenticationHandler.java:678)\r\n at org.keycloak.adapters.saml.profile.AbstractSamlAuthenticationHandler.validateSamlSignature(AbstractSamlAuthenticationHandler.java:317)\r\n at org.keycloak.adapters.saml.profile.AbstractSamlAuthenticationHandler.handleSamlResponse(AbstractSamlAuthenticationHandler.java:248)\r\n at org.keycloak.adapters.saml.profile.AbstractSamlAuthenticationHandler.doHandle(AbstractSamlAuthenticationHandler.java:148)\r\n at org.keycloak.adapters.saml.profile.webbrowsersso.WebBrowserSsoAuthenticationHandler.handle(WebBrowserSsoAuthenticationHandler.java:51)\r\n at org.keycloak.adapters.saml.SamlAuthenticator.authenticate(SamlAuthenticator.java:48)\r\n at org.keycloak.adapters.saml.elytron.KeycloakHttpServerAuthenticationMechanism.evaluateRequest(KeycloakHttpServerAuthenticationMechanism.java:102)\r\n at org.wildfly.security.http.util.SetMechanismInformationMechanismFactory$1.evaluateRequest(SetMechanismInformationMechanismFactory.java:119)\r\n at org.wildfly.security.http.util.SocketAddressCallbackServerMechanismFactory$1.evaluateRequest(SocketAddressCallbackServerMechanismFactory.java:82)\r\n at org.wildfly.security.auth.server.SecurityIdentityServerMechanismFactory$1.evaluateRequest(SecurityIdentityServerMechanismFactory.java:85)\r\n at org.wildfly.security.http.HttpAuthenticator$AuthenticationExchange.authenticate(HttpAuthenticator.java:326)\r\n at org.wildfly.security.http.HttpAuthenticator$AuthenticationExchange.access$800(HttpAuthenticator.java:301)\r\n at org.wildfly.security.http.HttpAuthenticator.authenticate(HttpAuthenticator.java:94)\r\n at org.wildfly.elytron.web.undertow.server.SecurityContextImpl.authenticate(SecurityContextImpl.java:107)\r\n at org.wildfly.elytron.web.undertow.server.servlet.ServletSecurityContextImpl.authenticate(ServletSecurityContextImpl.java:115)\r\n at io.undertow.servlet.handlers.security.ServletAuthenticationCallHandler.handleRequest(ServletAuthenticationCallHandler.java:55)\r\n at io.undertow.server.handlers.DisableCacheHandler.handleRequest(DisableCacheHandler.java:33)\r\n at io.undertow.server.handlers.PredicateHandler.handleRequest(PredicateHandler.java:43)\r\n at io.undertow.security.handlers.AuthenticationConstraintHandler.handleRequest(AuthenticationConstraintHandler.java:53)\r\n at io.undertow.security.handlers.AbstractConfidentialityHandler.handleRequest(AbstractConfidentialityHandler.java:46)\r\n at io.undertow.servlet.handlers.security.ServletConfidentialityConstraintHandler.handleRequest(ServletConfidentialityConstraintHandler.java:64)\r\n at io.undertow.servlet.handlers.security.ServletSecurityConstraintHandler.handleRequest(ServletSecurityConstraintHandler.java:59)\r\n at io.undertow.security.handlers.AbstractSecurityContextAssociationHandler.handleRequest(AbstractSecurityContextAssociationHandler.java:43)\r\n at org.wildfly.elytron.web.undertow.server.servlet.CleanUpHandler.handleRequest(CleanUpHandler.java:38)\r\n at io.undertow.server.handlers.PredicateHandler.handleRequest(PredicateHandler.java:43)\r\n at org.wildfly.extension.undertow.security.jacc.JACCContextIdHandler.handleRequest(JACCContextIdHandler.java:61)\r\n at io.undertow.server.handlers.PredicateHandler.handleRequest(PredicateHandler.java:43)\r\n at org.wildfly.extension.undertow.deployment.GlobalRequestControllerHandler.handleRequest(GlobalRequestControllerHandler.java:68)\r\n at io.undertow.servlet.handlers.SendErrorPageHandler.handleRequest(SendErrorPageHandler.java:52)\r\n at io.undertow.server.handlers.PredicateHandler.handleRequest(PredicateHandler.java:43)\r\n at io.undertow.servlet.handlers.ServletInitialHandler.handleFirstRequest(ServletInitialHandler.java:275)\r\n at io.undertow.servlet.handlers.ServletInitialHandler.access$100(ServletInitialHandler.java:79)\r\n at io.undertow.servlet.handlers.ServletInitialHandler$2.call(ServletInitialHandler.java:134)\r\n at io.undertow.servlet.handlers.ServletInitialHandler$2.call(ServletInitialHandler.java:131)\r\n at io.undertow.servlet.core.ServletRequestContextThreadSetupAction$1.call(ServletRequestContextThreadSetupAction.java:48)\r\n at io.undertow.servlet.core.ContextClassLoaderSetupAction$1.call(ContextClassLoaderSetupAction.java:43)\r\n at org.wildfly.extension.undertow.deployment.UndertowDeploymentInfoService$UndertowThreadSetupAction.lambda$create$0(UndertowDeploymentInfoService.java:1551)\r\n at org.wildfly.extension.undertow.deployment.UndertowDeploymentInfoService$UndertowThreadSetupAction.lambda$create$0(UndertowDeploymentInfoService.java:1551)\r\n at org.wildfly.extension.undertow.deployment.UndertowDeploymentInfoService$UndertowThreadSetupAction.lambda$create$0(UndertowDeploymentInfoService.java:1551)\r\n at org.wildfly.extension.undertow.deployment.UndertowDeploymentInfoService$UndertowThreadSetupAction.lambda$create$0(UndertowDeploymentInfoService.java:1551)\r\n at io.undertow.servlet.handlers.ServletInitialHandler.dispatchRequest(ServletInitialHandler.java:255)\r\n at io.undertow.servlet.handlers.ServletInitialHandler.access$000(ServletInitialHandler.java:79)\r\n at io.undertow.servlet.handlers.ServletInitialHandler$1.handleRequest(ServletInitialHandler.java:100)\r\n at io.undertow.server.Connectors.executeRootHandler(Connectors.java:387)\r\n at io.undertow.server.HttpServerExchange$1.run(HttpServerExchange.java:852)\r\n at org.jboss.threads.ContextClassLoaderSavingRunnable.run(ContextClassLoaderSavingRunnable.java:35)\r\n at org.jboss.threads.EnhancedQueueExecutor.safeRun(EnhancedQueueExecutor.java:1990)\r\n at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.doRunTask(EnhancedQueueExecutor.java:1486)\r\n at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1377)\r\n at org.xnio.XnioWorker$WorkerThreadFactory$1$1.run(XnioWorker.java:1280)\r\n at java.lang.Thread.run(Thread.java:748)\r\n```\r\n\r\n### How to Reproduce?\r\n\r\n* Change `eap.version` in `pom.xml` to `7.4.3.GA-redhat-00002`.\r\n* And execute:\r\n```bash\r\nmvn clean install -DskipTests\r\ncd distribution\r\nmvn clean install\r\ncd ..\r\nmvn -f testsuite/integration-arquillian/servers/pom.xml clean install -Papp-server-eap (*)\r\ncd testsuite/integration-arquillian/tests/base/\r\nmvn clean test -Papp-server-eap -Dtest=org.keycloak.testsuite.adapter.servlet.SAMLServletAdapterTest\r\n```\r\n(*) You need a repo with the eap 7.4.3 distribution (`org.jboss.eap:wildfly-ee-dist` artifact).\r\n\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10894",
+        "assignees": [
+            "mabartos"
+        ],
+        "labels": [
+            "area/saml",
+            "kind/bug",
+            "priority/blocker",
+            "area/adapter/saml"
+        ],
+        "issue_closed_at": "2022-03-29T10:31:10.000Z",
+        "fix_commit_hash": "755080d745b14b9001f78a4eac39dbb7752bcc5e",
+        "commit_type": "pr",
+        "commit_message": "[#10894] SAML Adapters tests start failing in recent versions of EAP/wildfly",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/10895",
+        "earliest_issue_date": "2022-03-23T15:16:09Z",
+        "predicted_class": "bug",
+        "bic": [
+            "67f8622d13bad3e618c1ad0dcbf0adf13c87db9a"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10915,
+        "issue_title": "[Docs] conflict between best practices regarding the JavaScript adapter",
+        "issue_body": "### Describe the bug\n\nThe [JavaScript adapter's documentation](https://www.keycloak.org/docs/latest/securing_apps/#_javascript_adapter) recommends serving the adapter from the Keycloak server:\r\n\r\n> A **best practice** is to load the JavaScript adapter **directly from Keycloak Server** as it will automatically be updated when you upgrade the server. If you copy the adapter to your web application instead, make sure you upgrade the adapter only after you have upgraded the server.\r\n\r\nOn the contrary, the Keycloak guide \"Using a reverse proxy\" recommends in its paragraph [\"Exposed path recommendations\"](https://www.keycloak.org/server/reverseproxy#_exposed_path_recommendations) to **not** expose the Keycloak `/js` path, and serve the JS adapter from the client:\r\n\r\n> A **good practice** is to not use external js for the javascript client, but bake it into your public client instead.\r\n\r\nThis is contradictory. Of course, both options are possible. But Keycloak should recommend only one (with proper documentation) as a *best practice*, or just expose the pros/cons for each option.\n\n### Version\n\n17.0.0\n\n### Expected behavior\n\nN/A\n\n### Actual behavior\n\nN\u2215A\n\n### How to Reproduce?\n\nN/A\n\n### Anything else?\n\nN/A",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10915",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/docs"
+        ],
+        "issue_closed_at": "2022-03-30T15:57:35.000Z",
+        "fix_commit_hash": "25f1c13e55140a9dfea3d208facfb2811b0b3689",
+        "commit_type": "pr",
+        "commit_message": "update proxy docs\n\nCorresponding PR for the change in keycloak-documentation, recommendation is using a package manager\n\nCloses #10915",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11006",
+        "earliest_issue_date": "2022-03-24T12:58:29Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10927,
+        "issue_title": "AbstractClientyEntity is missing isUpdated implementation",
+        "issue_body": "### Describe the bug\n\nThe `AbstractClientEntity` must account to changes in the associated `MapProtocolMapperEntity`ies.\r\n\r\nDiscussion: https://github.com/keycloak/keycloak/discussions/10921\n\n### Version\n\n17.0.1\n\n### Expected behavior\n\n\u00ecsUpdated` should return true if any of the client's associated protocol mapper entities are updated.\n\n### Actual behavior\n\n`isUpdated` is not considering changes to the associated protocol mapper entities.\n\n### How to Reproduce?\n\n_No response_\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10927",
+        "assignees": [
+            "sguilhen"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/storage"
+        ],
+        "issue_closed_at": "2022-03-29T16:35:29.000Z",
+        "fix_commit_hash": "d8bee26ec8fa67c2c5e32683f8205d9990b3a920",
+        "commit_type": "pr",
+        "commit_message": "Implement AbstractClientEntity.isUpdated to account for changes in associated protocol mappers.\n\nCloses #10927",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/10975",
+        "earliest_issue_date": "2022-03-24T17:30:19Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10939,
+        "issue_title": "Fix CVEs and change base image for the operator",
+        "issue_body": "### Description\n\nThe currently produced docker image for the operator contains several CVEs and the base image is not aligned with the main distribution:\r\nhttps://github.com/keycloak/keycloak/blob/99fa6275c1ce67021f1f6b235c6e836b42cb97c4/quarkus/container/Dockerfile#L20\r\n\r\nWe should update dependencies and switch to `registry.access.redhat.com/ubi8-minimal` as base image.\n\n### Discussion\n\n_No response_\n\n### Motivation\n\n_No response_\n\n### Details\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10939",
+        "assignees": [
+            "andreaTP"
+        ],
+        "labels": [
+            "kind/enhancement",
+            "priority/important",
+            "area/operator"
+        ],
+        "issue_closed_at": "2022-03-30T15:45:06.000Z",
+        "fix_commit_hash": "298ce1888bde6aa7b86a2b14412eeced19bf1bf5",
+        "commit_type": "pr",
+        "commit_message": "Change base image and bump dependencies",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/10973",
+        "earliest_issue_date": "2022-03-25T10:06:40Z",
+        "predicted_class": "bug",
+        "bic": [
+            "c0255cbeea608f67ea3d81500fce09ffaa0225af"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10951,
+        "issue_title": "Getting 404 not found when using templates in custom provider deployed under providers folder",
+        "issue_body": "### Describe the bug\n\nI have two providers I use one from `[GitHub - BenjaminFavre/keycloak-apple-social-identity-provider: Apple Social Identity Provider for Keycloak](https://github.com/BenjaminFavre/keycloak-apple-social-identity-provider)`, and I wrote another custom provider. \r\n\r\nThe custom templates are housed under **`myprovider.jar\\theme-resources\\resources\\partials`**, just as they should be packaged.\r\n\r\nBear in mind I do run `kc.bat build` after placing both the jar files in the **`keycloak-17.0.0\\providers`** folder.\r\n\r\nWhen editing configured providers using say following links below I get 404 on one of them unless I remove one or the other, or place the template files in **`keycloak-17.0.0\\themes\\base\\admin\\resources\\partials`** to prevent **404** message\r\n\r\n*/admin/master/console/#/realms/idp/identity-provider-settings/provider/apple/apple*\r\n\r\n*/admin/master/console/#/realms/idp/identity-provider-settings/provider/myprovider/myprovider*\r\n\r\nIn Keycloak version 15.0.0 when browsing to **`/admin/master/console/#/server-info/providers`** under section I see\r\n\r\n```\r\nthemeResource\t apple-social-identity-provider-1.0.2.jar\r\n                                 myprovider.jar\r\n```\r\nIn Keycloak version 17.0.0 when browsing to `/admin/master/console/#/server-info/providers` under section I see\r\n```\r\nthemeResource\tclasspath\r\n```\r\n\r\nNOTE: This works flawlessly in version 15.0.0, and I able to edit both providers using custom templates bundled in jar files.\n\n### Version\n\n17.0.0\n\n### Expected behavior\n\nIt should find the template bundled in the jar file and allow updating custom provider settings.\n\n### Actual behavior\n\nI get 404 when editing/creating one of the provider's settings that were deployed.\n\n### How to Reproduce?\n\n1.  Download and extract Keycloak https://github.com/keycloak/keycloak/releases/download/17.0.0/keycloak-17.0.0.tar.gz\r\n2.  Download custom identity provider for Apple sign in\r\nhttps://github.com/BenjaminFavre/keycloak-apple-social-identity-provider/releases/download/v1.0.2/apple-social-identity-provider-1.0.2.jar and copy to **`[KEYCLOAK-17.0.0-PATH]\\providers`**\r\n3. Create another custom provider similar to  `https://github.com/BenjaminFavre/keycloak-apple-social-identity-provider` build the jar file and drop it in **`[KEYCLOAK-17.0.0]\\providers`**\r\n4. Run **`[KEYCLOAK-17.0.0-PATH]\\bin\\kc.bat build`**\r\n5. Run **`[KEYCLOAK-17.0.0-PATH]\\bin\\kc.bat start`**\r\n6. Create a new Realm **`idp`**\r\n7. Browse to **`[YOUR-KEYCLOAK-HOST]/admin/master/console/#/realms/idp/identity-provider-settings`**, add your custom identity provider from the drop-down list. You will get a 404 when attempting to add one of the custom providers, and not the other.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10951",
+        "assignees": [
+            "pedroigor"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/dist/quarkus"
+        ],
+        "issue_closed_at": "2022-04-05T07:16:21.000Z",
+        "fix_commit_hash": "2b5d68d645fd0e8953eabe19c453e05c81ea76d7",
+        "commit_type": "pr",
+        "commit_message": "Allow resoving theme resources from flat classpath (#10989)\n\nCloses #10951",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/10989",
+        "earliest_issue_date": "2022-03-25T16:39:06Z",
+        "predicted_class": "bug",
+        "bic": [
+            "48565832d490be317142f8001249b408e870f4d4"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10958,
+        "issue_title": "Client ID in LDAP Mappers User Federation doesn't align with Rename Client ID",
+        "issue_body": "### Describe the bug\r\n\r\nScenario lead the bug/error:\r\n1. Create LDAP mapper type `role-type-mapper` with name `foo-client-ldap-mapper` in User Federation menu Keycloak Admin Console.\r\n2. Disable option `Use Realm Roles Mapping`.\r\n3. Select `Client ID` field to integrate LDAP mapper (e.g. `foo-client`).\r\n4. Save and sync Roles from LDAP to Keycloak.\r\n5. Go to Clients menu and rename `Client ID` from `foo-client` to `bar-client`.\r\n6. Check in `foo-client-ldap-mapper` form then `Client ID` field empty because the `Client ID` was renamed.\r\n7. When user login (e.g. test with `account` or `account-console` Client ID) it throws error `Unexpected error when handling authentication request to identity provider.`\r\n\r\n**Current solution**\r\nRestore name of Client ID as before then it works.\r\n\r\n### Version\r\n\r\n17.0.0 Quarkus Distribution\r\n\r\n### Expected behavior\r\n`Client ID` field in `foo-client-ldap-mapper` should be align with renamed client or save by `id` of client instead of `clientId`.\r\n\r\n### Actual behavior\r\n\r\n`Client ID` field in `foo-client-ldap-mapper` still shows renamed `Client ID`. I assume that the way Keycloak save the `Client ID` in `foo-client-ldap-mapper` based on `clientId` not `id` of client. So, that's why it leads error `Unexpected error when handling authentication request to identity provider.`\r\n\r\n### How to Reproduce?\r\n\r\nAlready describe in section **Describe the Bug**\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10958",
+        "assignees": [
+            "hmlnarik"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/ldap"
+        ],
+        "issue_closed_at": "2022-12-01T08:51:07.000Z",
+        "fix_commit_hash": "60ce949304edee9762d2f01a8a48c99b2fad6d50",
+        "commit_type": "pr",
+        "commit_message": "Ignore unknown clients in LDAP role mapper \n\nFixes: #10958",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/15775",
+        "earliest_issue_date": "2022-03-28T08:05:23Z",
+        "predicted_class": "bug",
+        "bic": [
+            "32bf50e0376eb388a9d4b838fba66360d62f0465"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10961,
+        "issue_title": "Various NPEs using the realm create REST API",
+        "issue_body": "### Describe the bug\n\nTrying to create a new realm using the REST API throws various NPEs instead of gracefully handling the situation.\r\n\r\nThis is the stacktrace of the first and outstanding error:\r\n\r\n```\r\n2022-03-28 10:25:02,036 ERROR [org.keycloak.services.error.KeycloakErrorHandler] (executor-thread-1) Uncaught server error: java.lang.NullPointerException\r\n        at org.keycloak.models.utils.RepresentationToModel.importAuthenticationFlows(RepresentationToModel.java:732)\r\n        at org.keycloak.models.utils.RepresentationToModel.importRealm(RepresentationToModel.java:306)\r\n        at org.keycloak.services.managers.RealmManager.importRealm(RealmManager.java:557)\r\n        at org.keycloak.services.managers.RealmManager.importRealm(RealmManager.java:495)\r\n        at org.keycloak.services.resources.admin.RealmsAdminResource.importRealm(RealmsAdminResource.java:133)\r\n        at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\r\n        at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)\r\n        at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n        at java.base/java.lang.reflect.Method.invoke(Method.java:566)\r\n        at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:170)\r\n        at org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:130)\r\n        at org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:660)\r\n        at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:524)\r\n        at org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:474)\r\n        at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:364)\r\n        at org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:476)\r\n        at org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:434)\r\n        at org.jboss.resteasy.core.ResourceLocatorInvoker.invokeOnTargetObject(ResourceLocatorInvoker.java:192)\r\n        at org.jboss.resteasy.core.ResourceLocatorInvoker.invoke(ResourceLocatorInvoker.java:141)\r\n        at org.jboss.resteasy.core.ResourceLocatorInvoker.invoke(ResourceLocatorInvoker.java:32)\r\n        at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:492)\r\n        at org.jboss.resteasy.core.SynchronousDispatcher.lambda$invoke$4(SynchronousDispatcher.java:261)\r\n        at org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:161)\r\n        at org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:364)\r\n        at org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:164)\r\n        at org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:247)\r\n        at io.quarkus.resteasy.runtime.standalone.RequestDispatcher.service(RequestDispatcher.java:73)\r\n        at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.dispatch(VertxRequestHandler.java:151)\r\n        at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.handle(VertxRequestHandler.java:82)\r\n        at io.quarkus.resteasy.runtime.standalone.VertxRequestHandler.handle(VertxRequestHandler.java:42)\r\n        at io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1212)\r\n        at io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:163)\r\n        at io.vertx.ext.web.impl.RoutingContextImpl.next(RoutingContextImpl.java:141)\r\n        at io.quarkus.vertx.http.runtime.StaticResourcesRecorder$2.handle(StaticResourcesRecorder.java:67)\r\n        at io.quarkus.vertx.http.runtime.StaticResourcesRecorder$2.handle(StaticResourcesRecorder.java:55)\r\n        at io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1212)\r\n        at io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:163)\r\n        at io.vertx.ext.web.impl.RoutingContextImpl.next(RoutingContextImpl.java:141)\r\n        at io.quarkus.vertx.http.runtime.VertxHttpRecorder$5.handle(VertxHttpRecorder.java:380)\r\n        at io.quarkus.vertx.http.runtime.VertxHttpRecorder$5.handle(VertxHttpRecorder.java:358)\r\n        at io.vertx.ext.web.impl.RouteState.handleContext(RouteState.java:1212)\r\n        at io.vertx.ext.web.impl.RoutingContextImplBase.iterateNext(RoutingContextImplBase.java:163)\r\n        at io.vertx.ext.web.impl.RoutingContextImpl.next(RoutingContextImpl.java:141)\r\n        at org.keycloak.quarkus.runtime.integration.web.QuarkusRequestFilter.lambda$createBlockingHandler$1(QuarkusRequestFilter.java:71)\r\n        at io.vertx.core.impl.ContextImpl.lambda$null$0(ContextImpl.java:159)\r\n        at io.vertx.core.impl.AbstractContext.dispatch(AbstractContext.java:100)\r\n        at io.vertx.core.impl.ContextImpl.lambda$executeBlocking$1(ContextImpl.java:157)\r\n        at io.quarkus.vertx.core.runtime.VertxCoreRecorder$13.runWith(VertxCoreRecorder.java:543)\r\n        at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2449)\r\n        at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1478)\r\n        at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:29)\r\n        at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:29)\r\n        at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)\r\n        at java.base/java.lang.Thread.run(Thread.java:829)\r\n```\n\n### Version\n\nlatest\n\n### Expected behavior\n\n_No response_\n\n### Actual behavior\n\n_No response_\n\n### How to Reproduce?\n\n_No response_\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10961",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/admin/api"
+        ],
+        "issue_closed_at": "2022-03-29T19:48:37.000Z",
+        "fix_commit_hash": "da5db5a8133787b1ad655bb8f998e39b61d38da8",
+        "commit_type": "pr",
+        "commit_message": "Fix NPEs during realm import (#10962)\n\nCloses #10961",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/10962",
+        "earliest_issue_date": "2022-03-28T09:50:26Z",
+        "predicted_class": "bug",
+        "bic": [
+            "2b3810606edb6dfec9766fc5dceabd211762d4cc"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10967,
+        "issue_title": "Flaky Operator tests",
+        "issue_body": "### Describe the bug\n\nFound this spurious failure:\r\n\r\n- https://github.com/andreaTP/keycloak/runs/5719888347?check_suite_focus=true#step:9:3915\r\n\r\nThe changes in the branch are un-related to the operator.\r\n\r\nThe test failed with:\r\n```\r\nKeycloakDeploymentE2EIT.testDeploymentDurability:148\r\n```\n\n### Version\n\nlatest\n\n### Expected behavior\n\n_No response_\n\n### Actual behavior\n\n_No response_\n\n### How to Reproduce?\n\n_No response_\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10967",
+        "assignees": [
+            "andreaTP"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/operator"
+        ],
+        "issue_closed_at": "2022-05-31T11:52:41.000Z",
+        "fix_commit_hash": "8912b6dc9604be199b0911d2e8ffa8c5c4dc3962",
+        "commit_type": "pr",
+        "commit_message": "Improve Operator CI robustness",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/12229",
+        "earliest_issue_date": "2022-03-28T14:48:34Z",
+        "predicted_class": "bug",
+        "bic": [
+            "c0255cbeea608f67ea3d81500fce09ffaa0225af"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10979,
+        "issue_title": "Spring configtree fails to get keycloak.credentials.secret",
+        "issue_body": "### Describe the bug\n\nUsing Spring config tree to retrieve keycloak.credentials.secret does not work and causes stacktrace.\n\n### Version\n\n16.1.1 - but tested on 17.0.1 with same results\n\n### Expected behavior\n\nExpecting application to login to keycloak but while using configtree to load secret value for properties\n\n### Actual behavior\n\nThe application fails to login and I get the following error.\r\n\r\njava.lang.ClassCastException: class org.springframework.boot.env.ConfigTreePropertySource$PropertyFileContent cannot be cast to class java.lang.String (org.springframework.boot.env.ConfigTreePropertySource$PropertyFileContent is in unnamed module of loader 'app'; java.lang.String is in module java.base of loader 'bootstrap')\r\n\tat org.keycloak.adapters.authentication.ClientIdAndSecretCredentialsProvider.init(ClientIdAndSecretCredentialsProvider.java:48) ~[keycloak-adapter-core-16.1.1.jar:16.1.1]\r\n\tat org.keycloak.adapters.authentication.ClientCredentialsProviderUtils.bootstrapClientAuthenticator(ClientCredentialsProviderUtils.java:71) ~[keycloak-adapter-core-16.1.1.jar:16.1.1]\r\n\tat org.keycloak.adapters.KeycloakDeploymentBuilder.internalBuild(KeycloakDeploymentBuilder.java:99) ~[keycloak-adapter-core-16.1.1.jar:16.1.1]\r\n\tat org.keycloak.adapters.KeycloakDeploymentBuilder.build(KeycloakDeploymentBuilder.java:202) ~[keycloak-adapter-core-16.1.1.jar:16.1.1]\r\n\tat org.keycloak.adapters.springboot.KeycloakSpringBootConfigResolver.resolve(KeycloakSpringBootConfigResolver.java:41) ~[keycloak-spring-boot-adapter-core-16.1.1.jar:16.1.1]\r\n\tat org.keycloak.adapters.springsecurity.config.KeycloakSpringConfigResolverWrapper.resolve(KeycloakSpringConfigResolverWrapper.java:40) ~[keycloak-spring-security-adapter-16.1.1.jar:16.1.1]\r\n\tat org.keycloak.adapters.AdapterDeploymentContext.resolveDeployment(AdapterDeploymentContext.java:89) ~[keycloak-adapter-core-16.1.1.jar:16.1.1]\r\n\tat org.keycloak.adapters.springsecurity.filter.KeycloakPreAuthActionsFilter.doFilter(KeycloakPreAuthActionsFilter.java:82) ~[keycloak-spring-security-adapter-16.1.1.jar:16.1.1]\r\n\tat org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:336) ~[spring-security-web-5.6.1.jar:5.6.1]\r\n\tat org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:102) ~[spring-web-5.3.15.jar:5.3.15]\r\n\tat org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:336) ~[spring-security-web-5.6.1.jar:5.6.1]\r\n\tat org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:102) ~[spring-web-5.3.15.jar:5.3.15]\r\n\tat org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:336) ~[spring-security-web-5.6.1.jar:5.6.1]\r\n\tat org.springframework.security.web.context.SecurityContextPersistenceFilter.doFilter(SecurityContextPersistenceFilter.java:110) ~[spring-security-web-5.6.1.jar:5.6.1]\r\n\tat org.springframework.security.web.context.SecurityContextPersistenceFilter.doFilter(SecurityContextPersistenceFilter.java:80) ~[spring-security-web-5.6.1.jar:5.6.1]\r\n\tat org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:336) ~[spring-security-web-5.6.1.jar:5.6.1]\r\n\tat org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:102) ~[spring-web-5.3.15.jar:5.3.15]\r\n\tat org.springframework.security.web.FilterChainProxy$VirtualFilterChain.doFilter(FilterChainProxy.java:336) ~[spring-security-web-5.6.1.jar:5.6.1]\r\n\tat org.springframework.security.web.FilterChainProxy.doFilterInternal(FilterChainProxy.java:211) ~[spring-security-web-5.6.1.jar:5.6.1]\r\n\tat org.springframework.security.web.FilterChainProxy.doFilter(FilterChainProxy.java:183) ~[spring-security-web-5.6.1.jar:5.6.1]\r\n\tat org.springframework.web.filter.DelegatingFilterProxy.invokeDelegate(DelegatingFilterProxy.java:354) ~[spring-web-5.3.15.jar:5.3.15]\r\n\tat org.springframework.web.filter.DelegatingFilterProxy.doFilter(DelegatingFilterProxy.java:267) ~[spring-web-5.3.15.jar:5.3.15]\r\n\tat org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:189) ~[tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.springframework.web.filter.RequestContextFilter.doFilterInternal(RequestContextFilter.java:100) ~[spring-web-5.3.15.jar:5.3.15]\r\n\tat org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:117) ~[spring-web-5.3.15.jar:5.3.15]\r\n\tat org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:189) ~[tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:102) ~[spring-web-5.3.15.jar:5.3.15]\r\n\tat org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:189) ~[tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.springframework.session.web.http.SessionRepositoryFilter.doFilterInternal(SessionRepositoryFilter.java:142) ~[spring-session-core-2.6.1.jar:2.6.1]\r\n\tat org.springframework.session.web.http.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:82) ~[spring-session-core-2.6.1.jar:2.6.1]\r\n\tat org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:189) ~[tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:102) ~[spring-web-5.3.15.jar:5.3.15]\r\n\tat org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:189) ~[tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:162) ~[tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.catalina.core.ApplicationDispatcher.invoke(ApplicationDispatcher.java:711) [tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.catalina.core.ApplicationDispatcher.processRequest(ApplicationDispatcher.java:461) [tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.catalina.core.ApplicationDispatcher.doForward(ApplicationDispatcher.java:385) [tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.catalina.core.ApplicationDispatcher.forward(ApplicationDispatcher.java:313) [tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.catalina.core.StandardHostValve.custom(StandardHostValve.java:403) [tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.catalina.core.StandardHostValve.status(StandardHostValve.java:249) [tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.catalina.core.StandardHostValve.throwable(StandardHostValve.java:344) [tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.catalina.core.StandardHostValve.invoke(StandardHostValve.java:169) [tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.catalina.valves.ErrorReportValve.invoke(ErrorReportValve.java:92) [tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.catalina.core.StandardEngineValve.invoke(StandardEngineValve.java:78) [tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.catalina.connector.CoyoteAdapter.service(CoyoteAdapter.java:357) [tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.coyote.http11.Http11Processor.service(Http11Processor.java:382) [tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.coyote.AbstractProcessorLight.process(AbstractProcessorLight.java:65) [tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.coyote.AbstractProtocol$ConnectionHandler.process(AbstractProtocol.java:895) [tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.tomcat.util.net.NioEndpoint$SocketProcessor.doRun(NioEndpoint.java:1732) [tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.tomcat.util.net.SocketProcessorBase.run(SocketProcessorBase.java:49) [tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.tomcat.util.threads.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1191) [tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.tomcat.util.threads.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:659) [tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:61) [tomcat-embed-core-9.0.56.jar:9.0.56]\r\n\tat java.lang.Thread.run(Thread.java:829) [?:?]\n\n### How to Reproduce?\n\nCreated client application\r\n\r\nCreate a secret file such as the following\r\n/mnt/secrets/keycloak/credentials/secret\r\n\r\nThen running java using the following option\r\n-Dspring.config.import=configtree:/mnt/secrets\n\n### Anything else?\n\nWorkaround is to use a different property\r\n\r\nIn the properties file I set the secret at follows\r\nkeycloak.credentials.secret=${keycloak_credentials_secret}\r\n\r\nThen I create the the file called \r\n/mnt/secrets/keycloak_credentials_secret\r\n\r\nThis will load the property called keycloak_credentials_secret and set it in keycloak.credentials.secret.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10979",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/adapter/spring",
+            "status/triage"
+        ],
+        "issue_closed_at": "2022-05-25T19:41:01.000Z",
+        "fix_commit_hash": "78b88765ecaf5f60524c7879c5673eae91385c5e",
+        "commit_type": "commit",
+        "commit_message": "use toString() instead of cast String or it will fail when using Spring configtree (#10980)\n\nResolves #10979\r\nCo-authored-by: Bruno Oliveira da Silva <bruno@abstractj.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/commit/78b88765ecaf5f60524c7879c5673eae91385c5e",
+        "earliest_issue_date": "2022-03-29T11:06:38Z",
+        "predicted_class": "bug",
+        "bic": [
+            "d8d6348f67c4f3dc2c8e11b80ef1ad6c96386d3c"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10981,
+        "issue_title": "Keycloak \"forgets\" ui_locales parameter when using Reset Password functionality",
+        "issue_body": "### Describe the bug\n\nWhen the user is redirected back to the login page after entering their email in the \"Forgot password\" dialog, the language resets to the realm's default language, rather than using a previously set ui_locales parameter.\n\n### Version\n\n17.0.1\n\n### Expected behavior\n\nWhen being sent back to the login page after a reset password flow, the page should still be translated in the language that was requested via the ui_locales parameter.\n\n### Actual behavior\n\nInstead, the language is reset to the default language of the selected realm.\n\n### How to Reproduce?\n\n1. Create a new realm and client with the authorization code flow, in this case, both named \"test\". Set the client's redirect_uri to \"*\".\r\n2. Enable \"forgot password\" on the realm\r\n3. Enable \"Localization\" on the realm, and select at least 2 languages (in this case, de and en, with the default language being de)\r\n4. Navigate to [http://localhost:8080/auth/realms/test/protocol/openid-connect/auth?client_id=test&response_type=code&redirect_uri=https://google.com&ui_locales=en](http://localhost:8080/auth/realms/test/protocol/openid-connect/auth?client_id=test&response_type=code&redirect_uri=https://google.com&ui_locales=en)\r\n5. Click \"Forgot Password?\" and enter any email (an actual user is not required to exist)\r\n6. After submitting the email, the language of the form will have switched to German, rather than the requested English\n\n### Anything else?\n\nWhen using the language switcher in the login form to switch the language to english, keycloak redirects the user and appends the kc_locale parameter. This parameter is correctly remembered, and even after a password reset, when the user gets redirected back to the login page, the page is in the expected language.\r\n\r\nAs a workaround, we tried appending kc_locale directly to the auth URL, like [http://localhost:8080/auth/realms/test/protocol/openid-connect/auth?client_id=test&response_type=code&redirect_uri=https://google.com&ui_locales=en&kc_locale=en](http://localhost:8080/auth/realms/test/protocol/openid-connect/auth?client_id=test&response_type=code&redirect_uri=https://google.com&ui_locales=en&kc_locale=en), as well as [http://localhost:8080/auth/realms/test/protocol/openid-connect/auth?client_id=test&response_type=code&redirect_uri=https://google.com&kc_locale=en](http://localhost:8080/auth/realms/test/protocol/openid-connect/auth?client_id=test&response_type=code&redirect_uri=https://google.com&kc_locale=en), but both of these seem to be ignored. They are only used when the user manually selects a language using the language selector.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10981",
+        "assignees": [
+            "mposolda"
+        ],
+        "labels": [
+            "area/authentication",
+            "kind/bug",
+            "team/rh-iam"
+        ],
+        "issue_closed_at": "2023-07-18T07:24:13.000Z",
+        "fix_commit_hash": "03716ed452508ffa095f98c6d101372eb134b253",
+        "commit_type": "pr",
+        "commit_message": "Keycloak forgets ui_locales parameter when using reset password\ncloses #10981",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/21750",
+        "earliest_issue_date": "2022-03-29T12:04:28Z",
+        "predicted_class": "bug",
+        "bic": [
+            "2e850b6d4a00049ff609c11073c05fc6f798f853"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10982,
+        "issue_title": "SAML Client does not validate IdP Issuer value",
+        "issue_body": "### Description\n\nWhen receiving assertions from a remote IdP, the client should verify both that the signature is correct and that the claimed issuer is the expected one. At the moment, Keycloak SAML IdP configuration does not have an attribute to identify the remote IdP issuer and does not perform issuer validation.\r\nAlso, when importing a SAML IdP from metadata, the expected issuer can be automatically populated from the metadata document.\n\n### Discussion\n\n_No response_\n\n### Motivation\n\nKeycloak should validate that the SAML Issuer is set to the expected value in addition to the other already present checks, otherwise it should return a Bad Request error.\r\n\r\nFor retrocompatibility, if the expected Issuer is not set it should accept any Issuer in SAML responses.\n\n### Details\n\nI will provide a PR for this feature soon.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10982",
+        "assignees": [],
+        "labels": [
+            "kind/enhancement"
+        ],
+        "issue_closed_at": "2022-05-27T08:58:14.000Z",
+        "fix_commit_hash": "27650ab816b80db5b6035c6e6644f5988dd93721",
+        "commit_type": "commit",
+        "commit_message": "Fix #10982 SAML Client - Introduce SAML Issuer validation",
+        "closer_url": "https://github.com/keycloak/keycloak/commit/27650ab816b80db5b6035c6e6644f5988dd93721",
+        "earliest_issue_date": "2022-03-29T12:33:08Z",
+        "predicted_class": "bug",
+        "bic": [
+            "1fa93db1b4df7c2133004d4ac96a0134372c7cb5"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10988,
+        "issue_title": "Remove doubled field from HotRod entities",
+        "issue_body": "### Description\n\nCurrently, for case-insensitive search and order we have some fields doubled, e.g.:\r\nhttps://github.com/keycloak/keycloak/blob/19e55650a20592e843485cc79dc648ddea24a56c/model/map-hot-rod/src/main/java/org/keycloak/models/map/storage/hotRod/user/HotRodUserEntity.java#L64-L70\r\n\r\nThe cause is that by using the analyzed index, we achieve case-insensitivity but we lose the possibility to order because the analyzed index doesn't know the original value.\r\n\r\nWe should be able to replace the doubled field with a doubled index (we should be able to use two annotations on the same field) which should end up with fewer data in the store. \r\n \n\n### Discussion\n\n_No response_\n\n### Motivation\n\n_No response_\n\n### Details\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10988",
+        "assignees": [
+            "martin-kanis",
+            "mhajas"
+        ],
+        "labels": [
+            "kind/enhancement",
+            "area/storage"
+        ],
+        "issue_closed_at": "2022-12-21T11:50:09.000Z",
+        "fix_commit_hash": "c0e103dc95bdfb58b118ac7f113a715dcd03c427",
+        "commit_type": "pr",
+        "commit_message": "Replace old HotRod index annotation with new one",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/15676",
+        "earliest_issue_date": "2022-03-29T15:54:38Z",
+        "predicted_class": "bug",
+        "bic": [
+            "a2d7cd7a5ca84f9eb1e08336c1381517c6d19b9d"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10993,
+        "issue_title": "ciba http auth channel sends client_id and client_secret via delegation request",
+        "issue_body": "### Describe the bug\n\nwhen configuring the ciba http auth channel provider, it seems like the authentication delegation request posted to the KC_SPI_CIBA_AUTH_CHANNEL_CIBA_HTTP_AUTH_CHANNEL_HTTP_AUTHENTICATION_CHANNEL_URI endpoint contains additional 'unexpected' parameters like client_id and client_secret of the initiating client. \r\nthis looks unintentional and is not mentioned in the documentation. \n\n### Version\n\n17.0.0\n\n### Expected behavior\n\nthe authentication delegation request body described in documentation mentions login_hint, scope, is_consent_required, binding_message and acr_values as post body parameters.\r\n\n\n### Actual behavior\n\nthe authentication entity receives:\r\n{\"scope\":\"openid profile roles email\",\"binding_message\":\"12345\",\"login_hint\":\"user\",\"is_consent_required\":false,\"grant_type\":\"urn:openid:params:grant-type:ciba\",\"client_secret\":\"xxxxxxxxx\",\"client_id\":\"client\"}'\n\n### How to Reproduce?\n\nsetup keycloak 17 with CIBA auth channel uri, in Dockerfile, set:\r\n`ENV KC_SPI_CIBA_AUTH_CHANNEL_CIBA_HTTP_AUTH_CHANNEL_HTTP_AUTHENTICATION_CHANNEL_URI=http://host.docker.internal:5000/auth`\r\n\r\ncreate dummy authentication entity server with /auth endpoint, dump the request payload.\r\nconfigure test client and initiate a ciba grant. \n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10993",
+        "assignees": [
+            "tnorimat"
+        ],
+        "labels": [
+            "area/oidc",
+            "kind/bug",
+            "help wanted"
+        ],
+        "issue_closed_at": "2022-05-31T06:22:51.000Z",
+        "fix_commit_hash": "d083b6c4849c5d8bde9762d410a76b0aedf8f4b1",
+        "commit_type": "pr",
+        "commit_message": "ciba http auth channel sends client_id and client_secret via delegation request\n\nCloses #10993",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/12263",
+        "earliest_issue_date": "2022-03-29T19:17:47Z",
+        "predicted_class": "bug",
+        "bic": [
+            "164f3df08008f76e5318809a17fd2b496504ad73"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 10997,
+        "issue_title": "Allow overriding the host header using X-Forwarded-Host",
+        "issue_body": "### Describe the bug\r\n\r\nI run a httpd server as reverse proxy upfront a keycloak. The TTLs termination is done by the httpd server. In order to pass the incoming requests to keycloak-node we use a secured connection via https with a self signed CA which is setup for the whole internal backend infrastructure. \r\n\r\nThe [Proxy-Userguide](https://www.keycloak.org/server/reverseproxy) expects a preserved Host header, which is not possible since this will fail the certificate check during the proxy action.\r\n\r\nIf i do not preserve the Host to keycloak and navigate to to the admin-console the browser wants to load a resource which is of the same origin of the Host-Header (which is internal keycloak adress) not the X-Forwarded-For value. The admin console cannot be loaded because the browser cannot directly load anything from the internal backend network.\r\n\r\n`curl -v  https://somepublic.domain.com/auth/admin/master/console/`\r\nreturns a html-response which contains a script resource with url **stage-kc**\r\n`<script src=\"https://stage-kc/auth/js/keycloak.js?version=dvfah\" type=\"text/javascript\"></script>`\r\n\r\nSame for authUrl of the master / console => this is an internal address, this should either be not relevant or exposed to public.\r\n\r\n```\r\n <script type=\"text/javascript\">\r\n        var authServerUrl = 'https://somepublic.domain.com/auth';\r\n        var authUrl = 'https://stage-kc/auth';\r\n        var consoleBaseUrl = '/auth/admin/master/console/';\r\n        var resourceUrl = '/auth/resources/dvfah/admin/keycloak';\r\n        var masterRealm = 'master';\r\n        var resourceVersion = 'dvfah';\r\n    </script>\r\n```\r\n\r\nI also tried with the feature admin2, which also fails loading and even requests calls to\r\n\r\nhttp://127.0.0.1:8080/auth/admin/master/console/whoami\r\n![image](https://user-images.githubusercontent.com/701101/160783145-ca787c0f-f335-46c5-bc4c-9777cfdc9caf.png)\r\n\r\n\r\n### Version\r\n\r\n17.0.1\r\n\r\n### Expected behavior\r\n\r\nThe UI resources urls respect the set X-Forwarded-For header and do not rely on the Host header.\r\n\r\nshould return a public facing url\r\n`<script src=\"https://somepublic.domain.com/auth/js/keycloak.js?version=dvfah\" type=\"text/javascript\"></script>`\r\n\r\n### Actual behavior\r\n\r\nDo not rely on the Host-Header for url-path. Rather use the X-Forwarded-* header values.\r\n\r\n\r\n\r\n### How to Reproduce?\r\n\r\n**apache httpd config**\r\n\r\n ```\r\n<Location /auth>\r\n                ProxyPass            https://STAGE-KC:8343/auth\r\n                ProxyPassReverse     https://STAGE-KC:8343/auth\r\n                ProxyPassReverseCookieDomain  \"STAGE-KC\"  \"somepublic.domain.com\"\r\n                RequestHeader set X-Forwarded-Proto \"https\"\r\n                RequestHeader set X-Forwarded-Port \"443\"\r\n                RequestHeader set X-Forwarding-For \"somepublic.domain.com\"\r\n                RequestHeader set X-Forwarded-For \"somepublic.domain.com\"\r\n                RequestHeader set X-Forwarded-Host \"somepublic.domain.com\"\r\n     </Location>\r\n```\r\n\r\n**keycloak.conf**\r\n```\r\nproxy=reencrypt\r\nhostname=stage-kc\r\nhttp-enabled=true\r\nhttp-host=0.0.0.0\r\nhttp-port=8383\r\nhttps-port=8343\r\nhttp-relative-path=/auth\r\n\r\nspi-x509cert-lookup-apache-ssl-client-cert=SSL_CLIENT_CERT\r\nspi-x509cert-lookup-apache-ssl-cert-chain-prefix=CERT_CHAIN\r\nspi-x509cert-lookup-apache-certificate-chain-length=2\r\n```\r\n\r\n**keycloak build**\r\nI used `--spi-x509cert-lookup-provider=apache` for the upfront keycloak build.\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/10997",
+        "assignees": [
+            "pedroigor"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/dist/quarkus"
+        ],
+        "issue_closed_at": "2022-04-05T07:17:09.000Z",
+        "fix_commit_hash": "23c5199c0c1dcb1808228cfe702194a4a46227d6",
+        "commit_type": "pr",
+        "commit_message": "Allow overriding the host header using X-Forwarded-Host (#11021)\n\nCloses #10997",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11021",
+        "earliest_issue_date": "2022-03-30T08:11:15Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11005,
+        "issue_title": "Script Mapper Performance Issues - Java 8 and Java 11",
+        "issue_body": "### Describe the bug\n\nWhile switching from a Java 8 based deployment to Java 11 of RHSSO, we noticed an increase in memory usage and that some objects were long lived.\r\n\r\nOur RHSSO deployment makes use of script mappers. We ultimately have determined that the Nashorn engine in Java 11 is creating many weak/soft references and are not culled with mixed GC as they were with Java 8. This ultimately results in the application being required to perform a Full GC or otherwise risk memory exhaustion.\r\n\r\nThere are also some other changes to Nashorn in Java 11 that also create additional classloaders and classes with each instantiation of the engine (a factor of 3).\r\n\r\nAdditionally, we determined this is also an issue to some degree with Java 8 - it went unnoticed previously as the Full GC cycles did not occur (Java 8 was able to reclaim the space during mixed gc), but could be observed by the rather fast allocation and promotion of new objects from young to old gen, but subsequently cleared by mixed GC. By turning off the script mappers, we could observe the young and old gen growth rates slowed significantly.\r\n\r\nThere are some recommendations about sharing the ScriptEngine created initially (I believe RHSSO/Keycloak creates it with each request), which could reduce some of the resource consumption. I am unsure if that would solve the weak/soft reference issues in Java 11 as those could be from one of many bugs open for Java 11 + Nashorn.\r\n\n\n### Version\n\n17.0.0\n\n### Expected behavior\n\n_No response_\n\n### Actual behavior\n\n_No response_\n\n### How to Reproduce?\n\n- Run RHSSO on Java 11 (can use Openshift Image) with G1GC\r\n- Ensure scripts and upload scripts feature is enabled\r\n- Create a client with a script mapper - contents can be very simple like\r\n```\r\n token.audience(\"some-other-aud\"); exports = true;\r\n```\r\n- Run load test to generate access , ID , refresh tokens against the endpoint\r\n- Monitor heap usage and watch Old Gen growth and Eden creation rates.\r\n\r\n\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11005",
+        "assignees": [
+            "mposolda"
+        ],
+        "labels": [
+            "kind/bug"
+        ],
+        "issue_closed_at": "2022-04-08T12:47:43.000Z",
+        "fix_commit_hash": "fb81242658e86e9ae1fc43169878ec430210d61c",
+        "commit_type": "pr",
+        "commit_message": "Script Mapper Performance Issues\nCloses #11005",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11152",
+        "earliest_issue_date": "2022-03-30T09:04:58Z",
+        "predicted_class": "bug",
+        "bic": [
+            "7614ff8c6fa2ed12f7ab1042d0dd80ef0e634f05"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11007,
+        "issue_title": "The base path of admin API is not correct in doc",
+        "issue_body": "### Describe the bug\n\nThe base path of admin API is not correct.\r\n\r\n\r\n![image](https://user-images.githubusercontent.com/3367820/160811933-c05176db-3c0f-41aa-ba1b-380975c2faa1.png)\r\n\n\n### Version\n\n17.0\n\n### Expected behavior\n\nThe base path for Admin API should be /auth/admin/realms.\r\n\r\nOnly change the base url to /auth/admin/realms you can get the correct result, for example:\r\n\r\n<img width=\"889\" alt=\"image\" src=\"https://user-images.githubusercontent.com/3367820/160813251-00b24c80-cab5-4364-a520-94b29fa4e366.png\">\r\n\n\n### Actual behavior\n\nThe docs shows the base path as /auth.\r\n\r\nBy composing the url you get endpoint 404 not found, for example:\r\n\r\n<img width=\"964\" alt=\"image\" src=\"https://user-images.githubusercontent.com/3367820/160812876-09c56c06-6e00-4054-9e56-064056ef26e7.png\">\r\n\n\n### How to Reproduce?\n\nSee https://www.keycloak.org/docs-api/17.0/rest-api/#_role_mapper_resource\n\n### Anything else?\n\nfix: https://github.com/keycloak/keycloak/pull/10933",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11007",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/docs"
+        ],
+        "issue_closed_at": "2022-04-22T09:24:07.000Z",
+        "fix_commit_hash": "b356618cc2e00ef3ae37f515c1d4b3bdbcde3f62",
+        "commit_type": "pr",
+        "commit_message": "docs: Correct the base path for Admin REST APIs. #11007 (#10933)",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/10933",
+        "earliest_issue_date": "2022-03-30T10:39:58Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11008,
+        "issue_title": "Incorrect get the members of a group imported from LDAP",
+        "issue_body": "### Describe the bug\n\nI have created two user federations with LDAP (AD_1, AD_2). Imports Users is off.  Both of them will import groups using group-ldap-mapper.\r\n\r\nWhen I try to get the members of a group existing in AD_2 and a user exists with the same username in AD_1, only the user AD_1 is displayed; which logically is not in a group existing only in AD_2.\r\n\r\n\n\n### Version\n\n17.0\n\n### Expected behavior\n\nOnly users imported from a specific LDAP group will appear in the list of group members\n\n### Actual behavior\n\n_No response_\n\n### How to Reproduce?\n\n_No response_\n\n### Anything else?\n\nThe user has the same username but the email is different.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11008",
+        "assignees": [
+            "sguilhen"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/ldap",
+            "help wanted",
+            "team/core-iam",
+            "release/26.1.0",
+            "release/26.0.6"
+        ],
+        "issue_closed_at": "2024-11-01T18:49:56.000Z",
+        "fix_commit_hash": "af434d6bc1ae904da2538f207bf5313098757114",
+        "commit_type": "commit",
+        "commit_message": "Add checks to prevent GroupLDAPStorageMapper from performing operations on groups it does not manage\n\nCloses #11008\nCloses #17593\nCloses #19652\n\nSigned-off-by: Stefan Guilhen <sguilhen@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/commit/af434d6bc1ae904da2538f207bf5313098757114",
+        "earliest_issue_date": "2022-03-30T13:31:56Z",
+        "predicted_class": "bug",
+        "bic": [
+            "cc2bb96abca44fe575ebd0a0022fd3f528ba8e65"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11030,
+        "issue_title": "Webauthn tests broke because of RP-Initiated logout changes",
+        "issue_body": "### Describe the bug\r\n\r\nWhen `webauthn` profile is enabled, the build fails because of this change https://github.com/keycloak/keycloak/pull/10887/files#diff-d5b685a6252c811b513fe56a14293162007670a73851967b93e94711309dc995L60.\r\n\r\n### Version\r\n\r\n999-SNAPSHOT\r\n\r\n### Expected behavior\r\n\r\n_No response_\r\n\r\n### Actual behavior\r\n\r\n_No response_\r\n\r\n### How to Reproduce?\r\n\r\nBuild the project using the `webauthn` profile.\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11030",
+        "assignees": [
+            "mposolda"
+        ],
+        "labels": [
+            "kind/bug"
+        ],
+        "issue_closed_at": "2022-04-01T06:06:39.000Z",
+        "fix_commit_hash": "c50f09da253918304644b353e0a5705277c87b2c",
+        "commit_type": "pr",
+        "commit_message": "Webauthn tests logout fix (#11040)\n\nCloses #11030",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11040",
+        "earliest_issue_date": "2022-03-31T12:03:36Z",
+        "predicted_class": "bug",
+        "bic": [
+            "92c4e6d585dca4d2f741ac4ac6b50ea0c0940a9a"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11041,
+        "issue_title": "Account console not functional when running KeyCloak behind a reverse proxy",
+        "issue_body": "### Describe the bug\n\nI just setup my first install of KeyCloak, following the various guides in the documentation, but I have run into a problem (for which I also have the solution)\r\n\r\nThe problem is, then I try and access the account console on https://keycloak-server/realms/testrealm/account/ I get the \"Account console is loading\" going on forever.\r\n\r\nIf I check the Network tab, I can see that I get a 403 when trying to get keycloak.js, which is understandable, because I set it up that way based on the guide found here, https://www.keycloak.org/server/reverseproxy (I have a few requires in place in my apache conf to limit the paths that should not be exposed publicly)\r\n\r\nWhen I access the page from a privileged IP that is not limited by apache, I can access the account console just fine.\r\n\r\nSo, my question is, is the guide wrong?  And if it isn't, how am I going to allow users to change their account related settings?\r\n\r\nIt does seem strange that if I run KeyCloak behind a proxy, I should limit some folders, but if I run it on a dedicated server, everything is fine.\n\n### Version\n\n17.0.1\n\n### Expected behavior\n\nA user accessing the account console from the public side of the reverse proxy can actually access it.\n\n### Actual behavior\n\nUser can not access the account console \n\n### How to Reproduce?\n\nFollow the reverse proxy setup guide, and try and access the account console.\n\n### Anything else?\n\nThe fix is pretty clear, allow access to the /js/ folder, but someone wrote that guide for a reason, and I don't want to open up for potential security risks by ignoring it.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11041",
+        "assignees": [
+            "DGuhr"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/docs"
+        ],
+        "issue_closed_at": "2022-04-06T06:14:04.000Z",
+        "fix_commit_hash": "52150cacfc4cd55ae83e5e56d9cf32221943417a",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "adjust rp docs to clarify exposing js path\n\nCloses #11041",
+        "closer_url": null,
+        "earliest_issue_date": "2022-03-31T18:55:34Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11043,
+        "issue_title": "Update Kubernetes Client to 5.12.1",
+        "issue_body": "### Description\n\nKubernetes Client 5.12.1 contains a couple of bug fixes, plus they updated their dependencies with public CVEs. Below you can find their changelog:\r\n\r\n```\r\nFix https://github.com/fabric8io/kubernetes-client/pull/3786: Deserialize WatchEvents using the specific object type\r\nFix https://github.com/fabric8io/kubernetes-client/issues/3776: VerticalPodAutoscaler cannot load yaml with \"controlledResources\"\r\nFix https://github.com/fabric8io/kubernetes-client/pull/3796: Limit usage of YAML Serializer\r\nFix https://github.com/fabric8io/kubernetes-client/issues/3772: edit() should not be allowed as a NonNamespaceOperation\r\nFix https://github.com/fabric8io/kubernetes-client/issues/3477: Handle exit code status messages with pod uploads\r\n```\r\n\n\n### Discussion\n\n_No response_\n\n### Motivation\n\n_No response_\n\n### Details\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11043",
+        "assignees": [],
+        "labels": [
+            "kind/enhancement",
+            "area/operator"
+        ],
+        "issue_closed_at": "2022-04-01T14:39:18.000Z",
+        "fix_commit_hash": "f6aa2556c94ef826246b7773bd405c17f3646fa4",
+        "commit_type": "pr",
+        "commit_message": "Update Kubernetes Client to 5.12.1\n\nResolves #11043",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11044",
+        "earliest_issue_date": "2022-03-31T20:03:18Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11063,
+        "issue_title": "Update Infinispan to 13.0.8 to fix vulnerabilities reported on XStream (CVE-2021-43859)",
+        "issue_body": "### Describe the bug\r\n\r\nThe dependency present in the Infinispan version used by the Quarkus distribution is impacted by CVE-2021-43859. The simple fix is to upgrade.\r\n\r\n### More details\r\n\r\n[GitHub Commit](https://github.com/x-stream/xstream/commit/e8e88621ba1c85ac3b8620337dd672e0c0c3a846)\r\n[XStream Advisory](https://x-stream.github.io/CVE-2021-43859.html)\r\n\r\n\r\n\r\n### Version\r\n\r\n17.0.1\r\n\r\n### Expected behavior\r\n\r\n_No response_\r\n\r\n### Actual behavior\r\n\r\n_No response_\r\n\r\n### How to Reproduce?\r\n\r\n_No response_\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11063",
+        "assignees": [
+            "abstractj"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/dist/quarkus"
+        ],
+        "issue_closed_at": "2022-04-01T16:09:09.000Z",
+        "fix_commit_hash": "cc947df828397dcdc10ed0d0de5fe60bd0a237f8",
+        "commit_type": "pr",
+        "commit_message": "Update Infinispan to 13.0.8 to fix vulnerabilities reported on XStream\n\nResolves #11063",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11064",
+        "earliest_issue_date": "2022-04-01T14:25:46Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11070,
+        "issue_title": "Testsuite failures when JPA Map Storage is used for realms",
+        "issue_body": "### Describe the bug\r\n\r\nThe following tests fail when the base testsuite is run with the JPA Map Storage for realms is enabled:\r\n\r\n- org.keycloak.testsuite.admin.ComponentsTest.txt (2 test failures)\r\n- org.keycloak.testsuite.federation.ldap.LDAPRoleMappingsTest.txt  (1 test failure)\r\n\r\nThe root issue is the same:\r\n```\r\norg.keycloak.models.ModelException: javax.persistence.OptimisticLockException: Row was updated or deleted by another transaction (or unsaved-value mapping was incorrect) : [org.keycloak.models.map.storage.jpa.realm.entity.JpaRealmEntity#c248659e-825e-4b3e-b8b9-110ed4235a6f]\r\n```\r\n\r\n### Version\r\n\r\nUnreleased\r\n\r\n### Expected behavior\r\n\r\nTestsuite must run without errors when the JPA Map Storage is enabled for all areas\r\n\r\n### Actual behavior\r\n\r\nTests in the description fail with `OptimisticLockException`\r\n\r\n### How to Reproduce?\r\n\r\n1- Setup PostgreSQL according to instruction in https://github.com/keycloak/keycloak/discussions/9596\r\n2- Run the tests enabling the JPA map storage for realms using the correct parameters:\r\n\r\n```\r\nmvn clean install -Dkeycloak.profile.feature.map_storage=enabled -Dkeycloak.realm.provider=map \\\r\n-Dkeycloak.realm.map.storage.provider=jpa-map-storage -Dkeycloak.map.storage.connectionsJpa.url=jdbc:postgresql://localhost:5432/keycloak \\\r\n-Dkeycloak.map.storage.connectionsJpa.user=keycloak -Dkeycloak.map.storage.connectionsJpa.password=pass \\\r\n-Dtest=ComponentsTest\r\n```\r\n\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11070",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/storage"
+        ],
+        "issue_closed_at": "2022-04-20T12:40:39.000Z",
+        "fix_commit_hash": "b29b27d73192935bc74a7621261861f91e4c1fbd",
+        "commit_type": "pr",
+        "commit_message": "Ensure code does not rely on a particular format for the realm id or component id",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/10901",
+        "earliest_issue_date": "2022-04-01T15:26:36Z",
+        "predicted_class": "bug",
+        "bic": [
+            "ae90b232ff7347f5f8e6a134a7be531287222682"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11071,
+        "issue_title": "Update jackson-databind dependency to fix CVE-2020-36518",
+        "issue_body": "### Describe the bug\n\nThe dependency of Jackson Databind used by the Quarkus distribution is impacted by https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2020-36518. The simple fix is to upgrade.\r\n\r\n### More details\r\n\r\n[GitHub Commit](https://github.com/FasterXML/jackson-databind/commit/fcfc4998ec23f0b1f7f8a9521c2b317b6c25892b)\r\n[GitHub Issue](https://github.com/FasterXML/jackson-databind/issues/2816)\r\n[GitHub PR](https://github.com/FasterXML/jackson-databind/pull/3416)\n\n### Version\n\n17.0.1\n\n### Expected behavior\n\n_No response_\n\n### Actual behavior\n\n_No response_\n\n### How to Reproduce?\n\n_No response_\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11071",
+        "assignees": [
+            "abstractj"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/dist/quarkus"
+        ],
+        "issue_closed_at": "2022-04-05T12:31:28.000Z",
+        "fix_commit_hash": "36c58962d1304e66ea466cf4006984e3032eb6c7",
+        "commit_type": "pr",
+        "commit_message": "Update jackson-databind dependency to fix CVE-2020-36518\n\nResolves #11071",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11073",
+        "earliest_issue_date": "2022-04-01T15:30:07Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11079,
+        "issue_title": "SLO and ACS Binding are linked with AuthnRequest Binding in SAML Identity Broker Metadata",
+        "issue_body": "### Describe the bug\r\n\r\nKeycloak has three settings whether HTTP-POST Binding is used or not in SAML Identity Broker.\r\n- HTTP-POST Binding Response (postBindingResponse)\r\n- HTTP-POST Binding for AuthnRequest (postBindingAuthnRequest)\r\n- HTTP-POST Binding Logout (postBindingLogout)\r\n\r\nBut these settings are not linked correctly in the SP Metadata Binding .\r\n\r\n<img width=\"330\" alt=\"POST Binding Setting\" src=\"https://user-images.githubusercontent.com/61368544/161366780-3b1bb088-1d86-49c6-b81b-9e6f5eba1ae7.png\">\r\n\r\nPR #11080 \r\n\r\n### Version\r\n\r\n17.0.1\r\n\r\n### Expected behavior\r\n\r\n| Keycloak Setting Name |  Keycloak Setting Value  |  SP Metadata Binding  |\r\n| ---- | ---- | ---- |\r\n| postBindingAuthnRequest |  false  |  -  |\r\n| postBindingResponse |  true  |  AssertionConsumerService<br>urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST  |\r\n| postBindingLogout |  true  |  SingleLogoutService<br>urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST  |\r\n\r\n<img width=\"330\" alt=\"actual behavior\" src=\"https://user-images.githubusercontent.com/61368544/161367262-d1c1645f-2fdc-41fb-b876-589a9644a5cb.png\">\r\n\r\n```xml\r\n<md:EntityDescriptor\r\n\txmlns=\"urn:oasis:names:tc:SAML:2.0:metadata\"\r\n\txmlns:md=\"urn:oasis:names:tc:SAML:2.0:metadata\"\r\n\txmlns:saml=\"urn:oasis:names:tc:SAML:2.0:assertion\"\r\n\txmlns:ds=\"http://www.w3.org/2000/09/xmldsig#\" entityID=\"https://keycloak.example.com/auth/realms/sptest\" ID=\"ID_bffe674a-6bbe-4c8d-9887-61cc7a47ba90\">\r\n\t<md:SPSSODescriptor protocolSupportEnumeration=\"urn:oasis:names:tc:SAML:2.0:protocol\" AuthnRequestsSigned=\"false\" WantAssertionsSigned=\"false\">\r\n\t\t<md:SingleLogoutService Binding=\"urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST\" Location=\"https://keycloak.example.com/auth/realms/sptest/broker/samlbinding/endpoint\"/>\r\n\t\t<md:NameIDFormat>urn:oasis:names:tc:SAML:2.0:nameid-format:persistent</md:NameIDFormat>\r\n\t\t<md:AssertionConsumerService Binding=\"urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST\" Location=\"https://keycloak.example.com/auth/realms/sptest/broker/samlbinding/endpoint\" isDefault=\"true\" index=\"1\"/>\r\n\t</md:SPSSODescriptor>\r\n</md:EntityDescriptor>\r\n```\r\n\r\n### Actual behavior\r\n\r\n| Keycloak Setting Name |  Keycloak Setting Value  |  SP Metadata Binding  |\r\n| ---- | ---- | ---- |\r\n| postBindingAuthnRequest |  false  |  -  |\r\n| postBindingResponse |  true  |  AssertionConsumerService<br>urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect  |\r\n| postBindingLogout |  true  |  SingleLogoutService<br>urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect  |\r\n\r\n<img width=\"330\" alt=\"actual behavior\" src=\"https://user-images.githubusercontent.com/61368544/161367262-d1c1645f-2fdc-41fb-b876-589a9644a5cb.png\">\r\n\r\n```xml\r\n<md:EntityDescriptor\r\n\txmlns=\"urn:oasis:names:tc:SAML:2.0:metadata\"\r\n\txmlns:md=\"urn:oasis:names:tc:SAML:2.0:metadata\"\r\n\txmlns:saml=\"urn:oasis:names:tc:SAML:2.0:assertion\"\r\n\txmlns:ds=\"http://www.w3.org/2000/09/xmldsig#\" entityID=\"https://keycloak.example.com/auth/realms/sptest\" ID=\"ID_bffe674a-6bbe-4c8d-9887-61cc7a47ba90\">\r\n\t<md:SPSSODescriptor protocolSupportEnumeration=\"urn:oasis:names:tc:SAML:2.0:protocol\" AuthnRequestsSigned=\"false\" WantAssertionsSigned=\"false\">\r\n\t\t<md:SingleLogoutService Binding=\"urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect\" Location=\"https://keycloak.example.com/auth/realms/sptest/broker/samlbinding/endpoint\"/>\r\n\t\t<md:NameIDFormat>urn:oasis:names:tc:SAML:2.0:nameid-format:persistent</md:NameIDFormat>\r\n\t\t<md:AssertionConsumerService Binding=\"urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect\" Location=\"https://keycloak.example.com/auth/realms/sptest/broker/samlbinding/endpoint\" isDefault=\"true\" index=\"1\"/>\r\n\t</md:SPSSODescriptor>\r\n</md:EntityDescriptor>\r\n```\r\n\r\n### How to Reproduce?\r\n\r\n1. Create SAML Identity Provider\r\n2. HTTP-POST Binding Response Setting ON\r\n3. HTTP-POST Binding Logout Setting ON\r\n4. Save\r\n5. Check SAML Identity Provider Metadata\r\n\r\n### Anything else?\r\n\r\nI found the another problem.\r\nWhen the setting of postBindingLogout is null, postBindingLogout is linked with the setting of postBindingLogout.\r\n\r\nhttps://github.com/keycloak/keycloak/blob/bfce612641a70e106b20b136431f0e4046b5c37f/services/src/main/java/org/keycloak/broker/saml/SAMLIdentityProviderConfig.java#L222-L230\r\n\r\nHTTP-POST Binding Logout default value is OFF in admin console.\r\nTherefore appearance of admin console and actual behavior do not match.\r\nI think that HTTP-POST Binding Logout  default is `ON` in appearance of new admin cosole.\r\n",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11079",
+        "assignees": [],
+        "labels": [
+            "area/saml",
+            "kind/bug",
+            "help wanted"
+        ],
+        "issue_closed_at": "2023-05-22T08:05:19.000Z",
+        "fix_commit_hash": "e41e1a971ae5b14d9ffd0292544f0073fa7f3da5",
+        "commit_type": "pr",
+        "commit_message": "SLO and ACS Binding are linked with AuthnRequest Binding in SAML Identity Broker Metadata\n\nCloses #11079",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11080",
+        "earliest_issue_date": "2022-04-02T05:08:37Z",
+        "predicted_class": "bug",
+        "bic": [
+            "6bd7420907f180abb560ede476d902634948c153"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11083,
+        "issue_title": "Blank admin console page in Keycloak 17.0.1",
+        "issue_body": "### Describe the bug\n\nHaving set the port to be 443 using\r\n\r\n```\r\n# Use port 443\r\nhttps-port=443\r\n```\r\n\r\nin the config file, the initial Keycloak page loads, then click \"Administration Console\", log in and then you are presented with a blank admin console page, with just the black header at the top.\r\n\r\nThis is not the case if port 443 is not specified. The initial page is reachable at keycloak.mydomain.com:8443, click admin console link, log in and admin console is ok.\n\n### Version\n\n17.0.1\n\n### Expected behavior\n\nExpect to see all the contents of the admin console as when using the default 8443 port.\n\n### Actual behavior\n\nEverything below the header is empty. In addition, clicking on the user \"Admin\" in the top right of the header and attempting to go to Manage Account fails.\n\n### How to Reproduce?\n\nYou can pretty much follow these simple instructions and then move on to part 4 where port 443 is enabled:\r\nhttps://www.soundsessential.com/blog/214-keycloak-17-filemaker-installation-configuration-tutorial-part-3-preparing-keycloak-17\r\n\r\nNote, do not add the port number to the hostname for 17.0.1 in the config file in part 3 above.\r\n\r\nIt's pretty straightforward with MySQL, SSL, install Keycloak, set up config file (NOTE: NO PROXY IS SET UP), start Keycloak to test, shut it down, change port to 443, rebuild, reboot, start Keycloak, log in and error is encountered. \r\n\r\nIt's built on Ubuntu 20.\n\n### Anything else?\n\nI have also been seeing some errors generated when initially logging in, such as:\r\n\r\n`2022-04-02 14:54:45,722 WARN  [org.keycloak.services] (executor-thread-0) KC-SERVICES0013: Failed authentication: java.lang.RuntimeException: java.io.IOException: Underlying input stream returned zero bytes`\r\n\r\nI need to test further to see if these issues are related but adding here in case this means more to someone in the know!\r\n\r\nIf any additional details or testing is needed, happy to help so feel free to ask.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11083",
+        "assignees": [
+            "DGuhr"
+        ],
+        "labels": [
+            "kind/bug"
+        ],
+        "issue_closed_at": "2022-04-06T02:13:38.000Z",
+        "fix_commit_hash": "f247b070224d72bb43fd1c1ed55aa5d6b3fcb61a",
+        "commit_type": "pr",
+        "commit_message": "fixes admin console access using default https port without proxy\n\nCloses #11083",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11119",
+        "earliest_issue_date": "2022-04-02T16:28:22Z",
+        "predicted_class": "bug",
+        "bic": [
+            "e14e56e0f3831de8d38011ceb35b36bff4b3eecc"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11089,
+        "issue_title": "Securing credentials/passwords not possible with Quarkus distribution",
+        "issue_body": "Keycloak should provide integration with SmallRye Keystore. Each config option should support values from a Java Keystore.\r\n\r\nCurrently blocked by https://github.com/smallrye/smallrye-config/pull/833\r\n\r\n---\r\n\r\n### Describe the bug\r\n\r\nIt seems there is currently no way to secure/hide/obfuscate any of the passwords (i.e. db-password, https-key-store-password, https-trust-store-password, referenced in https://www.keycloak.org/server/all-config).\r\n\r\nWith Wildfly one could use Elytron encrypted values and \"credential-stores\".\r\n\r\nThis is an issue because, as @FX-Liagre points out in the referenced discussions\r\n\r\n> [...]And our customers' security guys (and DB admins...) tend to faint when you present them a config text file with clear text DB credentials... :-(\r\n\r\n### Version\r\n\r\n17.0.0\r\n\r\n### Expected behavior\r\n\r\nHave some sort of encryption ready for hiding credentials or passwords.\r\n\r\n### Actual behavior\r\n\r\nNo such feature available in Quarkus, but still is in Wildfly.\r\n\r\n### How to Reproduce?\r\n\r\nProvide any clear-text passwords inside the `keycloak.conf`.\r\nFind someone who does a security scan on the installation -> they will find the clear-text password and might possibly faint over it\r\n\r\n### Anything else?\r\n\r\nSee also Discussion:\r\nhttps://github.com/keycloak/keycloak/discussions/10595",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11089",
+        "assignees": [
+            "Pepo48"
+        ],
+        "labels": [
+            "kind/feature",
+            "area/dist/quarkus"
+        ],
+        "issue_closed_at": "2023-05-25T15:36:22.000Z",
+        "fix_commit_hash": "34e58844155c2f6f8b8b471d712e075f73de02fc",
+        "commit_type": "pr",
+        "commit_message": "SmallRye Keystore (#20375)\n\n* added integration with SmallRye Keystore (keycloak#19281)\r\n\r\nCloses #11089\r\n\r\nSigned-off-by: Peter Zaoral <pzaoral@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/20375",
+        "earliest_issue_date": "2022-04-04T07:17:20Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11090,
+        "issue_title": "SOAPBindingTest is failing with NoClassDefFoundError - SOAPException",
+        "issue_body": "### Describe the bug\r\n\r\nSOAPBindingTest is failing with following exception:\r\n\r\n```\r\n2022-04-02T13:36:15.9438231Z [ERROR] Tests run: 10, Failures: 0, Errors: 1, Skipped: 0, Time elapsed: 3.457 s <<< FAILURE! - in org.keycloak.testsuite.saml.SOAPBindingTest\r\n2022-04-02T13:36:15.9438948Z -- [ERROR] org.keycloak.testsuite.saml.SOAPBindingTest.ecpFlowCreatesTransientSessions  Time elapsed: 0.292 s  <<< ERROR!\r\n2022-04-02T13:36:15.9439684Z -- org.keycloak.testsuite.runonserver.RunOnServerException: java.lang.NoClassDefFoundError: javax/xml/soap/SOAPException\r\n2022-04-02T13:36:15.9440377Z -- \tat org.keycloak.testsuite.client.KeycloakTestingClient$Server.run(KeycloakTestingClient.java:155)\r\n2022-04-02T13:36:15.9441085Z -- \tat org.keycloak.testsuite.saml.SOAPBindingTest.ecpFlowCreatesTransientSessions(SOAPBindingTest.java:285)\r\n2022-04-02T13:36:15.9441755Z -- \tat java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\r\n2022-04-02T13:36:15.9442368Z -- \tat java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)\r\n2022-04-02T13:36:15.9443051Z -- \tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n2022-04-02T13:36:15.9443600Z -- \tat java.base/java.lang.reflect.Method.invoke(Method.java:566)\r\n2022-04-02T13:36:15.9444106Z -- \tat org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)\r\n2022-04-02T13:36:15.9444674Z -- \tat org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)\r\n2022-04-02T13:36:15.9445271Z -- \tat org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)\r\n2022-04-02T13:36:15.9445908Z -- \tat org.jboss.arquillian.junit.Arquillian$8$1.invokeMethod(Arquillian.java:325)\r\n2022-04-02T13:36:15.9446412Z -- \tat org.jboss.arquillian.junit.MethodInvoker$1.invoke(MethodInvoker.java:18)\r\n2022-04-02T13:36:15.9447058Z -- \tat org.jboss.arquillian.container.test.impl.execution.LocalTestExecuter.execute(LocalTestExecuter.java:57)\r\n2022-04-02T13:36:15.9447734Z -- \tat org.keycloak.testsuite.arquillian.ModelTestExecutor.execute(ModelTestExecutor.java:49)\r\n2022-04-02T13:36:15.9448304Z -- \tat jdk.internal.reflect.GeneratedMethodAccessor433.invoke(Unknown Source)\r\n2022-04-02T13:36:15.9448933Z -- \tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n2022-04-02T13:36:15.9449470Z -- \tat java.base/java.lang.reflect.Method.invoke(Method.java:566)\r\n2022-04-02T13:36:15.9449958Z -- \tat org.jboss.arquillian.core.impl.ObserverImpl.invoke(ObserverImpl.java:86)\r\n2022-04-02T13:36:15.9450554Z -- \tat org.jboss.arquillian.core.impl.EventContextImpl.invokeObservers(EventContextImpl.java:103)\r\n2022-04-02T13:36:15.9451174Z -- \tat org.jboss.arquillian.core.impl.EventContextImpl.proceed(EventContextImpl.java:90)\r\n2022-04-02T13:36:15.9451717Z -- \tat org.jboss.arquillian.core.impl.ManagerImpl.fire(ManagerImpl.java:133)\r\n2022-04-02T13:36:15.9452299Z -- \tat org.jboss.arquillian.core.impl.ManagerImpl.fire(ManagerImpl.java:105)\r\n2022-04-02T13:36:15.9452802Z -- \tat org.jboss.arquillian.core.impl.EventImpl.fire(EventImpl.java:62)\r\n2022-04-02T13:36:15.9453446Z -- \tat org.jboss.arquillian.container.test.impl.execution.ClientTestExecuter.execute(ClientTestExecuter.java:50)\r\n2022-04-02T13:36:15.9454085Z -- \tat jdk.internal.reflect.GeneratedMethodAccessor432.invoke(Unknown Source)\r\n2022-04-02T13:36:15.9454713Z -- \tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n2022-04-02T13:36:15.9455254Z -- \tat java.base/java.lang.reflect.Method.invoke(Method.java:566)\r\n2022-04-02T13:36:15.9455734Z -- \tat org.jboss.arquillian.core.impl.ObserverImpl.invoke(ObserverImpl.java:86)\r\n2022-04-02T13:36:15.9456334Z -- \tat org.jboss.arquillian.core.impl.EventContextImpl.invokeObservers(EventContextImpl.java:103)\r\n2022-04-02T13:36:15.9456950Z -- \tat org.jboss.arquillian.core.impl.EventContextImpl.proceed(EventContextImpl.java:90)\r\n2022-04-02T13:36:15.9457707Z -- \tat org.jboss.arquillian.container.test.impl.client.ContainerEventController.createContext(ContainerEventController.java:128)\r\n2022-04-02T13:36:15.9458598Z -- \tat org.jboss.arquillian.container.test.impl.client.ContainerEventController.createTestContext(ContainerEventController.java:118)\r\n2022-04-02T13:36:15.9459309Z -- \tat jdk.internal.reflect.GeneratedMethodAccessor431.invoke(Unknown Source)\r\n2022-04-02T13:36:15.9459928Z -- \tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n2022-04-02T13:36:15.9460464Z -- \tat java.base/java.lang.reflect.Method.invoke(Method.java:566)\r\n2022-04-02T13:36:15.9460948Z -- \tat org.jboss.arquillian.core.impl.ObserverImpl.invoke(ObserverImpl.java:86)\r\n2022-04-02T13:36:15.9461524Z -- \tat org.jboss.arquillian.core.impl.EventContextImpl.proceed(EventContextImpl.java:95)\r\n2022-04-02T13:36:15.9462170Z -- \tat org.jboss.arquillian.test.impl.TestContextHandler.createTestContext(TestContextHandler.java:116)\r\n2022-04-02T13:36:15.9462768Z -- \tat jdk.internal.reflect.GeneratedMethodAccessor97.invoke(Unknown Source)\r\n2022-04-02T13:36:15.9463389Z -- \tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n2022-04-02T13:36:15.9463926Z -- \tat java.base/java.lang.reflect.Method.invoke(Method.java:566)\r\n2022-04-02T13:36:15.9464407Z -- \tat org.jboss.arquillian.core.impl.ObserverImpl.invoke(ObserverImpl.java:86)\r\n2022-04-02T13:36:15.9464981Z -- \tat org.jboss.arquillian.core.impl.EventContextImpl.proceed(EventContextImpl.java:95)\r\n2022-04-02T13:36:15.9465622Z -- \tat org.jboss.arquillian.test.impl.TestContextHandler.createClassContext(TestContextHandler.java:83)\r\n2022-04-02T13:36:15.9466281Z -- \tat jdk.internal.reflect.GeneratedMethodAccessor45.invoke(Unknown Source)\r\n2022-04-02T13:36:15.9466910Z -- \tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n2022-04-02T13:36:15.9467453Z -- \tat java.base/java.lang.reflect.Method.invoke(Method.java:566)\r\n2022-04-02T13:36:15.9467931Z -- \tat org.jboss.arquillian.core.impl.ObserverImpl.invoke(ObserverImpl.java:86)\r\n2022-04-02T13:36:15.9468501Z -- \tat org.jboss.arquillian.core.impl.EventContextImpl.proceed(EventContextImpl.java:95)\r\n2022-04-02T13:36:15.9469142Z -- \tat org.jboss.arquillian.test.impl.TestContextHandler.createSuiteContext(TestContextHandler.java:69)\r\n2022-04-02T13:36:15.9469737Z -- \tat jdk.internal.reflect.GeneratedMethodAccessor44.invoke(Unknown Source)\r\n2022-04-02T13:36:15.9470361Z -- \tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n2022-04-02T13:36:15.9470902Z -- \tat java.base/java.lang.reflect.Method.invoke(Method.java:566)\r\n2022-04-02T13:36:15.9471373Z -- \tat org.jboss.arquillian.core.impl.ObserverImpl.invoke(ObserverImpl.java:86)\r\n2022-04-02T13:36:15.9471931Z -- \tat org.jboss.arquillian.core.impl.EventContextImpl.proceed(EventContextImpl.java:95)\r\n2022-04-02T13:36:15.9472525Z -- \tat org.jboss.arquillian.core.impl.ManagerImpl.fire(ManagerImpl.java:133)\r\n2022-04-02T13:36:15.9473130Z -- \tat org.jboss.arquillian.test.impl.EventTestRunnerAdaptor.test(EventTestRunnerAdaptor.java:139)\r\n2022-04-02T13:36:15.9473706Z -- \tat org.jboss.arquillian.junit.MethodInvoker.invoke(MethodInvoker.java:15)\r\n2022-04-02T13:36:15.9474210Z -- \tat org.jboss.arquillian.junit.Arquillian$8.evaluate(Arquillian.java:332)\r\n2022-04-02T13:36:15.9474693Z -- \tat org.jboss.arquillian.junit.Arquillian$4.evaluate(Arquillian.java:204)\r\n2022-04-02T13:36:15.9475182Z -- \tat org.jboss.arquillian.junit.Arquillian.multiExecute(Arquillian.java:350)\r\n2022-04-02T13:36:15.9475838Z -- \tat org.jboss.arquillian.junit.Arquillian.access$200(Arquillian.java:54)\r\n2022-04-02T13:36:15.9476331Z -- \tat org.jboss.arquillian.junit.Arquillian$5.evaluate(Arquillian.java:215)\r\n2022-04-02T13:36:15.9476793Z -- \tat org.jboss.arquillian.junit.Arquillian$7$1.invoke(Arquillian.java:279)\r\n2022-04-02T13:36:15.9487957Z -- \tat org.jboss.arquillian.container.test.impl.execution.ClientBeforeAfterLifecycleEventExecuter.execute(ClientBeforeAfterLifecycleEventExecuter.java:88)\r\n2022-04-02T13:36:15.9489044Z -- \tat org.jboss.arquillian.container.test.impl.execution.ClientBeforeAfterLifecycleEventExecuter.on(ClientBeforeAfterLifecycleEventExecuter.java:66)\r\n2022-04-02T13:36:15.9489818Z -- \tat jdk.internal.reflect.GeneratedMethodAccessor153.invoke(Unknown Source)\r\n2022-04-02T13:36:15.9490456Z -- \tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n2022-04-02T13:36:15.9491019Z -- \tat java.base/java.lang.reflect.Method.invoke(Method.java:566)\r\n2022-04-02T13:36:15.9491536Z -- \tat org.jboss.arquillian.core.impl.ObserverImpl.invoke(ObserverImpl.java:86)\r\n2022-04-02T13:36:15.9492152Z -- \tat org.jboss.arquillian.core.impl.EventContextImpl.invokeObservers(EventContextImpl.java:103)\r\n2022-04-02T13:36:15.9495492Z -- \tat org.jboss.arquillian.core.impl.EventContextImpl.proceed(EventContextImpl.java:90)\r\n2022-04-02T13:36:15.9496258Z -- \tat org.jboss.arquillian.container.test.impl.client.ContainerEventController.createContext(ContainerEventController.java:128)\r\n2022-04-02T13:36:15.9497157Z -- \tat org.jboss.arquillian.container.test.impl.client.ContainerEventController.createBeforeContext(ContainerEventController.java:114)\r\n2022-04-02T13:36:15.9497861Z -- \tat jdk.internal.reflect.GeneratedMethodAccessor151.invoke(Unknown Source)\r\n2022-04-02T13:36:15.9498490Z -- \tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n2022-04-02T13:36:15.9499037Z -- \tat java.base/java.lang.reflect.Method.invoke(Method.java:566)\r\n2022-04-02T13:36:15.9499528Z -- \tat org.jboss.arquillian.core.impl.ObserverImpl.invoke(ObserverImpl.java:86)\r\n2022-04-02T13:36:15.9500314Z -- \tat org.jboss.arquillian.core.impl.EventContextImpl.proceed(EventContextImpl.java:95)\r\n2022-04-02T13:36:15.9501025Z -- \tat org.jboss.arquillian.test.impl.TestContextHandler.createTestContext(TestContextHandler.java:116)\r\n2022-04-02T13:36:15.9501676Z -- \tat jdk.internal.reflect.GeneratedMethodAccessor97.invoke(Unknown Source)\r\n2022-04-02T13:36:15.9502365Z -- \tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n2022-04-02T13:36:15.9502966Z -- \tat java.base/java.lang.reflect.Method.invoke(Method.java:566)\r\n2022-04-02T13:36:15.9503509Z -- \tat org.jboss.arquillian.core.impl.ObserverImpl.invoke(ObserverImpl.java:86)\r\n2022-04-02T13:36:15.9504127Z -- \tat org.jboss.arquillian.core.impl.EventContextImpl.proceed(EventContextImpl.java:95)\r\n2022-04-02T13:36:15.9504847Z -- \tat org.jboss.arquillian.test.impl.TestContextHandler.createClassContext(TestContextHandler.java:83)\r\n2022-04-02T13:36:15.9505453Z -- \tat jdk.internal.reflect.GeneratedMethodAccessor45.invoke(Unknown Source)\r\n2022-04-02T13:36:15.9506084Z -- \tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n2022-04-02T13:36:15.9506642Z -- \tat java.base/java.lang.reflect.Method.invoke(Method.java:566)\r\n2022-04-02T13:36:15.9507200Z -- \tat org.jboss.arquillian.core.impl.ObserverImpl.invoke(ObserverImpl.java:86)\r\n2022-04-02T13:36:15.9507768Z -- \tat org.jboss.arquillian.core.impl.EventContextImpl.proceed(EventContextImpl.java:95)\r\n2022-04-02T13:36:15.9508418Z -- \tat org.jboss.arquillian.test.impl.TestContextHandler.createSuiteContext(TestContextHandler.java:69)\r\n2022-04-02T13:36:15.9509016Z -- \tat jdk.internal.reflect.GeneratedMethodAccessor44.invoke(Unknown Source)\r\n2022-04-02T13:36:15.9509647Z -- \tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n2022-04-02T13:36:15.9510183Z -- \tat java.base/java.lang.reflect.Method.invoke(Method.java:566)\r\n2022-04-02T13:36:15.9510668Z -- \tat org.jboss.arquillian.core.impl.ObserverImpl.invoke(ObserverImpl.java:86)\r\n2022-04-02T13:36:15.9511230Z -- \tat org.jboss.arquillian.core.impl.EventContextImpl.proceed(EventContextImpl.java:95)\r\n2022-04-02T13:36:15.9511778Z -- \tat org.jboss.arquillian.core.impl.ManagerImpl.fire(ManagerImpl.java:133)\r\n2022-04-02T13:36:15.9512296Z -- \tat org.jboss.arquillian.core.impl.ManagerImpl.fire(ManagerImpl.java:105)\r\n2022-04-02T13:36:15.9512938Z -- \tat org.jboss.arquillian.test.impl.EventTestRunnerAdaptor.fireCustomLifecycle(EventTestRunnerAdaptor.java:159)\r\n2022-04-02T13:36:15.9513543Z -- \tat org.jboss.arquillian.junit.Arquillian$7.evaluate(Arquillian.java:273)\r\n2022-04-02T13:36:15.9514085Z -- \tat org.junit.runners.BlockJUnit4ClassRunner$1.evaluate(BlockJUnit4ClassRunner.java:100)\r\n2022-04-02T13:36:15.9514596Z -- \tat org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:366)\r\n2022-04-02T13:36:15.9515137Z -- \tat org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:103)\r\n2022-04-02T13:36:15.9515936Z -- \tat org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:63)\r\n2022-04-02T13:36:15.9516458Z -- \tat org.junit.runners.ParentRunner$4.run(ParentRunner.java:331)\r\n2022-04-02T13:36:15.9516911Z -- \tat org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:79)\r\n2022-04-02T13:36:15.9517399Z -- \tat org.junit.runners.ParentRunner.runChildren(ParentRunner.java:329)\r\n2022-04-02T13:36:15.9517882Z -- \tat org.junit.runners.ParentRunner.access$100(ParentRunner.java:66)\r\n2022-04-02T13:36:15.9518350Z -- \tat org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:293)\r\n2022-04-02T13:36:15.9518822Z -- \tat org.jboss.arquillian.junit.Arquillian$2.evaluate(Arquillian.java:166)\r\n2022-04-02T13:36:15.9519342Z -- \tat org.jboss.arquillian.junit.Arquillian.multiExecute(Arquillian.java:350)\r\n2022-04-02T13:36:15.9519863Z -- \tat org.jboss.arquillian.junit.Arquillian.access$200(Arquillian.java:54)\r\n2022-04-02T13:36:15.9520672Z -- \tat org.jboss.arquillian.junit.Arquillian$3.evaluate(Arquillian.java:177)\r\n2022-04-02T13:36:15.9521155Z -- \tat org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)\r\n2022-04-02T13:36:15.9521714Z -- \tat org.junit.runners.ParentRunner.run(ParentRunner.java:413)\r\n2022-04-02T13:36:15.9522177Z -- \tat org.jboss.arquillian.junit.Arquillian.run(Arquillian.java:115)\r\n2022-04-02T13:36:15.9522729Z -- \tat org.apache.maven.surefire.junit4.JUnit4Provider.execute(JUnit4Provider.java:364)\r\n2022-04-02T13:36:15.9523359Z -- \tat org.apache.maven.surefire.junit4.JUnit4Provider.executeWithRerun(JUnit4Provider.java:272)\r\n2022-04-02T13:36:15.9523984Z -- \tat org.apache.maven.surefire.junit4.JUnit4Provider.executeTestSet(JUnit4Provider.java:237)\r\n2022-04-02T13:36:15.9524573Z -- \tat org.apache.maven.surefire.junit4.JUnit4Provider.invoke(JUnit4Provider.java:158)\r\n2022-04-02T13:36:15.9525186Z -- \tat org.apache.maven.surefire.booter.ForkedBooter.runSuitesInProcess(ForkedBooter.java:428)\r\n2022-04-02T13:36:15.9525780Z -- \tat org.apache.maven.surefire.booter.ForkedBooter.execute(ForkedBooter.java:162)\r\n2022-04-02T13:36:15.9526325Z -- \tat org.apache.maven.surefire.booter.ForkedBooter.run(ForkedBooter.java:562)\r\n2022-04-02T13:36:15.9526861Z -- \tat org.apache.maven.surefire.booter.ForkedBooter.main(ForkedBooter.java:548)\r\n2022-04-02T13:36:15.9527356Z -- Caused by: java.lang.NoClassDefFoundError: javax/xml/soap/SOAPException\r\n2022-04-02T13:36:15.9527883Z -- \tat java.base/java.lang.Class.getDeclaredMethods0(Native Method)\r\n2022-04-02T13:36:15.9528365Z -- \tat java.base/java.lang.Class.privateGetDeclaredMethods(Class.java:3166)\r\n2022-04-02T13:36:15.9528827Z -- \tat java.base/java.lang.Class.getDeclaredMethod(Class.java:2473)\r\n2022-04-02T13:36:15.9529302Z -- \tat java.base/java.lang.invoke.SerializedLambda$1.run(SerializedLambda.java:231)\r\n2022-04-02T13:36:15.9529800Z -- \tat java.base/java.lang.invoke.SerializedLambda$1.run(SerializedLambda.java:228)\r\n2022-04-02T13:36:15.9530289Z -- \tat java.base/java.security.AccessController.doPrivileged(Native Method)\r\n2022-04-02T13:36:15.9530812Z -- \tat java.base/java.lang.invoke.SerializedLambda.readResolve(SerializedLambda.java:228)\r\n2022-04-02T13:36:15.9531375Z -- \tat java.base/jdk.internal.reflect.GeneratedMethodAccessor319.invoke(Unknown Source)\r\n2022-04-02T13:36:15.9532009Z -- \tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n2022-04-02T13:36:15.9532559Z -- \tat java.base/java.lang.reflect.Method.invoke(Method.java:566)\r\n2022-04-02T13:36:15.9533050Z -- \tat java.base/java.io.ObjectStreamClass.invokeReadResolve(ObjectStreamClass.java:1265)\r\n2022-04-02T13:36:15.9533604Z -- \tat java.base/java.io.ObjectInputStream.readOrdinaryObject(ObjectInputStream.java:2231)\r\n2022-04-02T13:36:15.9534133Z -- \tat java.base/java.io.ObjectInputStream.readObject0(ObjectInputStream.java:1681)\r\n2022-04-02T13:36:15.9534642Z -- \tat java.base/java.io.ObjectInputStream.readObject(ObjectInputStream.java:493)\r\n2022-04-02T13:36:15.9535135Z -- \tat java.base/java.io.ObjectInputStream.readObject(ObjectInputStream.java:451)\r\n2022-04-02T13:36:15.9535937Z -- \tat org.keycloak.testsuite.integration-arquillian-testsuite-providers@999-SNAPSHOT//org.keycloak.testsuite.runonserver.SerializationUtil.decode(SerializationUtil.java:40)\r\n2022-04-02T13:36:15.9537006Z -- \tat org.keycloak.testsuite.integration-arquillian-testsuite-providers@999-SNAPSHOT//org.keycloak.testsuite.rest.TestingResourceProvider.runOnServer(TestingResourceProvider.java:810)\r\n2022-04-02T13:36:15.9537792Z -- \tat java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\r\n2022-04-02T13:36:15.9538403Z -- \tat java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)\r\n2022-04-02T13:36:15.9539069Z -- \tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n2022-04-02T13:36:15.9539607Z -- \tat java.base/java.lang.reflect.Method.invoke(Method.java:566)\r\n2022-04-02T13:36:15.9540215Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:170)\r\n2022-04-02T13:36:15.9540941Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.core.MethodInjectorImpl.invoke(MethodInjectorImpl.java:130)\r\n2022-04-02T13:36:15.9541789Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.core.ResourceMethodInvoker.internalInvokeOnTarget(ResourceMethodInvoker.java:660)\r\n2022-04-02T13:36:15.9542673Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTargetAfterFilter(ResourceMethodInvoker.java:524)\r\n2022-04-02T13:36:15.9543518Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.core.ResourceMethodInvoker.lambda$invokeOnTarget$2(ResourceMethodInvoker.java:474)\r\n2022-04-02T13:36:15.9544423Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:364)\r\n2022-04-02T13:36:15.9545326Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.core.ResourceMethodInvoker.invokeOnTarget(ResourceMethodInvoker.java:476)\r\n2022-04-02T13:36:15.9546102Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.core.ResourceMethodInvoker.invoke(ResourceMethodInvoker.java:434)\r\n2022-04-02T13:36:15.9546943Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.core.ResourceLocatorInvoker.invokeOnTargetObject(ResourceLocatorInvoker.java:192)\r\n2022-04-02T13:36:15.9547746Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.core.ResourceLocatorInvoker.invoke(ResourceLocatorInvoker.java:141)\r\n2022-04-02T13:36:15.9548491Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.core.ResourceLocatorInvoker.invoke(ResourceLocatorInvoker.java:32)\r\n2022-04-02T13:36:15.9549229Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:492)\r\n2022-04-02T13:36:15.9549989Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.core.SynchronousDispatcher.lambda$invoke$4(SynchronousDispatcher.java:261)\r\n2022-04-02T13:36:15.9550772Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.core.SynchronousDispatcher.lambda$preprocess$0(SynchronousDispatcher.java:161)\r\n2022-04-02T13:36:15.9551689Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.core.interception.jaxrs.PreMatchContainerRequestContext.filter(PreMatchContainerRequestContext.java:364)\r\n2022-04-02T13:36:15.9552565Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.core.SynchronousDispatcher.preprocess(SynchronousDispatcher.java:164)\r\n2022-04-02T13:36:15.9553320Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.core.SynchronousDispatcher.invoke(SynchronousDispatcher.java:247)\r\n2022-04-02T13:36:15.9554158Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.plugins.server.servlet.ServletContainerDispatcher.service(ServletContainerDispatcher.java:249)\r\n2022-04-02T13:36:15.9555075Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.plugins.server.servlet.HttpServletDispatcher.service(HttpServletDispatcher.java:60)\r\n2022-04-02T13:36:15.9556041Z -- \tat org.jboss.resteasy.resteasy-core@4.7.4.Final//org.jboss.resteasy.plugins.server.servlet.HttpServletDispatcher.service(HttpServletDispatcher.java:55)\r\n2022-04-02T13:36:15.9556732Z -- \tat javax.servlet.api@2.0.0.Final//javax.servlet.http.HttpServlet.service(HttpServlet.java:590)\r\n2022-04-02T13:36:15.9557383Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.handlers.ServletHandler.handleRequest(ServletHandler.java:74)\r\n2022-04-02T13:36:15.9558092Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.handlers.FilterHandler$FilterChainImpl.doFilter(FilterHandler.java:129)\r\n2022-04-02T13:36:15.9558897Z -- \tat org.keycloak.keycloak-wildfly-extensions@999-SNAPSHOT//org.keycloak.provider.wildfly.WildFlyRequestFilter.lambda$doFilter$0(WildFlyRequestFilter.java:41)\r\n2022-04-02T13:36:15.9559737Z -- \tat org.keycloak.keycloak-services@999-SNAPSHOT//org.keycloak.services.filters.AbstractRequestFilter.filter(AbstractRequestFilter.java:43)\r\n2022-04-02T13:36:15.9560636Z -- \tat org.keycloak.keycloak-wildfly-extensions@999-SNAPSHOT//org.keycloak.provider.wildfly.WildFlyRequestFilter.doFilter(WildFlyRequestFilter.java:39)\r\n2022-04-02T13:36:15.9561354Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.core.ManagedFilter.doFilter(ManagedFilter.java:61)\r\n2022-04-02T13:36:15.9562022Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.handlers.FilterHandler$FilterChainImpl.doFilter(FilterHandler.java:131)\r\n2022-04-02T13:36:15.9562707Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.handlers.FilterHandler.handleRequest(FilterHandler.java:84)\r\n2022-04-02T13:36:15.9563528Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.handlers.security.ServletSecurityRoleHandler.handleRequest(ServletSecurityRoleHandler.java:62)\r\n2022-04-02T13:36:15.9564289Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.handlers.ServletChain$1.handleRequest(ServletChain.java:68)\r\n2022-04-02T13:36:15.9565040Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.handlers.ServletDispatchingHandler.handleRequest(ServletDispatchingHandler.java:36)\r\n2022-04-02T13:36:15.9566025Z -- \tat org.wildfly.security.elytron-web.undertow-server@1.10.1.Final//org.wildfly.elytron.web.undertow.server.ElytronRunAsHandler.lambda$handleRequest$1(ElytronRunAsHandler.java:68)\r\n2022-04-02T13:36:15.9566994Z -- \tat org.wildfly.security.elytron-base@1.18.3.Final//org.wildfly.security.auth.server.FlexibleIdentityAssociation.runAsFunctionEx(FlexibleIdentityAssociation.java:103)\r\n2022-04-02T13:36:15.9567814Z -- \tat org.wildfly.security.elytron-base@1.18.3.Final//org.wildfly.security.auth.server.Scoped.runAsFunctionEx(Scoped.java:161)\r\n2022-04-02T13:36:15.9568485Z -- \tat org.wildfly.security.elytron-base@1.18.3.Final//org.wildfly.security.auth.server.Scoped.runAs(Scoped.java:73)\r\n2022-04-02T13:36:15.9569312Z -- \tat org.wildfly.security.elytron-web.undertow-server@1.10.1.Final//org.wildfly.elytron.web.undertow.server.ElytronRunAsHandler.handleRequest(ElytronRunAsHandler.java:67)\r\n2022-04-02T13:36:15.9570156Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.handlers.RedirectDirHandler.handleRequest(RedirectDirHandler.java:68)\r\n2022-04-02T13:36:15.9571029Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.handlers.security.SSLInformationAssociationHandler.handleRequest(SSLInformationAssociationHandler.java:117)\r\n2022-04-02T13:36:15.9577439Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.handlers.security.ServletAuthenticationCallHandler.handleRequest(ServletAuthenticationCallHandler.java:57)\r\n2022-04-02T13:36:15.9578757Z -- \tat io.undertow.core@2.2.14.Final//io.undertow.server.handlers.PredicateHandler.handleRequest(PredicateHandler.java:43)\r\n2022-04-02T13:36:15.9579591Z -- \tat io.undertow.core@2.2.14.Final//io.undertow.security.handlers.AbstractConfidentialityHandler.handleRequest(AbstractConfidentialityHandler.java:46)\r\n2022-04-02T13:36:15.9580603Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.handlers.security.ServletConfidentialityConstraintHandler.handleRequest(ServletConfidentialityConstraintHandler.java:64)\r\n2022-04-02T13:36:15.9581907Z -- \tat io.undertow.core@2.2.14.Final//io.undertow.security.handlers.AbstractSecurityContextAssociationHandler.handleRequest(AbstractSecurityContextAssociationHandler.java:43)\r\n2022-04-02T13:36:15.9582955Z -- \tat org.wildfly.security.elytron-web.undertow-server-servlet@1.10.1.Final//org.wildfly.elytron.web.undertow.server.servlet.CleanUpHandler.handleRequest(CleanUpHandler.java:38)\r\n2022-04-02T13:36:15.9584198Z -- \tat io.undertow.core@2.2.14.Final//io.undertow.server.handlers.PredicateHandler.handleRequest(PredicateHandler.java:43)\r\n2022-04-02T13:36:15.9585059Z -- \tat org.wildfly.extension.undertow@26.0.1.Final//org.wildfly.extension.undertow.security.jacc.JACCContextIdHandler.handleRequest(JACCContextIdHandler.java:61)\r\n2022-04-02T13:36:15.9585884Z -- \tat io.undertow.core@2.2.14.Final//io.undertow.server.handlers.PredicateHandler.handleRequest(PredicateHandler.java:43)\r\n2022-04-02T13:36:15.9586960Z -- \tat org.wildfly.extension.undertow@26.0.1.Final//org.wildfly.extension.undertow.deployment.GlobalRequestControllerHandler.handleRequest(GlobalRequestControllerHandler.java:68)\r\n2022-04-02T13:36:15.9588318Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.handlers.SendErrorPageHandler.handleRequest(SendErrorPageHandler.java:52)\r\n2022-04-02T13:36:15.9589051Z -- \tat io.undertow.core@2.2.14.Final//io.undertow.server.handlers.PredicateHandler.handleRequest(PredicateHandler.java:43)\r\n2022-04-02T13:36:15.9589810Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.handlers.ServletInitialHandler.handleFirstRequest(ServletInitialHandler.java:275)\r\n2022-04-02T13:36:15.9590584Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.handlers.ServletInitialHandler.access$100(ServletInitialHandler.java:79)\r\n2022-04-02T13:36:15.9591285Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.handlers.ServletInitialHandler$2.call(ServletInitialHandler.java:134)\r\n2022-04-02T13:36:15.9591982Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.handlers.ServletInitialHandler$2.call(ServletInitialHandler.java:131)\r\n2022-04-02T13:36:15.9592853Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.core.ServletRequestContextThreadSetupAction$1.call(ServletRequestContextThreadSetupAction.java:48)\r\n2022-04-02T13:36:15.9593674Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.core.ContextClassLoaderSetupAction$1.call(ContextClassLoaderSetupAction.java:43)\r\n2022-04-02T13:36:15.9594630Z -- \tat org.wildfly.extension.undertow@26.0.1.Final//org.wildfly.extension.undertow.deployment.UndertowDeploymentInfoService$UndertowThreadSetupAction.lambda$create$0(UndertowDeploymentInfoService.java:1544)\r\n2022-04-02T13:36:15.9595791Z -- \tat org.wildfly.extension.undertow@26.0.1.Final//org.wildfly.extension.undertow.deployment.UndertowDeploymentInfoService$UndertowThreadSetupAction.lambda$create$0(UndertowDeploymentInfoService.java:1544)\r\n2022-04-02T13:36:15.9596854Z -- \tat org.wildfly.extension.undertow@26.0.1.Final//org.wildfly.extension.undertow.deployment.UndertowDeploymentInfoService$UndertowThreadSetupAction.lambda$create$0(UndertowDeploymentInfoService.java:1544)\r\n2022-04-02T13:36:15.9597878Z -- \tat org.wildfly.extension.undertow@26.0.1.Final//org.wildfly.extension.undertow.deployment.UndertowDeploymentInfoService$UndertowThreadSetupAction.lambda$create$0(UndertowDeploymentInfoService.java:1544)\r\n2022-04-02T13:36:15.9598791Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.handlers.ServletInitialHandler.dispatchRequest(ServletInitialHandler.java:255)\r\n2022-04-02T13:36:15.9599545Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.handlers.ServletInitialHandler.access$000(ServletInitialHandler.java:79)\r\n2022-04-02T13:36:15.9600275Z -- \tat io.undertow.servlet@2.2.14.Final//io.undertow.servlet.handlers.ServletInitialHandler$1.handleRequest(ServletInitialHandler.java:100)\r\n2022-04-02T13:36:15.9600913Z -- \tat io.undertow.core@2.2.14.Final//io.undertow.server.Connectors.executeRootHandler(Connectors.java:387)\r\n2022-04-02T13:36:15.9601533Z -- \tat io.undertow.core@2.2.14.Final//io.undertow.server.HttpServerExchange$1.run(HttpServerExchange.java:852)\r\n2022-04-02T13:36:15.9602230Z -- \tat org.jboss.threads@2.4.0.Final//org.jboss.threads.ContextClassLoaderSavingRunnable.run(ContextClassLoaderSavingRunnable.java:35)\r\n2022-04-02T13:36:15.9602945Z -- \tat org.jboss.threads@2.4.0.Final//org.jboss.threads.EnhancedQueueExecutor.safeRun(EnhancedQueueExecutor.java:1990)\r\n2022-04-02T13:36:15.9603799Z -- \tat org.jboss.threads@2.4.0.Final//org.jboss.threads.EnhancedQueueExecutor$ThreadBody.doRunTask(EnhancedQueueExecutor.java:1486)\r\n2022-04-02T13:36:15.9604484Z -- \tat org.jboss.threads@2.4.0.Final//org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1377)\r\n2022-04-02T13:36:15.9605079Z -- \tat org.jboss.xnio@3.8.5.Final//org.xnio.XnioWorker$WorkerThreadFactory$1$1.run(XnioWorker.java:1280)\r\n2022-04-02T13:36:15.9605532Z -- \tat java.base/java.lang.Thread.run(Thread.java:829)\r\n2022-04-02T13:36:15.9606067Z -- Caused by: java.lang.ClassNotFoundException: javax.xml.soap.SOAPException\r\n2022-04-02T13:36:15.9606579Z -- \tat java.base/java.net.URLClassLoader.findClass(URLClassLoader.java:476)\r\n2022-04-02T13:36:15.9607062Z -- \tat java.base/java.lang.ClassLoader.loadClass(ClassLoader.java:589)\r\n2022-04-02T13:36:15.9607530Z -- \tat java.base/java.lang.ClassLoader.loadClass(ClassLoader.java:522)\r\n2022-04-02T13:36:15.9607858Z -- \t... 93 more\r\n```\r\n\r\nThe reason for this exception is, that when RunOnServer is used within this test class, the class is loaded in the container JVM. For some reason, SOAPException cannot be found there. Simple way of fixing this is not using the class in the test class\r\n\r\n### Version\r\n\r\n17.0.1\r\n\r\n### Expected behavior\r\n\r\n_No response_\r\n\r\n### Actual behavior\r\n\r\n_No response_\r\n\r\n### How to Reproduce?\r\n\r\n_No response_\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11090",
+        "assignees": [
+            "mhajas"
+        ],
+        "labels": [
+            "area/saml",
+            "area/testsuite",
+            "kind/bug"
+        ],
+        "issue_closed_at": "2022-04-04T13:53:56.000Z",
+        "fix_commit_hash": "4c20388eb7eb1578c3db4c366823871899aa6693",
+        "commit_type": "pr",
+        "commit_message": "Remove SOAPException from SOAPBindingTest as RunOnServer cannot load it\n\nCloses #11090",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11092",
+        "earliest_issue_date": "2022-04-04T08:26:56Z",
+        "predicted_class": "bug",
+        "bic": [
+            "44000caaf5051d7f218d1ad79573bd3d175cad0d"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11091,
+        "issue_title": "keycloak-core module is using Java 1.8 class while it is set to use Java 1.7",
+        "issue_body": "### Describe the bug\n\nStaxParserUtil is using `java.util.function.BiFunction`, however, it should not as the module is set to use Java 1.7.\r\n\r\nSee:\r\nhttps://github.com/keycloak/keycloak/blob/395bd447f2d5e05254d6150cc720874d9452fea4/saml-core/src/test/java/org/keycloak/saml/common/util/StaxParserUtilTest.java#L25\n\n### Version\n\nmain\n\n### Expected behavior\n\n_No response_\n\n### Actual behavior\n\n_No response_\n\n### How to Reproduce?\n\n_No response_\n\n### Anything else?\n\nWorkaround for IntelliJ IDEA: override the target bytecode version for \"keycloam-common\" module in the IDEA Settings --> Build, Execution, Deployment --> Compiler --> Java Compiler\r\nThis works, at least until next POMs re-import when this will get again set to what's in the POM.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11091",
+        "assignees": [
+            "mhajas"
+        ],
+        "labels": [
+            "kind/bug"
+        ],
+        "issue_closed_at": "2022-04-04T13:52:09.000Z",
+        "fix_commit_hash": "01e16a569d72e67d9cf5c441d8b894b52ccc6909",
+        "commit_type": "pr",
+        "commit_message": "Remove usage of BiFunction from keycloak-core module\n\nCloses #11091",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11093",
+        "earliest_issue_date": "2022-04-04T08:53:39Z",
+        "predicted_class": "bug",
+        "bic": [
+            "7555063ed9e745d5a7ba1ec3fb9b8bae299e996f"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11096,
+        "issue_title": "Do not empty attributes if they are not provided when user profile is enabled",
+        "issue_body": "### Describe the bug\n\nWhen the user declarative profile feature is enabled, attributes that are defined in the User Profile are always present in the user attributes even if they are not set (Admin Panel -> Users -> user -> attibutes tab). \r\n\r\nAlso, on an attempt to update a user through PUT endpoint attributes are removed from the user.\r\n\r\n### Context\r\nWe are using ABAC model and make use of the Keycloak user attributes extensively. To prevent users from accessing areas they should not have access to by modifying their attributes we enabled the Declarative User Profile feature and disabled write access to all the important attributes for the users leavin read access only (via Admin Panel -> Realm settings -> User Profile tab -> Attributes subtab ->  attribute -> Permissions section -> Can user edit = FALSE,  Can user view = TRUE).\r\nAt the same time, administrators should have read and write access for those attributes (via Admin Panel -> Realm settings -> User Profile tab -> Attributes subtab ->  attribute -> Permissions section -> Can admin edit = TRUE,  Can admin view = TRUE). Attributes are not required in our case.\r\n\r\n#### Problem 1\r\nBut when this is configured in this way, administrators can see attributes with empty values in the user attributes page (Admin Panel -> Users -> user -> Attributes tab) even if the attribute has not been set for the user. This is confusing for the administrators.\r\n\r\n#### Problem 2\r\nWe make use of the Admin REST API to make some modifications on the users, for example, update email. But to make it happen it's necessary to send the whole user representation with all the attributes otherwise they will be removed. This makes it necessary to do GET user request first to get full user representation modify it by updating email address and send PUT request to make an update. This introduces unneccessary HTTP call that could be avoided (and can be avoided in case Declarative User Profile feature is disabled)\r\n\n\n### Version\n\n16.1.1\n\n### Expected behavior\n\n1. Attributes that are not set for a user are not shown in the Admin Panel -> Users -> user -> Attributes tab\r\n2. On a request to the `PUT /auth/admin/realms/{realm}/users/{id}` endpoint without `attributes` field in the request body all existing user attributes must preserve as it works when User Declarative Profile Feature is disabled.\n\n### Actual behavior\n\n1. For users without attributes from the User Profile configuration fields are still shown on the user attributes tab in the Admin panel with an empty value\r\n2. On a request to the `PUT /auth/admin/realms/{realm}/users/{id}` endpoint without `attributes` field in the request body all existing user attributes are removed when User Declarative Profile Feature is disabled.\n\n### How to Reproduce?\n\n1. Enable Declarative User Profile feature https://www.keycloak.org/docs/latest/server_admin/index.html#enabling-the-user-profile\r\n2. Create a user with username `test`, email `test@test.com`, and **without any attributes**\r\n3. Go to Admin Panel -> Realm settings -> User Profile tab -> Attributes subtab ->  click Create \r\n4. Create a new attribute with the following parameters and click save:\r\n    a. name: test-attribute\r\n    b. Required: FALSE\r\n    c. Permissions -> Can admin edit: TRUE\r\n    d. Permissions -> Can admin view = TRUE\r\n    e. Permissions -> Can user edit: FALSE\r\n    f. Permissions -> Can user view = TRUE    \r\n5. Go to the user created on the Step 2 Admin Panel -> Users -> user with username `test` (from Step 2) -> Attributes tab\r\n    a. `test-attribute` is shown with empty value even though it's not set for the user. (Actual behavior 1)\r\n6. Set user attribute `test-attribute` value to `Test Value` and save the user\r\n7. Make a PUT request to the `PUT /auth/admin/realms/{realm}/users/{id}` endpoint to update user email for the user created on the step 2. Payload: \r\n```json\r\n{\r\n    \"email\": \"new-email@test.com\"\r\n}\r\n```\r\n8. Check user Admin Panel -> Users -> user with username `test` (from Step 2)\r\n    a. User email has been updated to the `new-email@test.com` (expected), however, \r\n    b. on the User Attributes tab `test-attribute` value is empty (Actual behavior 2) even though it was not present in the PUT request. And this won't happen in case Declarative User Profile feature is not enabled\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11096",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/user-profile",
+            "area/admin/ui"
+        ],
+        "issue_closed_at": "2022-09-08T10:18:37.000Z",
+        "fix_commit_hash": "a544bd859b50d5694d6d2348065d54888b7415b9",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Do not empty attributes if they are not provided when user profile is enabled (#14218)\n\nCloses #11096\r\n\r\nCo-authored-by: Stian Thorgersen <stianst@gmail.com>",
+        "closer_url": null,
+        "earliest_issue_date": "2022-04-04T11:28:03Z",
+        "predicted_class": "bug",
+        "bic": [
+            "32f2f095fe203e8e5e7a8b1f22fffb453999e943"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11108,
+        "issue_title": "Admin console loads keycloak.js from authUrl",
+        "issue_body": "### Describe the bug\n\nThe admin console currently loads keycloak.js from authUrl, which can be problematic as it may be a different URL to the admin console in some cases. It should rather load keycloak.js relative to the admin console.\n\n### Version\n\nmain\n\n### Expected behavior\n\n_No response_\n\n### Actual behavior\n\n_No response_\n\n### How to Reproduce?\n\n_No response_\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11108",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/dist/quarkus"
+        ],
+        "issue_closed_at": "2022-04-06T07:35:26.000Z",
+        "fix_commit_hash": "7c64f28934200cda613bd46625195681673ac256",
+        "commit_type": "pr",
+        "commit_message": "Change admin console to load keycloak.js using a relative URL (#11109)\n\n* Change admin console to load keycloak.js using a relative URL\r\n\r\nCloses #11108\r\n\r\n* fix tests\r\n\r\nCo-authored-by: Dominik Guhr <dguhr@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11109",
+        "earliest_issue_date": "2022-04-05T07:48:21Z",
+        "predicted_class": "bug",
+        "bic": [
+            "23c5199c0c1dcb1808228cfe702194a4a46227d6"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11116,
+        "issue_title": "/clients-registrations API doesn't return secret anymore and is not coherent",
+        "issue_body": "### Describe the bug\r\n\r\nHello,\r\n\r\nWhen when a user create an OIDC Client using endpoint POST `/clients-registrations/default/` a client secret is not generated anymore with keycloak 15. It was with keycloak 11 very same call. No secret provided in the json, if I provide as secret it works but I want to let the API generate one.\r\n\r\nIf I do a PUT after on `/clients-registrations/default/{clientId}` with still no secret in the json, a secret is generated by the PUT api ! It's not coherent with the POST.\r\n\r\nSo only way for a user to know their client secret so far is to perform a useless PUT.\r\n\r\n### Version\r\n\r\n15.1.1\r\n\r\n### Expected behavior\r\n\r\nPOST should generate a Secret\r\n\r\n### Actual behavior\r\nPOST Doesnt generate a Secret\r\nGET doesnt return the secret after a POST\r\nPUT generate the secret\r\nGET return the secret after a PUT\r\n\r\n### How to Reproduce?\r\n\r\n```\r\nresponse = requests.post(\r\n    'https://your_domain.com/auth/realms/your_realm/clients-registrations/default/',\r\n    headers={'Authorization': 'Bearer %s' % your_valid_access_token},\r\n    json={\r\n        \"clientId\": \"test_client\",\r\n        \"name\": \"My Service Name\",\r\n        \"description\": \"This describes what my app is for end users\",\r\n        \"rootUrl\": \"https://root.url.of.my.app\",\r\n        \"redirectUris\": [\r\n            \"https://fullLoginPath\",\r\n            \"/relative/redirect/path\",\r\n            \"/these/can/use/wildcards/*\"\r\n        ],\r\n        \"defaultClientScopes\":[\"openid\"],\r\n        \"optionalClientScopes\":[\"microprofile-jwt\"],\r\n        \"webOrigins\": [\"+\"],\r\n        \"bearerOnly\": False,\r\n        \"consentRequired\": True,\r\n        \"standardFlowEnabled\": True,\r\n        \"implicitFlowEnabled\": False,\r\n        \"directAccessGrantsEnabled\": False,\r\n    })\r\n    ```\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11116",
+        "assignees": [],
+        "labels": [
+            "area/oidc",
+            "kind/bug"
+        ],
+        "issue_closed_at": "2022-05-30T13:18:57.000Z",
+        "fix_commit_hash": "e1213714015fa26568a688718a70f1b95b1ee00c",
+        "commit_type": "pr",
+        "commit_message": "/clients-registrations API doesn't return secret anymore and is not coherent #11116\n\n/clients-registrations API doesn't return secret anymore and is not coherent\n\nfixing merge\n\n/clients-registrations API doesn't return secret anymore and is not coherent\n\nfixing test that was failing\n\nReplace tabs with regular spaces\n\nfixing identation\n\n/clients-registrations API doesn't return secret anymore and is not coherent. Closes #11116\n\nfixing test that was failing",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/12195",
+        "earliest_issue_date": "2022-04-05T13:12:17Z",
+        "predicted_class": "bug",
+        "bic": [
+            "9356843c6c3d7097d010b3bb6f91e25fcaba378c"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11118,
+        "issue_title": "AbstractClientEntity should implement clearUpdatedFlag",
+        "issue_body": "### Describe the bug\n\nIssue https://github.com/keycloak/keycloak/issues/10927 was fixed with the introduction of the `isUpdated` method. However the fix was incomplete because the associated `clearUpdatedFlag` method that should be propagated into the associated protocol mappers was not added.\n\n### Version\n\n17.0.1\n\n### Expected behavior\n\n`clearUpdatedFlag` should be implemented to invoke the same method on the associated protocol mappers, clearing all updated flags.\n\n### Actual behavior\n\nMethod implementation is missing\n\n### How to Reproduce?\n\n_No response_\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11118",
+        "assignees": [
+            "sguilhen"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/storage"
+        ],
+        "issue_closed_at": "2022-04-08T07:36:55.000Z",
+        "fix_commit_hash": "d952669f69ebed2e4ec3605e1eb5b58f8dfb13b2",
+        "commit_type": "pr",
+        "commit_message": "Add clearUpdatedFlag so the flag in associated protocol mappers can be cleared as well\n\nCloses #11118",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11120",
+        "earliest_issue_date": "2022-04-05T13:35:37Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11123,
+        "issue_title": "CodeQL analysis always fails",
+        "issue_body": "### Describe the bug\n\nAs you could see in the current CI runs, the codeQL analysis for Java always fails. See e.g. https://github.com/keycloak/keycloak/runs/5834668485?check_suite_focus=true \n\n### Version\n\ncurrent\n\n### Expected behavior\n\nCodeQL analysis works\n\n### Actual behavior\n\nit fails while initializing with the error message \r\n\r\n```\r\nError: The process '/opt/hostedtoolcache/CodeQL/0.0.0-20220311/x64/codeql/codeql' failed with exit code 2\r\n  Error: The process '/opt/hostedtoolcache/CodeQL/0.0.0-20220311/x64/codeql/codeql' failed with exit code 2\r\n      at toolrunnerErrorCatcher (/home/runner/work/_actions/github/codeql-action/v1/lib/toolrunner-error-catcher.js:86:19)\r\n      at processTicksAndRejections (internal/process/task_queues.js:97:5)\r\n      at async Object.finalizeDatabase (/home/runner/work/_actions/github/codeql-action/v1/lib/codeql.js:[56](https://github.com/keycloak/keycloak/runs/5834668485?check_suite_focus=true#step:7:56)4:13)\r\n      at async finalizeDatabaseCreation (/home/runner/work/_actions/github/codeql-action/v1/lib/analyze.js:104:13)\r\n      at async runFinalize (/home/runner/work/_actions/github/codeql-action/v1/lib/analyze.js:2[60](https://github.com/keycloak/keycloak/runs/5834668485?check_suite_focus=true#step:7:60):5)\r\n      at async run (/home/runner/work/_actions/github/codeql-action/v1/lib/analyze-action.js:78:9)\r\n      at async runWrapper (/home/runner/work/_actions/github/codeql-action/v1/lib/analyze-action.js:212:9)\r\n```\n\n### How to Reproduce?\n\nCreate a PR that triggers the analysis\n\n### Anything else?\n\nas @abstractj pointed out to me it fails since yesterday (2022/04/04)",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11123",
+        "assignees": [
+            "abstractj"
+        ],
+        "labels": [
+            "kind/bug"
+        ],
+        "issue_closed_at": "2022-04-07T10:36:43.000Z",
+        "fix_commit_hash": "eade942482a9a5b76960bf6e0d846fcde5f4d203",
+        "commit_type": "pr",
+        "commit_message": "CodeQL analysis always fails\n\nResolves #11123",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11150",
+        "earliest_issue_date": "2022-04-05T15:08:04Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11134,
+        "issue_title": "Document usage of hostname has to comply with standards",
+        "issue_body": "### Describe the bug\r\n\r\nFollow-up of #10930 (see latest comment) \r\n\r\nAt the moment, we're not checking the value for `hostname` for validity. These checks are also not done by quarkus itself. Validity (as of RFC 952/1123 etc., see https://en.wikipedia.org/wiki/Hostname#Syntax) is needed for keycloak to work correctly. \r\n\r\n### Version\r\n\r\ncurrent\r\n\r\n### Expected behavior\r\n\r\n~~all hostnames are converted to lowercase first, and then checked for general validity. If valid, they should be used, if not, an error should be shown.~~\r\n\r\n\"how to\" for adding the hostname value is added to hostname guide ( see #11139 for details on changing)\r\n### Actual behavior\r\n\r\nKeycloak/Quarkus just accepts invalid hostname values like `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` (more than 253 chars).\r\n \r\n\r\n### How to Reproduce?\r\n\r\nRun e.g. `./kc.sh start --hostname=LOCALHOST --https-certificate-file ../conf/id.keycloak.test.pem --https-certificate-key-file ../conf/id.keycloak.test-key.pem`, create an initial admin user and login to admin console. The admin console will not show up apart from the header menu (see e.g. #10930)  , as the hostname is not standard compliant.\r\n\r\n### Anything else?\r\n\r\n-",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11134",
+        "assignees": [
+            "DGuhr"
+        ],
+        "labels": [
+            "kind/enhancement",
+            "area/dist/quarkus"
+        ],
+        "issue_closed_at": "2022-04-07T18:14:43.000Z",
+        "fix_commit_hash": "9cb38087b48ac018129c218b6d37693dff8f1569",
+        "commit_type": "pr",
+        "commit_message": "Add section about hostname syntax to hostname guide\n\nSuperseeds PR #11139, as validation needs more investigation to work for everyone\n\nCloses #11134",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11162",
+        "earliest_issue_date": "2022-04-06T09:03:08Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11137,
+        "issue_title": "Nullpointer exceptions on resource page",
+        "issue_body": "### Describe the bug\r\n\r\nAfter creating a resource showing the details creates a NPE:\r\n\r\n```\r\n2022-04-06 11:27:56,993 ERROR [org.keycloak.services.error.KeycloakErrorHandler] (executor-thread-3) Uncaught server error: java.lang.NullPointerException\r\n\tat org.keycloak.authorization.jpa.store.JPAPolicyStore.findByResourceType(JPAPolicyStore.java:232)\r\n\tat org.keycloak.authorization.store.PolicyStore.findByResourceType(PolicyStore.java:129)\r\n\tat org.keycloak.models.cache.infinispan.authorization.StoreFactoryCacheSession$PolicyCache.lambda$findByResourceType$6(StoreFactoryCacheSession.java:1014)\r\n\tat org.keycloak.models.cache.infinispan.authorization.StoreFactoryCacheSession$PolicyCache.cacheQuery(StoreFactoryCacheSession.java:1110)\r\n\tat org.keycloak.models.cache.infinispan.authorization.StoreFactoryCacheSession$PolicyCache.cacheQuery(StoreFactoryCacheSession.java:1095)\r\n\tat org.keycloak.models.cache.infinispan.authorization.StoreFactoryCacheSession$PolicyCache.findByResourceType(StoreFactoryCacheSession.java:1014)\r\n\tat org.keycloak.authorization.AuthorizationProvider$3.findByResourceType(AuthorizationProvider.java:415)\r\n\tat org.keycloak.authorization.admin.ResourceSetService.getPermissions(ResourceSetService.java:258)\r\n\tat java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\r\n\tat java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)\r\n\tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n\tat java.base/java.lang.reflect.Method.invoke(Method.java:566)\r\n```\r\n\r\n### Version\r\n\r\nmain branch quarkus build\r\n\r\n### Expected behavior\r\n\r\n_No response_\r\n\r\n### Actual behavior\r\n\r\n_No response_\r\n\r\n### How to Reproduce?\r\n\r\nCreate a resource:\r\n![image](https://user-images.githubusercontent.com/51133/161948953-666e8ecf-1672-45f1-ba13-22687505d625.png)\r\nwith a resource type filled in, go back to the list of resource and expand the details row:\r\n![image](https://user-images.githubusercontent.com/51133/161949395-2454d023-bb08-4147-86d0-7a2c997805ff.png)\r\n\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11137",
+        "assignees": [
+            "pedroigor"
+        ],
+        "labels": [
+            "area/authorization-services",
+            "kind/bug"
+        ],
+        "issue_closed_at": "2022-04-07T18:10:20.000Z",
+        "fix_commit_hash": "f4f59287271f4d057ca2cc833d35d3751f7f605c",
+        "commit_type": "pr",
+        "commit_message": "Add type to filters in MapResourceStore\n\nCloses #11154",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11142",
+        "earliest_issue_date": "2022-04-06T09:55:48Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11148,
+        "issue_title": "The associated policies of a resource returns wrong policies",
+        "issue_body": "### Describe the bug\n\nSee the bug reported here on the UI: https://github.com/keycloak/keycloak-admin-ui/issues/2386\r\nImport the `temp` client of the attached json and see the error in the screen.\n\n### Version\n\n17.0.0\n\n### Expected behavior\n\nShould only return the policies belonging to the resource\n\n### Actual behavior\n\n_No response_\n\n### How to Reproduce?\n\n_No response_\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11148",
+        "assignees": [
+            "pedroigor"
+        ],
+        "labels": [
+            "kind/bug"
+        ],
+        "issue_closed_at": "2022-04-19T07:10:14.000Z",
+        "fix_commit_hash": "c5e4dc8cec224e95d034c957d12978b201350bb8",
+        "commit_type": "pr",
+        "commit_message": "Associated permissions should only add resource type permissions if the resource is an instance (#11220)\n\nCloses #11148",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11220",
+        "earliest_issue_date": "2022-04-06T12:46:10Z",
+        "predicted_class": "bug",
+        "bic": [
+            "b4770c30fdb4bd596bd504eaa3be771b876a0e65"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11154,
+        "issue_title": "MapResourceStore doesn't support searching by `TYPE` in `findByResourceServer` method",
+        "issue_body": "### Describe the bug\n\nNew switch case supporting TYPE needs to be added to the switch statement here: \r\nhttps://github.com/keycloak/keycloak/blob/f11573eeb26f5a3c47374d9f01a2f6616b7ca82b/model/map/src/main/java/org/keycloak/models/map/authorization/MapResourceStore.java#L178-L195\n\n### Version\n\n17.0.1\n\n### Expected behavior\n\n_No response_\n\n### Actual behavior\n\n_No response_\n\n### How to Reproduce?\n\n_No response_\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11154",
+        "assignees": [],
+        "labels": [
+            "kind/bug"
+        ],
+        "issue_closed_at": "2022-04-07T18:10:22.000Z",
+        "fix_commit_hash": "f4f59287271f4d057ca2cc833d35d3751f7f605c",
+        "commit_type": "commit",
+        "commit_message": "Add type to filters in MapResourceStore\n\nCloses #11154",
+        "closer_url": "https://github.com/keycloak/keycloak/commit/f4f59287271f4d057ca2cc833d35d3751f7f605c",
+        "earliest_issue_date": "2022-04-06T15:31:41Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11171,
+        "issue_title": "Model tests for LDAP fail with a message \"Could not unbind DN\" and \"ignoring the message MessageType UNBIND_REQUEST\"",
+        "issue_body": "### Describe the bug\n\nThe model tests are unstable on GitHub action while they seem to complete locally. \r\n\r\nThere seems to be a problem that entities (users) are sometimes not deleted as expected, and then a later test fails when the user or role still exists. \r\n\r\n\r\n\r\n\n\n### Version\n\n18.0.0-SNAPSHOT\n\n### Expected behavior\n\nDeletion in LDAP/ApacheDS should succeed\n\n### Actual behavior\n\nDeletion in LDAP/ApacheDS sometimes fails\n\n### How to Reproduce?\n\nDifficult to reproduce due to environment/timing issues.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11171",
+        "assignees": [
+            "ahus1"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/storage"
+        ],
+        "issue_closed_at": "2022-04-11T08:03:16.000Z",
+        "fix_commit_hash": "5c810ad0e529e81a6dd72800c6b46211320aa6f0",
+        "commit_type": "pr",
+        "commit_message": "Avoid short-lived connections for ApacheDS to avoid messages around \"ignoring the message MessageType UNBIND_REQUEST\"\n\nThe comment in LdapRequestHandler.java in ApacheDS notes just before discarding an unbind request: \"in some cases the session is becoming null though the client is sending the UnbindRequest before closing\".\n\nAlso implementing a retry logic for all remaining errors regarding LDAP.\n\nCloses #11171",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/11172",
+        "earliest_issue_date": "2022-04-07T12:57:39Z",
+        "predicted_class": "bug",
+        "bic": [
+            "ebfc24d6c105971f00f86d1c96fc0dc2aed45bf9"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 11178,
+        "issue_title": "Event for MISSING_REQUIRED_DESTINATION with idp brokering incorrectly says error is related to logout even for a login response",
+        "issue_body": "### Describe the bug\n\nWhen the brokered identity provider returns a signed saml:Response document without a Destination attribute a error event is generated with \"error\" being \"invalid_logout_response\" when this is a Response to a AuthnRequest and not a logout.\r\n\r\n\r\n\n\n### Version\n\n17.0.0\n\n### Expected behavior\n\nevent should contain error=invalid_saml_response or an input dependent error (invalid_logout_response in the case of LogoutResponse and invalid_saml_response in the case of Response).\r\n\r\nFor example, \r\n\r\n`TRACE [org.keycloak.events] (default task-539) type=IDENTITY_PROVIDER_RESPONSE_ERROR, realmId=myrealm, clientId=null, userId=null, ipAddress=xx.xx.xx.xx, error=invalid_saml_response, reason=missing_required_destination, requestUri=...`\r\n\n\n### Actual behavior\n\nEvent logged shows:\r\n\r\n`TRACE [org.keycloak.events] (default task-539) type=IDENTITY_PROVIDER_RESPONSE_ERROR, realmId=myrealm, clientId=null, userId=null, ipAddress=xx.xx.xx.xx, error=invalid_logout_response, reason=missing_required_destination, requestUri=...`\r\n\n\n### How to Reproduce?\n\n_No response_\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/11178",
+        "assignees": [],
+        "labels": [
+            "area/saml",
+            "kind/bug",
+            "help wanted",
+            "release/24.0.0"
+        ],
+        "issue_closed_at": "2024-01-31T08:32:16.000Z",
+        "fix_commit_hash": "346c2926f6e148ad2e3c2c8766c066ed65b2e8ce",
+        "commit_type": "pr",
+        "commit_message": "Fix error type in SAML response on missing destination\n\nWe now use INVALID_SAML_RESPONSE insteadof INVALID_LOGOUT_RESPONSE.\r\nAdded proposed test case.\r\n\r\nCloses #11178\r\n\r\nSigned-off-by: Thomas Darimont <thomas.darimont@googlemail.com>\r\nCo-authored-by: Michal Hajas <mhajas@redhat.com>\r\nCo-authored-by: Chris Dolphy <cdolphy@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/26615",
+        "earliest_issue_date": "2022-04-07T21:13:59Z",
+        "predicted_class": "bug",
+        "bic": [
+            "9984caa2fefa552e98c65601257cf3c5ff02338e"
+        ],
+        "method_type": "rszz"
+    }
+]

@@ -1,0 +1,1351 @@
+[
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47271,
+        "issue_title": "Use of java.util.Random / Math.random() in OID4VC Nonce and Time Claim Generation",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\noid4vc\n\n### Describe the bug\n\nThe OID4VC (OpenID for Verifiable Credentials) credential issuance feature\nuses java.util.Random and Math.random() for two security-sensitive\noperations:\n\n1. *c_nonce length determination* (JwtCNonceHandler.java:86): The length of\n   the cryptographic nonce used in credential proof-of-possession is\n   determined by new Random().nextInt().\n\n2. *Time claim randomization* (TimeClaimNormalizer.java:98): The\n   randomization offset applied to credential time claims (iat, nbf, exp)\n   to prevent issuance time correlation uses Math.random().\n\n\nThis was reported ny @ik0z on 2026-03-17 to the security team. As this is about an experimental OIDC feature, we decided to handle it as a public bug. \n\nBoth java.util.Random and Math.random() are based on a 48-bit Linear\nCongruential Generator (LCG) that is NOT cryptographically secure. Their\noutput is predictable after observing a small number of values.\n\n---\n\nDetailed Reproduction InstructionsStep 1: Verify vulnerable code exists\n\nLocation A - Nonce length uses java.util.Random\n\n```\ngrep -n \"new Random()\" \\\n  services/src/main/java/org/keycloak/protocol/oid4vc/issuance/keybinding/JwtCNonceHandler.java\n```\n\n*Expected output:*\n\n```\n86:        final int nonceLength = NONCE_DEFAULT_LENGTH + new\nRandom().nextInt(NONCE_LENGTH_RANDOM_OFFSET);\n```\n\nLocation B - Time claim uses Math.random()\n\n```\ngrep -n \"Math.random()\" \\\n  services/src/main/java/org/keycloak/protocol/oid4vc/issuance/TimeClaimNormalizer.java\n```\n\n*Expected output:*\n\n```\n98:        long randomOffset = (long) (Math.random() *\n(randomizeWindowSeconds + 1));\n```\n\nStep 2: Confirm these are security-sensitive contexts\n\n*Location A context* (JwtCNonceHandler.java, lines 84-89):\n\n```\nfinal long nowSeconds = Time.currentTime();final long expiresAt =\nnowSeconds + nonceLifetimeSeconds;final int nonceLength =\nNONCE_DEFAULT_LENGTH + new\nRandom().nextInt(NONCE_LENGTH_RANDOM_OFFSET);// this generated value\nitself is basically just a salt-value for the generated tokenfinal\nString strongSalt = Base64.getEncoder().encodeToString(\n    RandomSecret.createRandomSecret(nonceLength));\n```\n\nThe code comment acknowledges this is a \"salt-value\" for a security token.\nThe nonce value itself uses RandomSecret.createRandomSecret() (which uses\nSecureRandom), but the *length* of that value is determined by the weak\nPRNG. A predictable length reduces the entropy space an attacker must\nsearch when brute-forcing nonce values.\n\n*Location B context* (TimeClaimNormalizer.java, lines 97-100):\n\n```\nprivate Instant randomize(Instant original) {\n    long randomOffset = (long) (Math.random() * (randomizeWindowSeconds + 1));\n    return original.minusSeconds(randomOffset);\n}\n```\n\nThis method randomizes time claims in verifiable credentials to prevent\nissuance-time correlation. Math.random() uses a single shared\njava.util.Random instance across all threads in the JVM. Its output\nsequence is globally deterministic after seed recovery.\nStep 3: Minimal reproducible example demonstrating predictability\n\n```\nimport java.util.Random;\n/**\n * Demonstrates that java.util.Random output is predictable.\n * After observing two consecutive nextInt(bound) outputs,\n * all future outputs can be predicted.\n */public class RandomPredictorPoC {\n\n    static final long MULTIPLIER = 0x5DEECE66DL;\n    static final long ADDEND = 0xBL;\n    static final long MASK = (1L << 48) - 1;\n\n    public static void main(String[] args) {\n        // Simulate Keycloak OID4VC issuing credentials\n        int NONCE_LENGTH_RANDOM_OFFSET = 8;  // Example value\n        Random keycloakRandom = new Random();\n\n        // Attacker observes 2 consecutive nonce length outputs\n        int observed1 = keycloakRandom.nextInt(NONCE_LENGTH_RANDOM_OFFSET);\n        int observed2 = keycloakRandom.nextInt(NONCE_LENGTH_RANDOM_OFFSET);\n        System.out.println(\"Observed outputs: \" + observed1 + \", \" + observed2);\n\n        // Attacker brute-forces the 48-bit seed\n        Long recoveredSeed = recoverSeed(observed1, observed2,\nNONCE_LENGTH_RANDOM_OFFSET);\n\n        if (recoveredSeed != null) {\n            System.out.println(\"Seed recovered!\");\n\n            // Predict all future outputs\n            Random predictor = new Random();\n            setSeed(predictor, recoveredSeed);\n            predictor.nextInt(NONCE_LENGTH_RANDOM_OFFSET); // skip observed2\n\n            System.out.println(\"Predicted next outputs:\");\n            for (int i = 0; i < 5; i++) {\n                int predicted = predictor.nextInt(NONCE_LENGTH_RANDOM_OFFSET);\n                int actual = keycloakRandom.nextInt(NONCE_LENGTH_RANDOM_OFFSET);\n                System.out.printf(\"  Predicted: %d, Actual: %d, Match: %b%n\",\n                    predicted, actual, predicted == actual);\n            }\n        }\n    }\n\n    static Long recoverSeed(int out1, int out2, int bound) {\n        for (long seedHigh = 0; seedHigh < (1L << 48); seedHigh++) {\n            long seed = seedHigh;\n            int bits = (int)(seed >>> (48 - 31));\n            int val = (int)((bound * (long)bits) >> 31);\n            if (val == out1) {\n                long nextSeed = (seed * MULTIPLIER + ADDEND) & MASK;\n                bits = (int)(nextSeed >>> (48 - 31));\n                val = (int)((bound * (long)bits) >> 31);\n                if (val == out2) {\n                    return nextSeed;\n                }\n            }\n        }\n        return null;\n    }\n\n    static void setSeed(Random r, long seed) {\n        r.setSeed(seed ^ MULTIPLIER);\n    }\n}\n```\n\nStep 4: Demonstrate impact on credential unlinkability (Math.random)\n\n```\n/**\n * Demonstrates that Math.random() outputs are correlated across threads,\n * allowing de-randomization of time claims in issued credentials.\n */public class TimeClaimCorrelationPoC {\n\n    public static void main(String[] args) {\n        int windowSeconds = 60;\n\n        // Simulate two credentials issued at the same instant\n        long actualIssuanceTime = System.currentTimeMillis() / 1000;\n\n        // Keycloak applies Math.random() offset to each\n        long offset1 = (long) (Math.random() * (windowSeconds + 1));\n        long offset2 = (long) (Math.random() * (windowSeconds + 1));\n\n        long randomizedTime1 = actualIssuanceTime - offset1;\n        long randomizedTime2 = actualIssuanceTime - offset2;\n\n        System.out.println(\"Actual issuance time: \" + actualIssuanceTime);\n        System.out.println(\"Credential 1 iat: \" + randomizedTime1 + \"\n(offset: \" + offset1 + \")\");\n        System.out.println(\"Credential 2 iat: \" + randomizedTime2 + \"\n(offset: \" + offset2 + \")\");\n\n        // Attacker who recovers Math.random() state can reverse the offsets:\n        // actual_time = iat + offset\n        // Revealing both credentials were issued together breaks unlinkability\n        System.out.println(\"\\nWith known offsets, both credentials trace to: \"\n            + (randomizedTime1 + offset1));\n    }\n}\n```\n\n\nImpact\n\n*On c_nonce (Location A):*\n\n   - Predictable nonce length reduces the entropy of the c_nonce value\n   - If NONCE_DEFAULT_LENGTH = 32 and NONCE_LENGTH_RANDOM_OFFSET = 8, the\n   attacker knows the nonce is 32-39 bytes. With length prediction, the search\n   space is reduced to a single known length.\n   - This weakens replay protection in the OID4VC credential issuance\n   protocol\n\n*On time claims (Location B):*\n\n   - Predictable time claim offsets allow an attacker to de-randomize\n   credential timestamps\n   - This breaks the unlinkability property: credentials issued in the same\n   batch can be correlated\n   - This undermines the privacy guarantees of the verifiable credentials\n   ecosystem\n\n\n### Version\n\n26.5.5\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nValues generated should be cryptographically secure.\n\n### Actual behavior\n\nThey are not cryptographically secure\n\n### How to Reproduce?\n\nSee above.\n\n### Anything else?\n\n\n\nSuggested Fix\n\n*JwtCNonceHandler.java* (line 86):\n\n```\n// Before:final int nonceLength = NONCE_DEFAULT_LENGTH + new\nRandom().nextInt(NONCE_LENGTH_RANDOM_OFFSET);\n// After:private static final SecureRandom SECURE_RANDOM = new\nSecureRandom();// ...final int nonceLength = NONCE_DEFAULT_LENGTH +\nSECURE_RANDOM.nextInt(NONCE_LENGTH_RANDOM_OFFSET);\n```\n\n*TimeClaimNormalizer.java* (line 98):\n\n```\n// Before:long randomOffset = (long) (Math.random() *\n(randomizeWindowSeconds + 1));\n// After:private static final SecureRandom SECURE_RANDOM = new\nSecureRandom();// ...long randomOffset =\nSECURE_RANDOM.nextLong(randomizeWindowSeconds + 1);\n```\n",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47271",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/oid4vc",
+            "team/core-clients",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-03-26T16:44:49.000Z",
+        "fix_commit_hash": "b99f1b584276bd65bd4fefa754cf0df546c6f086",
+        "commit_type": "pr",
+        "commit_message": "fix(oid4vc): use SecureRandom for nonce and time claim generation\n\n- replace non-cryptographic PRNG usage (java.util.Random, Math.random)\n- use SecureRandom in JwtCNonceHandler for nonce length generation\n- use SecureRandom in TimeClaimNormalizer for time claim randomization\n- introduce centralized secure random utility (SecretGenerator)\n- ensure uniform and unpredictable randomness in security-sensitive flows\n\nCloses #47271\n\nSigned-off-by: Awambeng Rodrick <awambengrodrick@gmail.com>\n\nAddress review comments from @IngridPuppet\n\nSigned-off-by: Awambeng Rodrick <awambengrodrick@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47475",
+        "earliest_issue_date": "2026-03-18T16:21:37Z",
+        "predicted_class": "bug",
+        "bic": [
+            "8406cf34fb228b185bbfe0ab80c330b9229dd824"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47274,
+        "issue_title": "[OID4VCI] Option 'Pre-Authorized code lifespan' should be renamed",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\noid4vc\n\n### Describe the bug\n\nThe option 'Pre-Authorized code lifespan' should be probably renamed (including it's tooltips and label in the admin console) as it specifies default expiration of credential-offer, which is applied for both authorization_code and pre-authorized code grants (The label and name is confusing as it can imply it is specific to pre-authorized code only).\n\nOption shown in the admin console in the `Tokens` tab (see screenshot)\n\n<img width=\"1183\" height=\"327\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/bcc9154c-0bae-4a20-8de4-ec16e4168b85\" />\n\n\n\nMaybe something like 'Credential-offer default lifespan' would be better name?\n\n### Version\n\nnightly (from 2026-03-18)\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nOption renamed in the admin console and code. Tooltip updated\n\n### Actual behavior\n\nConfusing name and label of the option\n\n### How to Reproduce?\n\nSee description\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47274",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "help wanted",
+            "area/oid4vc",
+            "team/core-clients",
+            "status/auto-bump",
+            "priority/normal",
+            "release/26.7.0"
+        ],
+        "issue_closed_at": "2026-04-10T15:10:16.000Z",
+        "fix_commit_hash": "9130641970250d5d76f922fea0ea190e9bdebaa3",
+        "commit_type": "pr",
+        "commit_message": "Rename 'Pre-Authorized Code Lifespan' to 'Credential Offer Lifespan' (#47563)\n\nCloses #47274\n\n\n\nSigned-off-by: Asish Kumar <officialasishkumar@gmail.com>\nSigned-off-by: Marek Posolda <mposolda@gmail.com>\nCo-authored-by: Claude Opus 4.6 <noreply@anthropic.com>\nCo-authored-by: Marek Posolda <mposolda@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47563",
+        "earliest_issue_date": "2026-03-18T18:31:52Z",
+        "predicted_class": "bug",
+        "bic": [
+            "18e1100d155176151cc9b209781b8dbee4f8f3bb"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47276,
+        "issue_title": "CVE-2026-4366 Blind Server-Side Request Forgery (SSRF) via HTTP Redirect Handling",
+        "issue_body": "### Description\n\nA flaw was identified in Keycloak, an identity and access management solution, where it improperly follows HTTP redirects when processing certain client configuration requests. This behavior allows an attacker to trick the server into making unintended requests to internal or restricted resources. As a result, sensitive internal services such as cloud metadata endpoints could be accessed. This issue may lead to information disclosure and enable attackers to map internal network infrastructure.\n\nExamples include: \n* OIDC `request_uri` parameter as reported by `teaf1001`\n* Dynamic client registration with `sector_identifier_uri`",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47276",
+        "assignees": [
+            "rmartinc"
+        ],
+        "labels": [
+            "area/core",
+            "kind/cve",
+            "team/core-clients",
+            "release/26.4.12",
+            "release/26.7.0",
+            "release/26.6.1"
+        ],
+        "issue_closed_at": "2026-04-14T13:12:28.000Z",
+        "fix_commit_hash": "d4dfca958b612ae1190626fd0d7a3a3bddc324c7",
+        "commit_type": "pr",
+        "commit_message": "Disable automatic redirect handling in the HTTP provider\n\nCloses #47276\n\nSigned-off-by: rmartinc <rmartinc@redhat.com>\nSigned-off-by: Alexander Schwartz <alexander.schwartz@ibm.com>\nCo-authored-by: Alexander Schwartz <alexander.schwartz@ibm.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47992",
+        "earliest_issue_date": "2026-03-19T02:36:57Z",
+        "predicted_class": "bug",
+        "bic": [
+            "b2317dabdcba4bd4e2cc9de82e6d931305bfd404"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47314,
+        "issue_title": "Token Exchange with sender constrained tokens missing cnf claim",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\noidc\n\n### Describe the bug\n\nWhen configuring sender constrained tokens with `tls.client.certificate.bound.access.tokens`, it is expected that access tokens have the \"cnf\" confirmation claim set. However, when performing token exchange the confirmation claim is always omitted from the returned access token.\n\n### Version\n\n26.6.0-SNAPSHOT\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nThe confirmation claim should be set in the returned access code.\n\n### Actual behavior\n\nThe confirmation claim is missing.\n\n### How to Reproduce?\n\n1. Configure a client with `tls.client.certificate.bound.access.tokens`\n2. Request an access token - Claim is present\n3. Exchange the token - Claim is missing in the returned token\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47314",
+        "assignees": [
+            "ryanemerson"
+        ],
+        "labels": [
+            "area/oidc",
+            "kind/enhancement",
+            "priority/important",
+            "team/rh-iam",
+            "team/cloud-native",
+            "team/ui",
+            "team/core-clients",
+            "team/core-iam",
+            "team/core-shared",
+            "team/production-readiness"
+        ],
+        "issue_closed_at": "2026-05-11T11:47:23.000Z",
+        "fix_commit_hash": "81af44c0e916c98ccf7f4eef80328a1065b91837",
+        "commit_type": "pr",
+        "commit_message": "Allow Token Exchange of sender constrained tokens issued for the\noriginal client\n\nCloses #47314\n\nSigned-off-by: Ryan Emerson <remerson@ibm.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47315",
+        "earliest_issue_date": "2026-03-20T09:41:39Z",
+        "predicted_class": "bug",
+        "bic": [
+            "2340adb64c529ad74a37b0be2abd7c2a03f15796"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47321,
+        "issue_title": "[KEYCLOAK CI] - Account UI - unknown_error thrown by NetworkError",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\naccount/ui\n\n### Describe the bug\n\nUnknown flaky error thrown from resources/agent.ts with NetworkError\n\n```\nRunning 20 tests using 2 workers\nunknown_error 500 {\n  error: 'unknown_error',\n  error_description: 'For more on this error consult the server log.'\n}\n\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7F\u00b7\u00b7\u00b7\u00b7\u00b7\n\n  1) [chromium] \u203a test/personal-info/personal-info.spec.ts:136:3 \u203a Realm localization \u203a changes locale \n```\n\n    Error: unknown_error\n\n       at ../../../libs/keycloak-admin-client/src/utils/fetchWithError.ts:26\n\n      24 |     const message = getErrorMessage(responseData);\n      25 |     console.error(message, response.status, responseData);\n    > 26 |     throw new NetworkError(message, {\n         |           ^\n      27 |       response,\n      28 |       responseData,\n      29 |     });\n        at fetchWithError (/home/runner/work/keycloak/keycloak/js/libs/keycloak-admin-client/src/utils/fetchWithError.ts:26:11)\n        at Agent.#requestWithParams (/home/runner/work/keycloak/keycloak/js/libs/keycloak-admin-client/src/resources/agent.ts:247:19)\n\nhttps://github.com/keycloak/keycloak/actions/runs/23242362450/job/67562526359\nhttps://github.com/keycloak/keycloak/actions/runs/23229382043/job/67519744791\nhttps://github.com/keycloak/keycloak/actions/runs/22894888151/job/66427081399\n\n\n### Version\n\nLatest\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nPass\n\n### Actual behavior\n\nFail\n\n### How to Reproduce?\n\nFlaky error on tests\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47321",
+        "assignees": [
+            "jimmychakkalakal"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/account/ui",
+            "flaky-job",
+            "team/core-clients",
+            "team/core-shared",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-04-01T10:53:27.000Z",
+        "fix_commit_hash": "f1055ab5abc34639307fb476f7a9fc3c9bc2f68d",
+        "commit_type": "pr",
+        "commit_message": "Fix/issue 46081 fetch with error throwing network error (#47597)\n\ncloses #46081\n\n\nSigned-off-by: Jimmy Chakkalakal <jimmy.chakkalakal@ibm.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47597",
+        "earliest_issue_date": "2026-03-20T11:28:04Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47332,
+        "issue_title": "Missing release notes entry for OpenTelemetry span attributes location change",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nobservability\n\n### Describe the bug\n\nThe OpenTelemetry span attributes location change introduced in version 26.3 was not documented in the release notes, causing unexpected behavior for users monitoring Keycloak with observability tools.\n\nThe context leak bug was fixed by the: \n- https://github.com/keycloak/keycloak/pull/39620\n\n\n\n### Version\n\n26.3\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nWhen a behavioral change is made that affects how users interact with Keycloak features (in this case, OpenTelemetry tracing), it should be documented in the release notes.\n\n### Actual behavior\n\n The change to OpenTelemetry span attributes location was not documented. Users upgrading from 26.2 to 26.4 discovered that span attributes like `kc.realmName` and `kc.clientId` were no longer available on parent HTTP spans, breaking their monitoring and filtering capabilities.\n\n\n### How to Reproduce?\n\n 1. Upgrade from Keycloak 26.2 to 26.3+                                                                                                                                                                           \n  2. Check release notes for OpenTelemetry or tracing changes\n  3. Notice there's no mention of span attribute location changes                                                                                                                                                  \n  4. Enable tracing and observe that span attributes are now on child spans instead of parent HTTP spans   \n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47332",
+        "assignees": [
+            "mabartos"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "team/cloud-native",
+            "team/production-readiness",
+            "area/observability",
+            "release/26.6.0",
+            "release/26.4.12",
+            "release/26.5.8"
+        ],
+        "issue_closed_at": "2026-03-21T19:44:06.000Z",
+        "fix_commit_hash": "6db76086973e54a1e0cd96e75a0b694fff17c8dd",
+        "commit_type": "pr",
+        "commit_message": "Missing release notes entry for OpenTelemetry span attributes location change (#47333)\n\nCloses #47332\n\nSigned-off-by: Martin Barto\u0161 <mabartos@redhat.com>\nSigned-off-by: Alexander Schwartz <alexander.schwartz@ibm.com>\nCo-authored-by: Alexander Schwartz <alexander.schwartz@ibm.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47333",
+        "earliest_issue_date": "2026-03-20T12:58:17Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47341,
+        "issue_title": "Updating client scope fails if it was saved while the dynamic scopes feature was active in the past",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nadmin/ui\n\n### Describe the bug\n\nWhen a client scope was created while the dynamic-scopes was enabled, and is later updated when the dynamic scopes feature was disabled, then the client scope update fails with:\n`Could not update client scope: 'Unexpected value \"custom:*\" for attribute dynamic.scope.regexp in ClientScope'`.\n\n### Version\n\n26.5.6\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nWhen the dynamic-client scopes feature is disabled, a client scope update should remove the client scope configuration.\n\n### Actual behavior\n\nTrying to save the client scope shows an error message.\n\n### How to Reproduce?\n\n1) Enable dynamic-scopes feature\n2) Create a custom client scope\n3) Save the client scope\n4) Disable dynamic-scopes feature\n5) Try to update the custom client scope (e.g. change description)\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47341",
+        "assignees": [
+            "rmartinc"
+        ],
+        "labels": [
+            "area/oidc",
+            "kind/bug",
+            "priority/important",
+            "area/admin/ui",
+            "team/rh-iam",
+            "team/cloud-native",
+            "team/ui",
+            "team/core-clients",
+            "team/core-iam",
+            "team/core-shared"
+        ],
+        "issue_closed_at": "2026-05-12T21:19:51.000Z",
+        "fix_commit_hash": "1a8af63df020b3c78ae11188006fdafc02c9e374",
+        "commit_type": "pr",
+        "commit_message": "Ignore dynamic scopes when feature is not enabled\n\nCloses #47341\n\nSigned-off-by: rmartinc <rmartinc@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/48881",
+        "earliest_issue_date": "2026-03-20T17:34:21Z",
+        "predicted_class": "bug",
+        "bic": [
+            "3528e7ba548f524fc1677a8a752e7f825a6df415"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47358,
+        "issue_title": "Review release notes about missing items",
+        "issue_body": "### Description\n\nThis catches up with items which were missing from the 26.6 release notes ",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47358",
+        "assignees": [],
+        "labels": [
+            "kind/task",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-03-23T06:58:36.000Z",
+        "fix_commit_hash": "86a44bd37888cf90b25070e1b2486c5bbff31500",
+        "commit_type": "pr",
+        "commit_message": "Review release notes about missing items (#47359)\n\n* Review release notes about missing items\n\nCloses #47358\n\nSigned-off-by: Alexander Schwartz <alexander.schwartz@ibm.com>\n\n* Apply suggestion from @stianst\n\nSigned-off-by: Stian Thorgersen <stianst@gmail.com>\n\n* Apply suggestion from @stianst\n\nSigned-off-by: Stian Thorgersen <stianst@gmail.com>\n\n---------\n\nSigned-off-by: Alexander Schwartz <alexander.schwartz@ibm.com>\nSigned-off-by: Stian Thorgersen <stianst@gmail.com>\nCo-authored-by: Stian Thorgersen <stianst@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47359",
+        "earliest_issue_date": "2026-03-22T14:56:05Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47379,
+        "issue_title": "RetryConfig is ignored",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ncore\n\n### Describe the bug\n\nAny configuration properties defined in RetryConfig (https://www.keycloak.org/server/outgoinghttp#_configuring_retry_behavior_for_outgoing_http_requests) like `spi-connections-http-client-default-max-retries` or `spi-connections-http-client-default-initial-backoff-millis` are ignored.\n\n\nThe reason is because the retry handler built in `DefaultHttpClientFactory.configureRetries` is attached to a Apache HttpClientBuilder that is returned by `getApacheHttpClientBuilder()`.\nThis is done before keycloak's `HttpClientBuilder.build()` is called.\nAfterwards in keycloak's HttpClientBuilder.build() a new Apache HttpClientBuilder is created by calling `getApacheHttpClientBuilder()` again. In this instance no retry handler is attached.\nTherefore the default Apache `DefaultHttpRequestRetryHandler` is used.\n\n### Version\n\n26.5.6\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nThe retry configuration properties should be used to control http retry behavior.\n\n### Actual behavior\n\nThe retry configuration properties are not used.\n\n### How to Reproduce?\n\nConfigure retry e.g. by setting KC_SPI_CONNECTIONS_HTTP_CLIENT_DEFAULT_MAX_RETRIES and check in the debugger if the correct retry handler is set before `builder.build()` is called in `HttpClientBuilder` (line 297).\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47379",
+        "assignees": [
+            "shawkins"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/blocker",
+            "area/core",
+            "team/cloud-native",
+            "team/core-shared",
+            "release/26.6.0",
+            "release/26.4.12",
+            "release/26.5.8"
+        ],
+        "issue_closed_at": "2026-04-07T08:13:56.000Z",
+        "fix_commit_hash": "daf9e69a9ffba25c6aaf6ac49f6bd15814cfd5d2",
+        "commit_type": "pr",
+        "commit_message": "NPE when using HttpClient and enabled tracing (#47687)\n\nCloses #47379\n\nSigned-off-by: Martin Barto\u0161 <mabartos@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47687",
+        "earliest_issue_date": "2026-03-23T17:27:14Z",
+        "predicted_class": "bug",
+        "bic": [
+            "d7aa0042fd3ecbff13f250e41e03df179479e69d"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47386,
+        "issue_title": "[OID4VCI] TokenResponse requires credential_identifiers in authorization_details",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\noid4vc\n\n### Describe the bug\n\nCurrently, we always generate `authorization_details` and return that with the AccessToken Response and include it in the AccessToken JWT\n\n[Section 6.2](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html#section-6.2) of the spec says ...\n\n> authorization_details: REQUIRED when the authorization_details parameter, as defined in [Section 5.1.1](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html#authorization-details), is used in either the [Authorization Request](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html#credential-authz-request) or [Token Request](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html#token-request). OPTIONAL when scope parameter was used to request issuance of a Credential of a certain Credential Configuration. It is a non-empty array of objects, as defined in Section 7 of [[RFC9396](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html#RFC9396)]. In addition to the parameters defined in [Section 5.1.1](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html#authorization-details), this specification defines the following parameter to be used with the authorization details type openid_credential in the Token Response:\n>\n> credential_identifiers: REQUIRED. A non-empty array of strings, each uniquely identifying a Credential Dataset that can be issued using the Access Token returned in this response. Each of these Credential Datasets corresponds to the Credential Configuration referenced in the credential_configuration_id parameter. The Wallet MUST use these identifiers together with an Access Token in subsequent Credential Requests. See [Section 3.3.4](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html#identifying_credential) for the summary of the options how requested Credential(s) are identified throughout the Issuance flow.\n\nOur `authorization_details` always contains the required `credential_configuration_id` and optionally `credential_identifiers` when configured on the credential scope.\n\n`VCICreateCredentialRequest` in OpenID Conformance test `oid4vci-1_0-issuer-happy-flow` verifies that `credential_identifiers` are present (i.e. not optional) when there are `authorization_details` in the AccessToken Response.\n\nCrossRef: https://gitlab.com/openid/conformance-suite/-/work_items/1724\n\n### Expected behavior\n\nOnly return `authorization_details` when ...\n\n* present in Authorization Request\n* present in AccessToken Request\n* credential identifiers configured on the scope \n\nWhen `authorization_details` are returned they must contain (possibly generated) `credential_identifiers`\n\nDependency of #47316 \n",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47386",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "release/26.7.0"
+        ],
+        "issue_closed_at": "2026-04-09T09:50:55.000Z",
+        "fix_commit_hash": "6fe5876f3919a37513cf924e81950ef3cfedc1bc",
+        "commit_type": "pr",
+        "commit_message": "[OID4VCI] TokenResponse requires credential_identifiers in authorization_details (#47404)\n\ncloses #47386\n\n\nSigned-off-by: Thomas Diesler <tdiesler@proton.me>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47404",
+        "earliest_issue_date": "2026-03-24T04:50:04Z",
+        "predicted_class": "bug",
+        "bic": [
+            "d38ee4c1102e174d214cc0af7d4fb8f395f7fe29"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47398,
+        "issue_title": "When adding a ClientProfile the Save button functionality is inconsistent",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nadmin/ui\n\n### Describe the bug\n\nCurrently when adding a Client Profile the Save button is enabled after a save, and can be disabled after a edit. Can also be enabled even if there is no change/additions to executors, just by clicking the window.\n\nThe video comment below this ticket explain the bug: https://github.com/keycloak/keycloak/issues/46623\n\n### Version\n\nlatest\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nSave button should be enabled when user either edits the profile name, adds/deletes executor. If there is no change to any of these after a save, it shouldn't be enabled.\n\n### Actual behavior\n\nmentioned in the ticket\n\n### How to Reproduce?\n\nmentioned in the ticket\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47398",
+        "assignees": [
+            "gaoyikeshuer"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/core-clients",
+            "team/core-shared",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-04-01T15:24:36.000Z",
+        "fix_commit_hash": "4b1d0a88bde36dbd2f818b250962eebfd3100c55",
+        "commit_type": "pr",
+        "commit_message": "Fix save button inconsistent issue (#47686)\n\nCloses #47398\n\n\nSigned-off-by: Yike Gao <yikegao8@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47686",
+        "earliest_issue_date": "2026-03-24T12:50:59Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47412,
+        "issue_title": "Typos in docs: OpenTelementry",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ndocs\n\n### Describe the bug\n\nAt least 2 docs have a typo: OpenTelementry\n\n1) Upgrading guide 26.5.0\nhttps://github.com/keycloak/keycloak/blob/3f1567c7afa0fc08bddc7af14559108a15fb3f92/docs/documentation/upgrading/topics/changes/changes-26_5_0.adoc?plain=1#L230\n\n2) Root cause analysis with tracing\nhttps://github.com/keycloak/keycloak/blob/3f1567c7afa0fc08bddc7af14559108a15fb3f92/docs/guides/observability/tracing.adoc?plain=1#L8\n\n### Version\n\n26.5.6\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nOpenTelemetry should be used instead\n\n### Actual behavior\n\nOpenTelementry\n\n### How to Reproduce?\n\nOpen the docs mentioned above\n\n### Anything else?\n\nConsider using some automatic tools to prevent typos, e.g. GitHub CoPilot is pretty skillful during review pull requests to find such mistakes.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47412",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/docs",
+            "help wanted",
+            "status/auto-expire",
+            "status/auto-bump",
+            "priority/normal",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-03-25T08:01:27.000Z",
+        "fix_commit_hash": "9dbdde84d6516c252061bd8c645001a30cb3b0dd",
+        "commit_type": "commit",
+        "commit_message": "fix typo in documents (#47420)\n\nCloses #47412",
+        "closer_url": "https://github.com/keycloak/keycloak/commit/9dbdde84d6516c252061bd8c645001a30cb3b0dd",
+        "earliest_issue_date": "2026-03-24T19:10:24Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47418,
+        "issue_title": "Agroal: Login timeout should be smaller than acquisition timeout",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ndist/quarkus\n\n### Describe the bug\n\nWhen starting the nightly build, it logs the following warning: \n\n> WARN  [io.agroal.pool] (JPA Startup Thread) Datasource '<default>': Login timeout should be smaller than acquisition timeout\n\nThe warning disappears when I add \n\n`--db-connect-timeout=5s`\n\nto the parameters. \n\n### Version\n\nmain\n\n### Regression\n\n- [x] The issue is a regression\n\n### Expected behavior\n\nThere should be no warning\n\n### Actual behavior\n\nThere is a warning\n\n### How to Reproduce?\n\nUse the standard parameters to start Keycloak:\n\n```\nkc.sh --verbose start --hostname-strict false \\\n--http-enabled true\n```\n\n### Anything else?\n\nThis is most likely a regression towards https://github.com/keycloak/keycloak/pull/47263\n\nIt seems to me that the check in Agroal makes sense. We could change the default from 10 seconds to 5 seconds for the upcoming release. \n\n5 seconds is currently the default DB connection acquisition timeout in Keycloak. If we change this for 26.6, this might be ok. If we change it later for a patch release, we might need to highlight this in the release notes.  ",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47418",
+        "assignees": [
+            "ruchikajha95"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/dist/quarkus",
+            "team/production-readiness",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-04-01T06:24:58.000Z",
+        "fix_commit_hash": "8bb76fca7b6ae0735c74d045cbc3384663e5565d",
+        "commit_type": "pr",
+        "commit_message": "Bug Fix: Agroal: Login timeout should be smaller than acquisition timeout\n\nCloses #47418\n\nSigned-off-by: Ruchika <ruchika.jha1@ibm.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47609",
+        "earliest_issue_date": "2026-03-24T23:24:18Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47421,
+        "issue_title": "Flaky test: org.keycloak.testsuite.model.session.OfflineSessionPersistenceTest#testPersistenceMultipleNodesClientSessionAtSameNode",
+        "issue_body": "## org.keycloak.testsuite.model.session.OfflineSessionPersistenceTest#testPersistenceMultipleNodesClientSessionAtSameNode\n[Keycloak CI - Store Model Tests](https://github.com/keycloak/keycloak/actions/runs/23525190828/job/68477390622)\n\n```\njava.lang.AssertionError: \nthreads didn't terminate in time: [main (TIMED_WAITING): locked on java.util.concurrent.FutureTask@284a283 waiting for 72461 ms blocked for 1 ms\n\tat java.base@25.0.2/jdk.internal.misc.Unsafe.park(Native Method)\n\tat java.base@25.0.2/java.util.concurrent.locks.LockSupport.parkNanos(LockSupport.java:271)\n\tat java.base@25.0.2/java.util.concurrent.FutureTask.awaitDone(FutureTask.java:508)\n...\n```\n",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47421",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/ci",
+            "flaky-test",
+            "team/core-iam",
+            "release/26.7.0"
+        ],
+        "issue_closed_at": "2026-04-29T20:01:55.000Z",
+        "fix_commit_hash": "228550ba8fb0f85e47f54f16f0c7f83a1a017e08",
+        "commit_type": "pr",
+        "commit_message": "Start Keycloak sequentially in model tests\n\nCloses #47421\nCloses #47832\nCloses #47834\nCloses #47833\nCloses #47835\nCloses #47925\nCloses #47979\nCloses #47990\nCloses #47978\nCloses #48121\nCloses #48120\nCloses #48230\nCloses #48443\nCloses #48441\nCloses #48442\n\nSigned-off-by: Pedro Ruivo <1492066+pruivo@users.noreply.github.com>\nCo-authored-by: Pedro Ruivo <1492066+pruivo@users.noreply.github.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/48523",
+        "earliest_issue_date": "2026-03-25T06:00:30Z",
+        "predicted_class": "bug",
+        "bic": [
+            "71e7982a4964efddd644be6988b3cb9f817ecd15"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47427,
+        "issue_title": "New link error in documentation to facebook",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ndocs\n\n### Describe the bug\n\nThere is a new link error in the documentation:\n\n```\n[05](https://github.com/rmartinc/keycloak/actions/runs/23537130735/job/68515101729#step:5:4006)\nError:  Failures: \nError:    ExternalLinksTest.checkExternalLinks:41 Broken links (1) in guide 'server_admin': \n\t\t- https://developers.facebook.com/docs/facebook-login/guides/access-tokens (invalid redirect to https://developers.facebook.com/documentation/facebook-login/guides/access-tokens)\n```\n\nFor example in this run: https://github.com/rmartinc/keycloak/actions/runs/23537130735/job/68515101729\n\n### Version\n\n999.0.0-SNAPSHOT\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nNo errors in the documentation.\n\n### Actual behavior\n\nThe error commented.\n\n### How to Reproduce?\n\n```bash\ncd docs/documentation\nmvn clean install\n```\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47427",
+        "assignees": [
+            "rmartinc"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/docs",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-03-25T18:30:31.000Z",
+        "fix_commit_hash": "90f64adc60e753aba7392881d401f4b8ad4637c7",
+        "commit_type": "pr",
+        "commit_message": "Set default values using dot notation, which is how they were registered.\n\nFixes #47110\n\nSigned-off-by: Stan Silvert <ssilvert@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47430",
+        "earliest_issue_date": "2026-03-25T10:59:47Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47431,
+        "issue_title": "Organization feature will only show linked IDPs if the user has already one linked",
+        "issue_body": "\n### Discussed in https://github.com/keycloak/keycloak/discussions/43295\n\n## Problem\n\nWhen a user already has a federated identity linked to any IdP, the Keycloak login page only shows IdPs the user is already linked to \u2014 all other available IdPs (public or organization-connected) are hidden.\n\nThis is caused by filtering logic in `IdentityProviderBean` that checks whether a user has existing federated identities. If they do, only linked IdPs are displayed. This preserves legacy behavior from `LoginFormsUtil.filterIdentityProviders`.\n\n## Use Cases Affected\n\n- **Multi-IdP organizations:** An organization has multiple IdPs (e.g., test and production environments with the same email domain but different mappers). Once a user links to one, they cannot see or link to the other.\n- **IdP migrations:** When a customer migrates from one SSO provider to another, users linked to the old IdP cannot see the new one on the login page.\n- **Shared-domain organizations:** Multiple organizations or IdPs serve users with the same email domain.\n\n## Expected Behavior\n\nUsers who are members of an organization should be able to see and use all IdPs associated with that organization, regardless of whether they already have a federated identity linked to a different IdP.\n\n## Root Cause Analysis\n\nThe filtering happens in two layers:\n\n### Layer 1: `IdentityProviderBean.java`\n\n```java\npublic List<IdentityProvider> getProviders() {\n    String existingIDP = this.getExistingIDP(session, context);\n    Set<String> federatedIdentities = this.getLinkedBrokerAliases(session, realm, context);\n    if (federatedIdentities != null) {\n        this.providers = getFederatedIdentityProviders(federatedIdentities, existingIDP);\n    } else {\n        this.providers = searchForIdentityProviders(existingIDP);\n    }\n    return this.providers;\n}\n```\n\nIf a user has *any* federated identities, `getLinkedBrokerAliases()` returns only those aliases, and `getFederatedIdentityProviders()` filters to just those. All other IdPs vanish. The check : `if (!federatedIdentities.isEmpty() || organizationsDisabled(realm))` restricts to linked IdPs only.\n\n### Layer 2: `OrganizationAwareIdentityProviderBean.java`\n\nAdds org-aware filtering on top, using the `HIDE_IDP_ON_LOGIN_WHEN_ORGANIZATION_UNKNOWN` config flag. But this only hides org IdPs when no org context is set \u2014 it does **not** override the base filtering from Layer 1.\n\nSo once a user links to any IdP, the base `IdentityProviderBean` logic drops all other IdPs (including org-linked ones) before the org-aware layer even runs.\n\n## Intersection with #31705 (Shared IdPs Between Orgs)\n\nThere is a plan to allow assigning more than one IdP to an Organization. \n\nThe two issues are independent, but #31705 is finished first the proposed solution should be directly *Option B*. see below.\n\n## Proposed Solution\n\nIntroduce a configurable option that controls whether unlinked IdPs are still shown to members who already have a federated identity elsewhere. When enabled, the login page would display all organization-linked IdPs for org members, not just the ones they are already linked to.\n\n### Where should the setting live?\n\n**Option A: On `IdentityProviderModel.config` (per-IdP setting)**\n- Stored in `IDENTITY_PROVIDER_CONFIG` table as e.g. `kc.org.broker.show-when-linked-elsewhere`\n- Follows the existing pattern (`HIDE_ON_LOGIN`, `LINK_ONLY`, `HIDE_IDP_ON_LOGIN_WHEN_ORGANIZATION_UNKNOWN`)\n- Simple to implement today with the current 1:1 org-IdP data model\n- **Downside:** It's a property of the IdP, not the org-IdP *relationship*. Once #31705 makes IdPs shareable across orgs, different orgs might want different values for this setting on the same IdP \u2014 which this approach can't express.\n\n**Option B: On the org-IdP relationship (join table)**\n- Would require a new join table `ORGANIZATION_IDENTITY_PROVIDER` with per-association config columns\n- This is exactly what #31705 needs anyway for the M:N relationship\n- The setting becomes per-(org, IdP) pair \u2014 e.g., org A wants to show its unlinked IdPs, org B does not\n\n--- \n\nSo in *short-term* we can store the setting on `IdentityProviderModel.config`. It's consistent with existing patterns and is a small, focused change. The fix in `IdentityProviderBean.getLinkedBrokerAliases()` would check: if orgs are enabled and the IdP has this flag set, include it in results even when the user has other federated identities.\n\nIn **long-term (with #31705):** When the join table is introduced for M:N, migrate this setting to a per-association config on the join table. This is a natural part of the #31705 work since several other per-IdP configs (like `ORGANIZATION_DOMAIN_ATTRIBUTE`) also need to become per-association.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47431",
+        "assignees": [
+            "vramik"
+        ],
+        "labels": [
+            "kind/enhancement",
+            "team/core-iam",
+            "area/organizations",
+            "release/26.7.0"
+        ],
+        "issue_closed_at": "2026-04-15T11:57:40.000Z",
+        "fix_commit_hash": "cb0709694f19f52d9efc6024a02b0919e0843cf7",
+        "commit_type": "pr",
+        "commit_message": "Allow organization IdPs for members linked to another broker\n\nCloses #47431",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47634",
+        "earliest_issue_date": "2026-03-25T11:34:31Z",
+        "predicted_class": "bug",
+        "bic": [
+            "f010f7df9bc3031a42f3524ff4e3653d24310816"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47435,
+        "issue_title": "AuroraDB IT CI workflow not cleaning up databases",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ntestsuite\n\n### Describe the bug\n\nThe DB-deletion step in AuroraDB IT workflow is failing for some reason, leaving provisioned databases in AWS.\n\nhttps://github.com/keycloak/keycloak/actions/runs/22711750037/job/65851325183\nhttps://github.com/keycloak/keycloak/actions/runs/22724112675/job/65894199611\nhttps://github.com/keycloak/keycloak/actions/runs/22521457278/job/65246847311\n\n### Version\n\n-\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nDB teardown step executed succesfully, even if previous steps fail.\n\n### Actual behavior\n\naurora-delete workflow failing\n\n### How to Reproduce?\n\nRun Keycloak CI workflow which includes AuroraDB IT workflow.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47435",
+        "assignees": [
+            "ahus1"
+        ],
+        "labels": [
+            "area/testsuite",
+            "kind/bug",
+            "priority/important",
+            "team/continuous-delivery",
+            "release/26.4.12",
+            "release/26.7.0",
+            "release/26.6.1"
+        ],
+        "issue_closed_at": "2026-04-07T12:34:49.000Z",
+        "fix_commit_hash": "1abce3ac8b80f9b3a152da503517468c6b60f6d1",
+        "commit_type": "pr",
+        "commit_message": "Avoid running CI on copilot branches\n\nCloses #47435\n\nSigned-off-by: Alexander Schwartz <alexander.schwartz@ibm.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47800",
+        "earliest_issue_date": "2026-03-25T13:05:01Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47444,
+        "issue_title": "Inaccuracies in client federation documentation and tooltips",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nidentity-brokering\n\n### Describe the bug\n\nI found few problem with client-auth-federated feature.\n\n1) The feature is already supported in the code, but still has \"Preview\" warning in the documentation.\n\n<img width=\"1344\" height=\"382\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/2811639c-7c0c-4d78-b42e-cf2e5e189fbf\" />\n\n2) There are missing tooltips for `Supports client assertions` and `Allows client assertions to be re-used`\n\n<img width=\"501\" height=\"382\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/ada8b483-4f2d-4052-84e8-37bb83eaaed8\" />\n\n3) The documentation for `Supports client assertions` is not accurate in the identity provider chapter - https://www.keycloak.org/docs/nightly/server_admin/index.html#_identity_broker_oidc . It mentions that `Validate Signatures must be enabled as well.`, which is not accurate. It rather requires to setup `Issuer` and keys (for example by `JWKS URL`)\n\n4) The switch for `Validate signature` option of OIDC IDP seems to be slightly confusing as it mentions `For Federated Client Authentication and JWT Authorization Grant, the signature validation is always used regardless of the value of this switch.`. However this is confusing as tokens obtained after user authentication with OIDC IDP (EG. ID token) are not automatically verified when `JWT Authorization grant` or `Federated client authentication` is enabled. It probably worked like that at some point, but it is not anymore.\n\n### Version\n\nnightly (from 2026-03-25)\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nAccurate documentation and tooltips\n\n### Actual behavior\n\nInaccurate documentation and tooltips\n\n### How to Reproduce?\n\nSee description\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47444",
+        "assignees": [
+            "mposolda"
+        ],
+        "labels": [
+            "area/oidc",
+            "kind/bug",
+            "priority/important",
+            "area/identity-brokering",
+            "team/core-clients",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-03-26T09:01:32.000Z",
+        "fix_commit_hash": "02be20e9fa278db6dd616da6ca76421abbc831c6",
+        "commit_type": "pr",
+        "commit_message": "Inaccuracies in client federation documentation and tooltips\ncloses #47444\n\nSigned-off-by: mposolda <mposolda@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47445",
+        "earliest_issue_date": "2026-03-25T13:54:45Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47452,
+        "issue_title": "Deployed Javascript policy description not displayed in the Keycloak console",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nauthorization-services\n\n### Describe the bug\n\nThe deployed policy description is never displayed in the UI when selecting the policy type\n\n<img width=\"834\" height=\"694\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/21b7ef28-812f-4fcc-a0bb-3710992ba073\" />\n\n### Version\n\n26.6.0 Nightly\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nThe policy description should be displayed\n\n### Actual behavior\n\nThe policy description is missing\n\n### How to Reproduce?\n\nDeploy a javascript policy in a jar file with a `META-INF/keycloak-scripts.json` similar to:\n\n```json\n{\n  \"policies\": [\n    {\n      \"name\": \"Own User or Same Team Manager Policy\",\n      \"fileName\": \"own-user-or-same-team-manager.js\",\n      \"description\": \"Grants access if the user is viewing their own profile, or if they are a manager in the same team as the target user\"\n    }\n  ]\n}\n```\n\nGo to \"Create client policy\" on the Client -> Authorization -> Policies screen.\n\n### Anything else?\n\nThe description is also not displayed once the policy has been created.\n\n<img width=\"1413\" height=\"395\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/eb7e48a7-fae4-44b3-b9a2-e92ced542217\" />",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47452",
+        "assignees": [],
+        "labels": [
+            "area/authorization-services",
+            "kind/bug",
+            "team/core-iam",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-04-02T15:37:58.000Z",
+        "fix_commit_hash": "00c0dee3c46b3ee58ce728cc6230115d3840618d",
+        "commit_type": "pr",
+        "commit_message": "Display Javascript policy description and code in admin UI\n\nCloses #47452\n\nSigned-off-by: Ryan Emerson <remerson@ibm.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47712",
+        "earliest_issue_date": "2026-03-25T15:58:17Z",
+        "predicted_class": "bug",
+        "bic": [
+            "99c06d11023689875b48ef56442c90bdb744c869"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47454,
+        "issue_title": "Workflows editor uses proportional font instead of monospace",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nadmin/ui\n\n### Describe the bug\n\n[Complaint ](https://github.com/keycloak/keycloak/issues/39888#issuecomment-4126664571)from @dasniko.\n\nWhy the (workflows) editor uses a proportional font and not monospace?\nIMHO monospace would make more sense when dealing (fighting) with YAML.\n\n### Version\n\nmain\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nUse monospace font.\n\n### Actual behavior\n\nproportional font\n\n### How to Reproduce?\n\nUse the workflows editor.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47454",
+        "assignees": [
+            "ssilvert"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/core-shared",
+            "status/auto-bump",
+            "priority/normal",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-03-26T14:59:27.000Z",
+        "fix_commit_hash": "5e12f2939ec6bf6ebea62a7dc606ace285b6973a",
+        "commit_type": "pr",
+        "commit_message": "Try to use native monospaced fonts for wf editor\n\nFixes #47454\n\nSigned-off-by: Stan Silvert <ssilvert@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47456",
+        "earliest_issue_date": "2026-03-25T18:53:14Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47473,
+        "issue_title": "[quarkus-next] Fix operator controller stalling after JOSDK 5.3.0 event filtering upgrade",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ndist/quarkus\n\n### Describe the bug\n\n`KeycloakController.reconcile()` stalls after patching spec defaults (e.g., setting `instances=1` on a new CR). The controller relied on the self-triggered update event to re-enter reconciliation, but JOSDK 5.3.0's event filtering now drops these events as expected[1][2]. Without a follow-up reconciliation, the workflow never runs and the status is never set.\n\nThis caused `ClusteringTest.testKeycloakScaleAsExpected` to fail on `quarkus-next` since QOSDK 7.7.0 / JOSDK 5.3.0.\n\n[1] [#3155](https://github.com/operator-framework/java-operator-sdk/pull/3155) - started classify events as OBSOLETE\n[2] [#3207](https://github.com/operator-framework/java-operator-sdk/pull/3207) - started to drop OBSOLETE events\n\n### Version\n\nnightly\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nStable Operator CI\n\n### Actual behavior\n\n`ConditionTimeoutException: ...K8sUtils null within 5 minutes.`\nStatus remains null because the operator never reconciles the CR.\n\nFirst failure: https://github.com/keycloak/keycloak/actions/runs/23273787695\n\n### How to Reproduce?\n\n```\ncd operator\nmvn clean verify -Poperator -pl :keycloak-operator -am \\\n  -Dquarkus.kubernetes.image-pull-policy=IfNotPresent \\\n  -Dquarkus.container-image.build=true \\\n  -Dquarkus.docker.executable-name=podman \\\n  -Dkc.operator.keycloak.image=localhost/keycloak:test \\\n  -Dquarkus.kubernetes.env.vars.kc-operator-keycloak-image-pull-policy=Never \\\n  -Dtest.operator.custom.image=localhost/custom-keycloak:test \\\n  -Dtest.operator.deployment=remote \\\n  -Dtest=ClusteringTest \\\n  --no-transfer-progress\n```\n\n### Anything else?",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47473",
+        "assignees": [
+            "Pepo48"
+        ],
+        "labels": [
+            "kind/bug",
+            "team/cloud-native",
+            "area/operator",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-03-27T08:34:29.000Z",
+        "fix_commit_hash": "ca658e8a4ac724ff0cdab5fcccdba63b26fcdcde",
+        "commit_type": "pr",
+        "commit_message": "[quarkus-next] Fix operator controller stalling after JOSDK 5.3.0 event filtering upgrade (#47474)\n\nCloses: #47473\n\nSigned-off-by: Peter Zaoral <pzaoral@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47474",
+        "earliest_issue_date": "2026-03-26T10:54:36Z",
+        "predicted_class": "bug",
+        "bic": [
+            "ec86d16c43f157173445f89cdb67e7072aac327a"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47476,
+        "issue_title": "[OID4VCI] SIGNED_METADATA_ENABLED_ATTR from OID4VCI admin UI and always show signed metadata settings",
+        "issue_body": "### Description\n\nRemove the oid4vci.signed_metadata.enabled toggle from the OID4VCI admin UI and always show the signed metadata lifespan and signing algorithm settings, since signed metadata is now determined by Accept: application/jwt negotiation rather than a realm-level enable/disable flag.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47476",
+        "assignees": [],
+        "labels": [
+            "kind/task",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-03-27T15:23:15.000Z",
+        "fix_commit_hash": "f9a1016a8d497596b6c2c30c31be2c0f64fe196d",
+        "commit_type": "pr",
+        "commit_message": "[OID4VCI] Remove signed metadata toggle from admin UI (#47515)\n\nCloses #47476\n\n\nSigned-off-by: Ogenbertrand <ogenbertrand@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47515",
+        "earliest_issue_date": "2026-03-26T12:06:49Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47477,
+        "issue_title": "Flaky test: org.keycloak.testsuite.forms.AuthenticatorSubflowsTest2#testSubflow2",
+        "issue_body": "## org.keycloak.testsuite.forms.AuthenticatorSubflowsTest2#testSubflow2\n[Keycloak CI - Forms IT (chrome)](https://github.com/keycloak/keycloak/actions/runs/23588350921/job/68687785686) / [Pull Request #47467](https://github.com/keycloak/keycloak/pull/47467)\n\n```\njava.lang.AssertionError: Expected AppPage but was PushTheButton (https://localhost:8543/auth/realms/test/login-actions/authenticate?execution=ab6d1bb4-bc91-43a0-ab9b-37e1351fa799&client_id=test-app&tab_id=L7rH9CBZprQ&client_data=eyJydSI6Imh0dHBzOi8vbG9jYWxob3N0Ojg1NDMvYXV0aC9yZWFsbXMvbWFzdGVyL2FwcC9hdXRoIiwicnQiOiJjb2RlIn0)\n\tat org.junit.Assert.fail(Assert.java:89)\n\tat org.junit.Assert.assertTrue(Assert.java:42)\n\tat org.keycloak.testsuite.pages.AbstractPage.assertCurrent(AbstractPage.java:39)\n\tat java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)\n...\n```\n",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47477",
+        "assignees": [
+            "msdaly200"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/ci",
+            "flaky-test",
+            "team/core-authn",
+            "release/26.7.0"
+        ],
+        "issue_closed_at": "2026-04-24T09:40:18.000Z",
+        "fix_commit_hash": "a79ade65c183a491813e2c5206537a69a329a69c",
+        "commit_type": "pr",
+        "commit_message": "wait for AppPage to load\n\nCloses #47477\n\nSigned-off-by: Marie Daly <marie.daly1@ibm.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/48431",
+        "earliest_issue_date": "2026-03-26T12:14:31Z",
+        "predicted_class": "bug",
+        "bic": [
+            "d593ac3e6fa28f98c3ea99ada29564791d467731"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47485,
+        "issue_title": "CVE-2026-33871 HTTP/2 CONTINUATION Frame Flood Denial of Service",
+        "issue_body": "https://github.com/netty/netty/security/advisories/GHSA-w9fj-cfpg-grvv\n\nA fix will require upgrading to Netty 4.1.132.Final via Quarkus.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47485",
+        "assignees": [],
+        "labels": [
+            "priority/blocker",
+            "team/cloud-native",
+            "kind/cve",
+            "release/26.7.0",
+            "release/26.6.2",
+            "release/26.4.13"
+        ],
+        "issue_closed_at": "2026-05-05T12:29:39.000Z",
+        "fix_commit_hash": "5ef7e078120eb2420b800b0f539ab18b489ec2bf",
+        "commit_type": "pr",
+        "commit_message": "Upgrade to Quarkus 3.33.1.1 (#48688)\n\nCloses #48687\nCloses #48275\nCloses #48570\nCloses #47485\nCloses #47486\n\nSigned-off-by: V\u00e1clav Muzik\u00e1\u0159 <vmuzikar@ibm.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/48688",
+        "earliest_issue_date": "2026-03-26T15:31:23Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47486,
+        "issue_title": "CVE-2026-33870 RFC violation: HTTP Request Smuggling primitive via Chunked Extension Quoted-String Parsing",
+        "issue_body": "https://github.com/netty/netty/security/advisories/GHSA-pwqr-wmgm-9rr8\n\nA fix will require upgrading to Netty 4.1.132.Final via Quarkus.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47486",
+        "assignees": [],
+        "labels": [
+            "priority/blocker",
+            "team/cloud-native",
+            "kind/cve",
+            "release/26.7.0",
+            "release/26.6.2",
+            "release/26.4.13"
+        ],
+        "issue_closed_at": "2026-05-05T12:29:39.000Z",
+        "fix_commit_hash": "5ef7e078120eb2420b800b0f539ab18b489ec2bf",
+        "commit_type": "commit",
+        "commit_message": "Upgrade to Quarkus 3.33.1.1 (#48688)\n\nCloses #48687\nCloses #48275\nCloses #48570\nCloses #47485\nCloses #47486\n\nSigned-off-by: V\u00e1clav Muzik\u00e1\u0159 <vmuzikar@ibm.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/commit/5ef7e078120eb2420b800b0f539ab18b489ec2bf",
+        "earliest_issue_date": "2026-03-26T15:32:02Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47495,
+        "issue_title": "JavaKeystoreKeyProvider generates a new random KID for symmetric keys (HMAC) on every restart or config change",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nauthorization-services\n\n### Describe the bug\n\nWhen using the java-keystore provider with symmetric keys (e.g., HS512, HS256), the KID (Key ID) is not stable. If the Keycloak server restarts or the java key provider config changes, the provider generates a new random KID.\n\nIn JavaKeystoreKeyProvider.java, the createKeyWrapper method initializes the KeyWrapper:\n`keyWrapper.setKid(model.get(Attributes.KID_KEY, KeycloakModelUtils.generateId()));`\n\nThe logic checks if Attributes.KID_KEY exists in the component model. For symmetric key keystore configurations, this attribute is not persisted or explicitly set during the initial setup of the java-keystore provider. ConsequentlykeyWrapper.setKid(model.get(Attributes.KID_KEY, KeycloakModelUtils.generateId()));, it falls back to KeycloakModelUtils.generateId(), which creates a new UUID every time the provider is instantiated.\n\nThis causes all previously issued tokens signed with that secret to fail validation, as the ServerMacSignatureVerifierContext cannot find a matching KID in the current realm keys.\n\n\n\n\n\n### Version\n\n26.4.7 but it also same in latest version\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nThe KID should be stable. It should ideally be derived from the alias name in the keystore or be persisted in the component configuration (KID_KEY attribute) upon the first load so that it remains identical across server restarts.\n\n### Actual behavior\n\nA new random KID is generated on every provider initialization, breaking token transition and validation.\n\n### How to Reproduce?\n\n- Create a Java Keystore (JKS) containing a SecretKey (for HS512).\n- In Keycloak, go to Realm Settings -> Keys -> Providers.\n- Add a java-keystore provider pointing to your JKS.\n- Observe the KID of the HS512 key in the Active keys tab.\n- Restart the Keycloak server or update the java-keystore provider configuration.\n- Observe the KID again. It will have changed.\n- Any tokens issued before the restart will now result in a VerificationException: Key not found during validation.\n\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47495",
+        "assignees": [
+            "pedroigor"
+        ],
+        "labels": [
+            "area/authorization-services",
+            "kind/bug",
+            "priority/important",
+            "team/core-iam",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-04-07T06:20:27.000Z",
+        "fix_commit_hash": "049569b9facfc17d3b6d7193a3ae42ee95f7b7a1",
+        "commit_type": "pr",
+        "commit_message": "Persist kid for java keystore key providers\n\nCloses #47495\n\nSigned-off-by: Pedro Igor <pigor.craveiro@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47752",
+        "earliest_issue_date": "2026-03-26T21:03:32Z",
+        "predicted_class": "bug",
+        "bic": [
+            "096e335a929c47eb17107025d1187f316cd1156e"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47499,
+        "issue_title": "Maven windows wrapper trips over whitespace in pathname for setup",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ndependencies\n\n### Describe the bug\n\nWhen building your Keycloak development environment on source from windows, it is necessary to invoke the \"mvnw.cmd\" script generated by the Apache Maven Wrapper to build the project with all necessary dependencies.\n\nHowever, there is an issue where the path name treats white spaces as delimiters, causing a failure to invoke the script. This should not be the case, as in Windows, special characters can be included in path names.\n\n### Version\n\nKeycloak 26.4.6\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nThe wrapper should run accordingly and begin the build process of your dev environment.\n\n### Actual behavior\n\nThe program errors out when encountering whitespace, proceeding to echo \"Cannot start maven from wrapper\"\n\n### How to Reproduce?\n\n1. Open a windows laptop\n2. Select a user with some sort of special character or whitespace in their username\n3. navigate to your cloned keycloak repository/fork and proceed with the maven setup\n\nThis should reproduce the error accordingly.\n\n### Anything else?\n\nI believe this is within scope as it will assist future windows users with a more seamless setup process when building from source.\n\nAdditionally, this issue has already been addressed by the Apache Maven Wrapper project here: https://github.com/apache/maven-wrapper/issues/317\n\nHowever, I still think it is necessary to implement this small fix within the Keycloak repo itself, as this issue is still yet to be amended in the current release of the Apache Maven Wrapper, and Keycloak itself has been using a version of the dependency upwards of 2 years old, so it could be beneficial to amend.\n\nThe fix is simple, and would simply require that the mvnw.cmd file is updated with quotations around path references, as this forces the system to recognize what would previously been written off as a delimiter as special characters instead. E.G:\n`@IF NOT \"%__MVNW_CMD__%\"==\"\" (%__MVNW_CMD__% %*)`\nto\n`@IF NOT \"%__MVNW_CMD__%\"==\"\" (\"%__MVNW_CMD__%\" %*)` (notice the addition of quotations around the mvnw_cmd path.)\n\nLet me know if this sounds like a reasonable issue/fix.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47499",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/dependencies",
+            "release/26.7.0"
+        ],
+        "issue_closed_at": "2026-04-07T16:24:23.000Z",
+        "fix_commit_hash": "a2db1bb43e0381ef6f6030441a6e68a5f7016dfb",
+        "commit_type": "pr",
+        "commit_message": "Handle special characters in mvnw.cmd Windows paths\n\nFix Windows wrapper startup when the script or Maven path contains spaces or apostrophes.\n\nCloses #47499\n\nSigned-off-by: azc9673 <azc9673@nyu.edu>\n\nSigned-off-by: azc9673 <azc9673@nyu.edu>\nSigned-off-by: Alexander Schwartz <alexander.schwartz@ibm.com>\nCo-authored-by: Alexander Schwartz <alexander.schwartz@ibm.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47786",
+        "earliest_issue_date": "2026-03-26T22:24:58Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47500,
+        "issue_title": "Build Quarkus snapshots in quarkus-next workflow",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nci\n\n### Describe the bug\n\nQuarkus is considering moving snapshot publishing from Sonatype to GitHub Packages.\nSee https://github.com/quarkusio/quarkus/pull/53249\n\nThis affects our `quarkus-next` scheduled builds which consume `999-SNAPSHOT` artifacts.\n\nEdit (7th April):\nQuarkus snapshot publishing is currently unreliable (including the newly introduced GH Packages). For now, instead of depending on external snapshot repositories, we should build the required Quarkus snapshot artifacts ourselves as part of the `quarkus-next` workflow.\nThis supersedes the previous approach of switching between Sonatype/GitHub Packages (PR #47501).\n\n### Version\n\nnightly\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nWorking `quarkus-next` workflow.\n\n### Actual behavior\n\nNot able to consume Quarkus nightly snapshots.\n\n### How to Reproduce?\n\n### Anything else?",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47500",
+        "assignees": [
+            "Pepo48"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/ci",
+            "team/cloud-native",
+            "team/continuous-delivery",
+            "release/26.7.0"
+        ],
+        "issue_closed_at": "2026-04-15T15:05:12.000Z",
+        "fix_commit_hash": "038754d94c1f1aa41a1d66c9747749e74df54b32",
+        "commit_type": "pr",
+        "commit_message": "Build Quarkus from source in quarkus-next workflow (#47892)\n\nCloses: #47500\n\nSigned-off-by: Peter Zaoral <pzaoral@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47892",
+        "earliest_issue_date": "2026-03-26T23:52:50Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47513,
+        "issue_title": "Review JwtProofValidator",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\noid4vc\n\n### Describe the bug\n\nThis issue is to track various issues related to `JwtProofValidator` as it currently has some logical flaws and probably also security flaws.\n\n1) In the method `validateJwsHeader`, there is the check that `kid` must not be present : https://github.com/keycloak/keycloak/blob/4f7be5f41244fd914fa803d61b4cfe61bcf58af7/services/src/main/java/org/keycloak/protocol/oid4vc/issuance/keybinding/JwtProofValidator.java#L245 .\n\nThis effectively means that this whole block is probably unreachable code: https://github.com/keycloak/keycloak/blob/4f7be5f41244fd914fa803d61b4cfe61bcf58af7/services/src/main/java/org/keycloak/protocol/oid4vc/issuance/keybinding/JwtProofValidator.java#L146-L168\n\nMaybe it is OK that we don't support `kid` for JWT proof type (unless there are some conformance tests enforcing it), but in that case, it is something, which we need to document and remove unreachable code in that case.\n\n2) Key attestation is actually not used for anything in this provider and it is not checked at all. It is used in the unreachable code from (1), but that is effectively not tested and not verified. Among other things, it seems the tests `OID4VCKeyAttestationTest.testValidAttestationProof` and `OID4VCKeyAttestationTest.testValidJwtProofWithKeyAttestation` are in fact test the same thing as they don't test attestation at all. Attestation does not work anyway as Keycloak currently don't have capability to obtain attestation keys - see https://github.com/keycloak/keycloak/blob/4f7be5f41244fd914fa803d61b4cfe61bcf58af7/services/src/main/java/org/keycloak/protocol/oid4vc/issuance/keybinding/JwtProofValidatorFactory.java#L35 .\n\nMaybe it is OK that we don't support attestations, but in that case, it is needed to document this fact. Also in case that case, if `key_attestation` element is provided in the header, we should reject the request (instead of just ignoring the `key_attestation`, which we are not able to verify)\n\nOtherwise, if we decide that we want/need to support `key_attestation`, then it is needed to make sure that it is validated also for the case when `jwk` is present in the header (not just when `kid` is present).\n\n3) The issuer validation\nThe validation of `iss` claim is currently commented https://github.com/keycloak/keycloak/blob/4f7be5f41244fd914fa803d61b4cfe61bcf58af7/services/src/main/java/org/keycloak/protocol/oid4vc/issuance/keybinding/JwtProofValidator.java#L255 . According to [the specs](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html#appendix-F.1), it must be verified for `authorization_code` flow grant (for now, we can ignore the pre-authorized code grant as that will be supported as a follow-up though)\n\n4) For the audience validation, we should check that there is only single audience rather than allowing audience to be an array with some other (unrelated) audiences. So will require to update this code https://github.com/keycloak/keycloak/blob/4f7be5f41244fd914fa803d61b4cfe61bcf58af7/services/src/main/java/org/keycloak/protocol/oid4vc/issuance/keybinding/JwtProofValidator.java#L264 . There were similar issues with that in some other specifications like for example https://www.cvedetails.com/cve/CVE-2025-27370/\n\n5) We currently validate the `iat`, but don't validate `exp` and this is mentioned in the code comment https://github.com/keycloak/keycloak/blob/4f7be5f41244fd914fa803d61b4cfe61bcf58af7/services/src/main/java/org/keycloak/protocol/oid4vc/issuance/keybinding/JwtProofValidator.java#L271 . However for `iat`, we only validate that it is present without any checks for the value. The [f.4 specification section](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html#appendix-F.4) mentions that `the creation time of the JWT, as determined by either the issuance time, or a server managed timestamp via the nonce claim, is within an acceptable window` . It seems to me that it would be good to validate the `iat` is not in the future and not too much in the past (So for example we may allow some small window like 30 seconds to make sure that `iat` is between `currentTime-30 seconds` - `currentTime+10 seconds` (which means clock-skew 10 seconds). Those times can be eventually configurable, but maybe we can avoid introducing another config option and have those times just hardcoded initially? Also in case that `exp` claim or `nbf` claims are present, they likely should be validated (even if specification does not mention `exp` or `nbf` claim, but it would not be good to omit their validation if they are present).\n\n6) It will be good to have some end-to-end test with testing real requests. Current `OID4VCKeyAttestationTest` is rather a \"unit test\", which directly tests with `KeycloakSession` (which is likely OK for most of the cases, but for some scenarios, integration test would be also good)\n\n### Version\n\nnightly (from 2026-03-27)\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nSee description\n\n### Actual behavior\n\nSee description\n\n### How to Reproduce?\n\nSee description\n\n### Anything else?\n\nNot sure whether to fix all the mentioned issues in single PR or in multiple dedicated PRs. I've created this issue as \"tracking/umbrellat\", but maybe it is better if there are dedicated PRs for individual things.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47513",
+        "assignees": [
+            "forkimenjeckayang"
+        ],
+        "labels": [
+            "kind/bug",
+            "help wanted",
+            "area/oid4vc",
+            "team/core-clients",
+            "status/auto-bump",
+            "priority/normal",
+            "release/26.7.0",
+            "team/core-protocols"
+        ],
+        "issue_closed_at": "2026-04-23T14:04:57.000Z",
+        "fix_commit_hash": "c090f8242a8fc72a2cc6eb13b6216bb8be04f73d",
+        "commit_type": "pr",
+        "commit_message": "[OID4VCI] Fix JWT proof validation gaps and attestation verification (#47995)\n\ncloses keycloak#47513\n\n\nSigned-off-by: forkimenjeckayang <forkimenjeckayang@gmail.com>\nSigned-off-by: mposolda <mposolda@gmail.com>\nCo-authored-by: mposolda <mposolda@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47995",
+        "earliest_issue_date": "2026-03-27T09:17:41Z",
+        "predicted_class": "bug",
+        "bic": [
+            "52485c0dd10fe6d12d9ab1fe708ece1ed7627d08"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47517,
+        "issue_title": "Test migration util - Remove extends AbstractTestRealmKeycloakTest and AbstractKeycloakTest",
+        "issue_body": "### Description\n\nWhen the test extends `AbstractTestRealmKeycloakTest` or `AbstractKeycloakTest` we can remove that from the migrated test, and also remove the imports.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47517",
+        "assignees": [
+            "lhanusov"
+        ],
+        "labels": [
+            "kind/task",
+            "area/test-framework",
+            "release/26.7.0"
+        ],
+        "issue_closed_at": "2026-04-10T10:04:08.000Z",
+        "fix_commit_hash": "29aeb894fcdb9092d056649159fb01d5ad1184b0",
+        "commit_type": "pr",
+        "commit_message": "Migration Tool - Removing AbstractKeycloak extends. (#47691)\n\nSigned-off-by: Lukas Hanusovsky <lhanusov@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47691",
+        "earliest_issue_date": "2026-03-27T11:19:16Z",
+        "predicted_class": "bug",
+        "bic": [
+            "175102d03d725d75fbbad56d0b0724bfb51194f9"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47536,
+        "issue_title": "SCIM Authorization Bypass in User Group Management",
+        "issue_body": "### Description\n\nThis was originally reported to the Keycloak security team. As SCIM is still in experimental mode, this is handled publicly. \n\nThank you ch1nhpd for reporting this!\n\n### Summary\n\nThe SCIM endpoints responsible for updating users (PUT/PATCH\n/scim/v2/Users/{id}) perform authorization using only a generic *MANAGE*\npermission on the user resource. However, they do not enforce the more\nrestrictive permissions required for modifying group memberships.\n\nAs a result, an authenticated user with limited administrative privileges\ncan add or remove users from groups without possessing the necessary\nmembership-specific permissions.\n\n### Impact\n\nThis vulnerability can lead to:\n\n   - Privilege escalation by adding users to high-privilege groups\n   - Unauthorized removal of users from security-sensitive groups\n   - Bypass of delegated administration boundaries\n   - Potential unauthorized access to protected systems (if groups map to\n   roles or access policies)\n\n### Technical Details\n\nIn the SCIM implementation:\n\n   - The update and patch operations only verify generic MANAGE permission\n   on the user\n   - The groups attribute allows direct calls to:\n      - joinGroup(...)\n      - leaveGroup(...)\n   - No checks are performed for:\n      - manage-group-membership (user-level)\n      - manage-membership (group-level)\n      - Organization group restrictions\n\nThis behavior differs from the standard admin API, where all required\npermission checks are correctly enforced.\n\n### Proof of Concept (High-level)\n\n   1. Use an account with permission to manage users via SCIM, but without\n   group membership privileges\n   2. Send a SCIM PATCH request modifying the groups attribute\n   3. Observe that the operation succeeds\n   4. Verify that the same action is denied via the standard admin API\n\n### Suggested Remediation\n\n   - Enforce the same authorization checks in SCIM as in the admin API:\n      - Require manage-group-membership on the user\n      - Require manage-membership on each target group\n   - Block organization-related groups where applicable\n   - Add regression tests to ensure consistent authorization across APIs\n\n",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47536",
+        "assignees": [
+            "vramik"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/core",
+            "team/core-iam",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-04-01T10:36:35.000Z",
+        "fix_commit_hash": "cb8b6e3e18e63ab67a5d9b0763712ec6e2a65be2",
+        "commit_type": "pr",
+        "commit_message": "SCIM Authorization Bypass in User Group Management\n\nCloses #47536\n\nSigned-off-by: vramik <vramik@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47616",
+        "earliest_issue_date": "2026-03-27T16:38:54Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47537,
+        "issue_title": "Clarify Java 25 support scope in docs",
+        "issue_body": "### Description\n\nExplicitly mention it's not supported for FIPS yet, and that the container is still using 21.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47537",
+        "assignees": [
+            "vmuzikar"
+        ],
+        "labels": [
+            "team/cloud-native",
+            "kind/task",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-04-02T13:04:17.000Z",
+        "fix_commit_hash": "3560286f0d3e5bc4f3f8e59de2f213216e4c006f",
+        "commit_type": "pr",
+        "commit_message": "Update docs to better reflect FIPS support with Java 25. (#47699)\n\nSigned-off-by: V\u00e1clav Muzik\u00e1\u0159 <vmuzikar@ibm.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47699",
+        "earliest_issue_date": "2026-03-27T16:51:51Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47544,
+        "issue_title": "NullPointerException in OID4VCMapper when mapper configuration is missing or empty",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\noid4vc\n\n### Describe the bug\n\nKeycloak throws a `NullPointerException` during OID4VCI metadata generation (`.well-known/openid-credential-issuer`) if a mapper is configured with an empty object or is missing the `claim.name` property.\n\nThe failure occurs in `OID4VCMapper.getMetadataAttributePath()` when it attempts to create a `List.of()` using two null values (`claimName` and `userAttributeName`).\n\n### Version\n\nnightly\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nThe server should not crash. Mappers should either use a spec-compliant default (e.g., \"id\" for `OID4VCSubjectIdMapper`) or skip the invalid attribute without a `NullPointerException`\n\n### Actual behavior\n\nThe server logs a `NullPointerException` and fails to serve the OID4VCI metadata endpoint:\n\n```\n2026-03-27 16:06:17,744 ERROR [org.keycloak.services.error.KeycloakErrorHandler] (executor-thread-6) Uncaught server error: java.lang.NullPointerException\n        at java.base/java.util.Objects.requireNonNull(Objects.java:233)\n        at java.base/java.util.ImmutableCollections$List12.<init>(ImmutableCollections.java:563)\n        at java.base/java.util.List.of(List.java:937)\n        at org.keycloak.protocol.oid4vc.issuance.mappers.OID4VCMapper.getMetadataAttributePath(OID4VCMapper.java:117)\n        at org.keycloak.protocol.oid4vc.model.Claim.parse(Claim.java:80)\n        at org.keycloak.protocol.oid4vc.model.Claims.lambda$parse$0(Claims.java:35)\n        at java.base/java.util.stream.ForEachOps$ForEachOp$OfRef.accept(ForEachOps.java:184)\n        at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)\n        at java.base/java.util.stream.ReferencePipeline$2$1.accept(ReferencePipeline.java:179)\n        at java.base/java.util.stream.DistinctOps$1$2.accept(DistinctOps.java:174)\n        at java.base/java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197)\n        at java.base/java.util.Iterator.forEachRemaining(Iterator.java:133)\n        at java.base/java.util.Spliterators$IteratorSpliterator.forEachRemaining(Spliterators.java:1939)\n        at java.base/java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509)\n        at java.base/java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499)\n        at \n```\n\n### How to Reproduce?\n\n1. Initialize a realm with `oid4vc-vci` features enabled.\n2. In a `client-scope-config.json`, add an `oid4vc-subject-id-mapper` with an empty configuration:\n```\n{\n  \"protocol\": \"oid4vc\",\n  \"protocolMapper\": \"oid4vc-subject-id-mapper\",\n  \"config\": {}\n}\n```\n3. Request the metadata: GET `/.well-known/openid-credential-issuer/realms/{realm}`\n4. The request fails with an HTTP 500 error due to the server-side NPE.\n\n\n### Anything else?\n\nThe fix involves:\n1. Updating `OID4VCMapper.getMetadataAttributePath()` to perform a prioritized search for the attribute name and checking for `null` before calling `List.of()`.\n2. Overriding `getDefaultAttributeName()` in subclasses such as `OID4VCSubjectIdMapper` to return expected fallback values (like \"id\").",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47544",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/oid4vc",
+            "team/core-clients",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-03-31T09:18:43.000Z",
+        "fix_commit_hash": "72c3a267ff9f1868120798df15c883476c1685bf",
+        "commit_type": "pr",
+        "commit_message": "[OID4VCI] Fix NullPointerException in OID4VCI mapper metadata generation (#47608)\n\nCloses #47544\n\n\nSigned-off-by: Awambeng Rodrick <awambengrodrick@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47608",
+        "earliest_issue_date": "2026-03-27T17:27:02Z",
+        "predicted_class": "bug",
+        "bic": [
+            "292a177b105dd4c9a2db00c3dd6f28c101645f3a"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47545,
+        "issue_title": "Keycloak ships source maps for Admin UI and Account UI",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\naccount/ui\n\n### Describe the bug\n\nKeycloak ships source maps for the account and admin UI.\n\nWhile Keycloak is Open Source software, some might customize the UIs, and then some internal code might be revealed.\n\nThis was reported by \"Swornim Poudel\" to the Keycloak Security team first. We're handling this publicly as this is IMHO a hardening issue, but not a security issue: The fewer information Keycloak shares, the better.\n\n### Version\n\n26.5.x\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nKeycloak should not return source maps for the Admin UI and Account UI.\n\n### Actual behavior\n\nSource maps are returned.\n\n### How to Reproduce?\n\nPick a JS file downloaded, and then append `.map` to it. \n\n### Anything else?\n\nAs this is a hardening issue, it should be marked \"important\". \n\nThere might be multiple options to change this, and it would require from the teams: \n\n* Do not generate the source maps during build time. I assume they are not used much anyway, as there is a separate developer mode for the React UIs anyway. This could speed up the build and reduce the theme size.  \n* Apply a filter to not return any `.js.map` files, at least when not in \"start-dev\" mode\n\n",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47545",
+        "assignees": [
+            "ssilvert"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/account/ui",
+            "area/admin/ui",
+            "team/rh-iam",
+            "team/cloud-native",
+            "team/ui",
+            "team/core-clients",
+            "team/core-iam",
+            "team/core-shared"
+        ],
+        "issue_closed_at": "2026-05-05T13:25:58.000Z",
+        "fix_commit_hash": "73c878bf3432ecf08eb5ce79a81dd91ad5f722f7",
+        "commit_type": "pr",
+        "commit_message": "Block *.js.map files in production. (#48301)\n\n* Block *.js.map files in production.\n\n*.js.map files will still be allowed in dev mode for debugging purposes.\n\nFixes #47545\n\nSigned-off-by: Stan Silvert <ssilvert@redhat.com>\n\n* Minor changes from PR review.\n\nSigned-off-by: Stan Silvert <ssilvert@redhat.com>\n\n* Conditionally install the filter at build time.\n\nSigned-off-by: Stan Silvert <ssilvert@redhat.com>\n\n* Restore openapi.yaml, which was changed accidentally.\n\nSigned-off-by: Stan Silvert <ssilvert@redhat.com>\n\n---------\n\nSigned-off-by: Stan Silvert <ssilvert@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/48301",
+        "earliest_issue_date": "2026-03-27T17:28:00Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47552,
+        "issue_title": "Admin CLI shouldn't have compile-scoped dependency on JUnit",
+        "issue_body": "### Description\n\nWhen working on Admin CLI I have mentioned that there is compile-scoped Junit dependency since 2016. Introduced in https://github.com/keycloak/keycloak/pull/3664. I think we shouldn't ship JUnit, at the very least to limit number of dependencies that could potentially be flagged with CVEs by scanners (false positives).",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47552",
+        "assignees": [
+            "michalvavrik"
+        ],
+        "labels": [
+            "team/cloud-native",
+            "kind/task",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-03-28T12:40:44.000Z",
+        "fix_commit_hash": "8543f62100d9a794846ec59f70a4624e30b28861",
+        "commit_type": "pr",
+        "commit_message": "chore(admin-cli): use junit in test scope (#47553)\n\nSigned-off-by: Michal Vav\u0159\u00edk <michal.vavrik@aol.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47553",
+        "earliest_issue_date": "2026-03-28T11:20:34Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47560,
+        "issue_title": "Missing default value for max parameter in the Admin REST APIs docs",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ndocs\n\n### Describe the bug\n\nIf you look at [Keycloak Admin REST API](https://www.keycloak.org/docs-api/latest/rest-api/index.html) documentation, several default values are missing for max parameter. This is problematic as it suggests that the endpoint is not paginated by default and this all items should be returned.\n\n### Version\n\nLatest\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nFor the correct values to be documented.\n\n### Actual behavior\n\nNo value are being displayed.\n\n### How to Reproduce?\n\nLook at the documentation.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47560",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/docs",
+            "team/rh-iam",
+            "team/cloud-native",
+            "team/ui",
+            "team/core-clients",
+            "team/core-iam",
+            "team/core-shared",
+            "team/production-readiness"
+        ],
+        "issue_closed_at": "2026-05-01T12:49:34.000Z",
+        "fix_commit_hash": "e45bd9d6af46ea90c1d9053da82140ebfccbd065",
+        "commit_type": "pr",
+        "commit_message": "Add `@DefaultValue` to max param used in Admin REST APIs (#47561)\n\nThis is used to generate Keycloak Admin REST API.\nWithout this a 'null' value is used, which suggests that returning a paginated list is optional.\n\nCloses #47560\n\nSigned-off-by: Iestyn <33298011+IestynGage@users.noreply.github.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47561",
+        "earliest_issue_date": "2026-03-28T18:25:18Z",
+        "predicted_class": "bug",
+        "bic": [
+            "d6422e415c02e6831a9268b396ea2f8cf554f3f1"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47572,
+        "issue_title": "Possible NPE in DefaultKeycloakSession.getComponentProvider()",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ncore\n\n### Describe the bug\n\nThe use of Optional in [DefaultKeycloakSession.getComponentProvider()](https://github.com/keycloak/keycloak/blob/ed5a2e0f004fd6fecdf52c9cb24e0e6cdb35f8f6/services/src/main/java/org/keycloak/services/DefaultKeycloakSession.java#L214) was either completely useless or improperly coded (in that if the realm was null, then an NPE would have been thrown despite the use of the Optional).\n\nI assumed the latter and fixed the use of the Optional accordingly in https://github.com/keycloak/keycloak/pull/47551.\n\nWhile at it I've removed a couple of `@SuppressWarning` annotations which were no longer necessary and added one new one.\n\n### Version\n\n26.5.6\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nNPE is not thrown when realm is not set in the context.\n\n### Actual behavior\n\nNPE is thrown when realm is not set in the context.\n\n### How to Reproduce?\n\nCall the DefaultKeycloakSession.getComponentProvider() method in a context without a realm.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47572",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/core",
+            "help wanted",
+            "team/core-clients",
+            "team/core-shared",
+            "priority/low",
+            "status/auto-bump",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-03-30T17:30:14.000Z",
+        "fix_commit_hash": "4d5f69098bf99a27578957a330a0899af33b28b6",
+        "commit_type": "pr",
+        "commit_message": "Fix use of Optional to actually guard against NPE (#47551)\n\ncloses #47572\n\n\nSigned-off-by: Michal R\u016f\u017ei\u010dka <michal.ruza@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47551",
+        "earliest_issue_date": "2026-03-30T08:55:32Z",
+        "predicted_class": "bug",
+        "bic": [
+            "964f6b9aacfd1e190ee6c8a7801b57e75b0614b4"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47574,
+        "issue_title": "Client API v2 CLI Client: Jakarta validation errors are not handled",
+        "issue_body": "### Description\n\nWhen there are some validation errors on the Jakarta Validator level, the response contains the \"violations\" set of strings. You can check it in the `ValidationExceptionHandler` class. \n\nThe CLI output does not contain the violations:\nError:  Failures: \nError:    KcAdmV2ClientCLITest.testUpdateWithoutClientIdFails:534 \nExpected: a string containing \"clientId: must not be blank\"\n     but: was \"null [Provided data is invalid]\n\n",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47574",
+        "assignees": [
+            "mabartos"
+        ],
+        "labels": [
+            "kind/task",
+            "release/26.7.0"
+        ],
+        "issue_closed_at": "2026-04-07T12:07:34.000Z",
+        "fix_commit_hash": "0b2ce29e8994d28cee21e1bd27ed83bdf73d45b3",
+        "commit_type": "pr",
+        "commit_message": "[client-v2] Require 'clientId' in the payload (#47533)\n\n* Require clientId in the payload\n\nCloses #47524\n\nSigned-off-by: Martin Barto\u0161 <mabartos@redhat.com>\n\n* Require 'protocol' field to be specified\n\nCloses #47579\n\nSigned-off-by: Martin Barto\u0161 <mabartos@redhat.com>\n\n* Client API v2 CLI Client: Jakarta validation errors are not handled\n\nCloses #47574\n\nSigned-off-by: Martin Barto\u0161 <mabartos@redhat.com>\n\n* Use getRequest() for POST in test\n\nSigned-off-by: Martin Barto\u0161 <mabartos@redhat.com>\n\n---------\n\nSigned-off-by: Martin Barto\u0161 <mabartos@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47533",
+        "earliest_issue_date": "2026-03-30T09:49:30Z",
+        "predicted_class": "bug",
+        "bic": [
+            "a69f08fff0cf9c15e4c4cd308872da95bbd06080"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47587,
+        "issue_title": "[Operator CI] - Test remote - Waiting for more replicas timeout",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\n_No response_\n\n### Describe the bug\n\nObserved several occurrences of the same issue in last week\n\n```\n[INFO] Results:\n[INFO] \nError:  Errors: \nError:    KeycloakDeploymentTest.testHostnameStrict:342 \u00bb ConditionTimeout Assertion condition defined as a Lambda expression in org.keycloak.operator.testsuite.integration.KeycloakDeploymentTest expected: <true> but was: <false> within 6 minutes.\nError:    KeycloakDeploymentTest.testHttpEnabledWithTls:329 \u00bb ConditionTimeout Assertion condition defined as a Lambda expression in org.keycloak.operator.testsuite.utils.CRAssert expected: <200> but was: <000> within 30 seconds.\n```\nhttps://github.com/keycloak/keycloak/actions/runs/23677625169/job/68984064420#step:8:11081\nhttps://github.com/keycloak/keycloak/actions/runs/23636066802/job/68845899517#step:8:8498\nhttps://github.com/keycloak/keycloak/actions/runs/23515787042/job/68448216371#step:8:8469\nhttps://github.com/keycloak/keycloak/actions/runs/23421852411/job/68128855413#step:8:8329\n\n\n### Version\n\nlatest\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\n-\n\n### Actual behavior\n\n-\n\n### How to Reproduce?\n\n-\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47587",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "team/cloud-native",
+            "flaky-job",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-04-02T21:40:59.000Z",
+        "fix_commit_hash": "be8d5eaa3b4dc4ad74845b1cfeaf71127c6f2e00",
+        "commit_type": "pr",
+        "commit_message": "fix: using synchronization to prevent shutdown\n\ncloses: #47487\n\nSigned-off-by: Steve Hawkins <shawkins@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47742",
+        "earliest_issue_date": "2026-03-30T12:43:12Z",
+        "predicted_class": "bug",
+        "bic": [
+            "7933f0489d4fcd7ac5c66ec80450c771cb330814"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47619,
+        "issue_title": "CVE-2026-4633 Keycloak user enumeration via identity-first login",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ncore\n\n### Describe the bug\n\nWhen Organizations are enabled for a realm, entering an incorrect password during login results in different error messages depending on whether the username exists. This behavior enables username enumeration.\n\u2022 For an existing username, the error returned is: \"Invalid Password.\"\n\u2022 For a non\u2011existent username, the error returned is: \"Invalid username or password.\"\nThis discrepancy allows an attacker to determine whether a given username is valid. The issue aligns with OWASP WSTG\u2011IDNT\u201104 (Testing for Account Enumeration and Guessable User Accounts) and OWASP ASVS requirement v5.0.0-6.3.8 for uniform authentication error messages.\n\n### Version\n\n26.5.5\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nsee description\n\n### Actual behavior\n\nsee description\n\n### How to Reproduce?\n\n- Create a new realm with default settings.\n- Go to Manage Realms and select the new realm.\n- Enable Organizations and create an organization.\n- Add a user and set a password\n- Navigate to the account-console login at /realms/[realm]/account/.\n- Enter any non\u2011existent username and select \"Sign in.\u201d\n- Enter a password and submit.\n- Observe the error: \"Invalid username or password.\"\n- Return to /realms/[realm]/account/.\n- Enter the existing username and select \"Sign in.\"\n- Enter the same password and submit.\n- Observe the error: \"Invalid Password.\"\n\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47619",
+        "assignees": [
+            "vramik"
+        ],
+        "labels": [
+            "priority/important",
+            "area/core",
+            "kind/cve",
+            "team/core-iam",
+            "area/organizations",
+            "release/26.4.12",
+            "release/26.7.0",
+            "release/26.6.1"
+        ],
+        "issue_closed_at": "2026-04-08T10:43:17.000Z",
+        "fix_commit_hash": "a46b9453ecfed096c5e979aa9682f90e025195bb",
+        "commit_type": "pr",
+        "commit_message": "Keycloak user enumeration via identity-first login\n\nCloses #47619\n\nSigned-off-by: vramik <vramik@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47635",
+        "earliest_issue_date": "2026-03-31T09:33:50Z",
+        "predicted_class": "bug",
+        "bic": [
+            "bba869b3d524d966d1f99f026d1830d93220a302"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47646,
+        "issue_title": "Both Clusterless and Volatile-Session suites contains reference to removed test file.",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ntestsuite\n\n### Describe the bug\n\nhttps://github.com/keycloak/keycloak/pull/47467 removed the `OfflineTokenTest` from arquillian testsuite (migrating it into 3 different classes in new testsuite)\n\nThere are obsolete references:\n\nhttps://github.com/keycloak/keycloak/blob/3ea4a0c62a97a17d6abb3900b4a31052cf0664e4/testsuite/integration-arquillian/tests/base/testsuites/clusterless-suite#L13\nhttps://github.com/keycloak/keycloak/blob/3ea4a0c62a97a17d6abb3900b4a31052cf0664e4/testsuite/integration-arquillian/tests/base/testsuites/volatile-sessions-suite#L14\n\nThis causes failures in PRs where those steps are not skipped. Like https://github.com/keycloak/keycloak/pull/47616\n\n### Version\n\nmain\n\n### Regression\n\n- [x] The issue is a regression\n\n### Expected behavior\n\nsee description\n\n### Actual behavior\n\nsee description\n\n### How to Reproduce?\n\nsee description\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47646",
+        "assignees": [
+            "vramik"
+        ],
+        "labels": [
+            "area/testsuite",
+            "kind/bug",
+            "priority/blocker",
+            "team/continuous-delivery",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-03-31T17:30:52.000Z",
+        "fix_commit_hash": "4975ad53d097f0b6e1892ed18b59f07e6731f31d",
+        "commit_type": "pr",
+        "commit_message": "Both Clusterless and Volatile-Session suites contains reference to removed test file\n\nCloses #47646\n\nSigned-off-by: vramik <vramik@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47647",
+        "earliest_issue_date": "2026-03-31T15:46:58Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47649,
+        "issue_title": "OAuthClient cannot handle invalid authorization requests",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\noidc\n\n### Describe the bug\n\nThis code ...\n\n```\n      loginForm.open();\n      client.fillLoginForm(username, password);\n      return client.parseLoginResponse();\n```\n\nruns into unnecessary timeouts on \n\n1. invalid authorization request (e.g. missing parameters)\n2. invalid credentials\n\nThe `AuthorizationEndpointResponse` should become available as soon as an error condition is known. To always wait on the OAuth Callback is likely not correct\n\n```\n        managedWebDriver.waiting().waitForOAuthCallback();\n```\n\n### Version\n\nlatest\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\n`AuthorizationEndpointResponse` should become available immediately and contain appropriate error details \n\n### Actual behavior\n\ntimeout, then low-level selenium error \n\ne.g. \"Unable to locate element with ID: 'username'\" instead of \"Missing parameter: code_challenge_method\"\n\nA related discussion is here: https://github.com/keycloak/keycloak/discussions/48308\n",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47649",
+        "assignees": [],
+        "labels": [
+            "area/oidc",
+            "kind/task",
+            "team/core-clients",
+            "release/26.7.0"
+        ],
+        "issue_closed_at": "2026-04-23T09:08:26.000Z",
+        "fix_commit_hash": "f91e6ef4f41105ad487010106f6aed522dc5f067",
+        "commit_type": "pr",
+        "commit_message": "[OID4VCI] Revisit invalid authorization requests handling (#47850)\n\ncloses #47649\n\nSigned-off-by: Thomas Diesler <tdiesler@proton.me>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47850",
+        "earliest_issue_date": "2026-03-31T17:36:15Z",
+        "predicted_class": "bug",
+        "bic": [
+            "eb1be61f9505e5f6c67acc60b1cff009afb3529f"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47659,
+        "issue_title": "SRCFG01008 warning in source Quarkus dev mode when kc.log-console-output=default (not reproducible via packaged kc.sh)",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\n_No response_\n\n### Describe the bug\n\nWhen running Keycloak from source using Quarkus dev mode, setting:\n\nkc.log-console-output=default\n\ntriggers a SmallRye configuration warning during startup:\n\nSRCFG01008: The value default has been converted by a Boolean Converter to \"false\"\n\nThis appears to be related to how kc.log-console-output is mapped into the Quarkus logging configuration during source-based dev startup.\n\nThe warning appears before an unrelated H2 file-lock startup failure, so it is reproducible independently of that error.\n\nImportant scope note:\n- Reproduced when running from source via mvn ... quarkus:dev\n- Not reproduced when running the packaged distribution via bin/kc.sh start-dev\n\n### Version\n\n999.0.0-SNAPSHOT (built from main branch)\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nkc.log-console-output=default should be handled without triggering boolean conversion warnings.\n\nNo SRCFG01008 warning should be emitted for this configuration in the source dev-mode startup path.\n\n### Actual behavior\n\nDuring startup in Quarkus dev mode, the following warning is emitted:\n\nSRCFG01008: The value default has been converted by a Boolean Converter to \"false\"\n\nIn my run, this warning appeared twice.\n\n### How to Reproduce?\n\nFrom the quarkus directory, run:\n\nJAVA_HOME=/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home \\\n../mvnw -f server/pom.xml compile quarkus:dev \\\n  -Dkc.config.built=true \\\n  -Dquarkus.args=\"start-dev --http-enabled=true --hostname-strict=false --http-port=8280 --log-console-output=default\"\n\nThen observe the startup logs.\n\n### Anything else?\n\nCross-check:\n\n- Reproduced in source startup (mvn quarkus:dev)\n- Not reproduced in packaged distribution:\n\n  bin/kc.sh start-dev --log-console-output=default  \n  KC_LOG_CONSOLE_OUTPUT=default bin/kc.sh start-dev  \n\nThis suggests the issue is specific to the source-based Quarkus dev-mode configuration path.\n\nImpact:\n\nThe warning is noisy and misleading during local development, as it suggests an invalid configuration even though startup proceeds correctly.\n\nPotential fix direction:\n\nHandle \"default\" before it reaches the boolean conversion path, or avoid converting it through the Boolean Converter in the dev-mode configuration flow.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47659",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/dist/quarkus",
+            "help wanted",
+            "team/cloud-native",
+            "priority/low",
+            "status/auto-expire",
+            "status/auto-bump",
+            "release/26.7.0"
+        ],
+        "issue_closed_at": "2026-04-29T14:06:55.000Z",
+        "fix_commit_hash": "bc11757f228e65dbec7fb3a1bf934b0806508d0f",
+        "commit_type": "pr",
+        "commit_message": "fix: generalizing the augmentation check (#47748)\n\ncloses: #47659\n\nSigned-off-by: Steve Hawkins <shawkins@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47748",
+        "earliest_issue_date": "2026-03-31T22:44:55Z",
+        "predicted_class": "bug",
+        "bic": [
+            "6b153aeb44532a744704005739e820b15b8f56ce"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47675,
+        "issue_title": "LDAP Federation:  time of the password change is not being read correctly for \"389 DS/RHDS\" ldap backend",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nldap\n\n### Describe the bug\n\nThe LDAP Connector uses the wrong attribute for \"389 Directory Server\" to check when the password was changed.\n\nhttps://github.com/keycloak/keycloak/blob/main/federation/ldap/src/main/java/org/keycloak/storage/ldap/idm/store/ldap/LDAPIdentityStore.java#L617\n\nCurrently, only \"pwdLastSet\" is used for AD and \"pwdChangedTime\" for all others, but \"389 Directory Server\" uses \"pwdUpdateTime\".\n\n### Version\n\n26.5.6\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nKeycloak should use \"pwdUpdateTime\".\n\n### Actual behavior\n\nCurrently, only January 1, 1970 is displayed as the date.\n\n<img width=\"981\" height=\"102\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/d4ce1da6-9c09-4e1d-ae9d-8fe6903eed84\" />\n\n### How to Reproduce?\n\n- Set up user federation with a \"389 Director Server\"\n- Create a user\n- Set a password\n\n### Anything else?\n\nSimilar issue: https://github.com/keycloak/keycloak/issues/42848",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47675",
+        "assignees": [
+            "sguilhen"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/ldap",
+            "help wanted",
+            "team/core-iam",
+            "status/auto-expire",
+            "status/auto-bump",
+            "priority/normal",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-04-03T18:42:13.000Z",
+        "fix_commit_hash": "b92e062a390f28b165002adce54565ab9474f088",
+        "commit_type": "pr",
+        "commit_message": "Use pwdUpdateTime attribute for password modification time on 389 DS/RHDS\n\nCloses #47675\n\nSigned-off-by: Stefan Guilhen <sguilhen@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47713",
+        "earliest_issue_date": "2026-04-01T11:40:48Z",
+        "predicted_class": "bug",
+        "bic": [
+            "9412e339a8f74c8032875046fe2d5e098e995310"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47700,
+        "issue_title": "Duplicate entries created in Role Attributes during concurrent setSingleAttribute calls",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nstorage\n\n### Describe the bug\n\nWhen two threads or requests call setSingleAttribute simultaneously for the same attribute, a race condition occurs. This results in duplicate rows being created in the database instead of the existing value being updated.\n\nThe implementation in [RoleAdapter](https://github.com/keycloak/keycloak/blob/d9bd2ae5fffb5ebb47b843ae8d416b493987a657/model/jpa/src/main/java/org/keycloak/models/jpa/RoleAdapter.java#L153) deviates from the logic used in [GroupAdapter](https://github.com/keycloak/keycloak/blob/d9bd2ae5fffb5ebb47b843ae8d416b493987a657/model/jpa/src/main/java/org/keycloak/models/jpa/GroupAdapter.java#L244), which appears to handle these concurrent calls correctly.\n\nRefactor setSingleAttribute and setAttribute within RoleAdapter to align with the implementation in GroupAdapter.\n\n### Version\n\nlatest\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nOne Entry in Role Attribute after concurrent calls to setSingleAttribute for the same Attribute\n\n### Actual behavior\n\nDuplicate entries in Role Attributes\n\n### How to Reproduce?\n\nI can provide a test case\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47700",
+        "assignees": [
+            "martin-kanis"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/storage",
+            "help wanted",
+            "team/core-iam",
+            "team/core-shared",
+            "status/auto-expire",
+            "status/auto-bump",
+            "priority/normal",
+            "release/26.7.0"
+        ],
+        "issue_closed_at": "2026-04-08T14:06:49.000Z",
+        "fix_commit_hash": "5227382d20ad6fcbd1043653b80336efcab248af",
+        "commit_type": "pr",
+        "commit_message": "fix: Duplicate entries created in Role Attributes during concurrent setSingleAttribute calls\ncloses: #47700\n\nSigned-off-by: Bernd Bohmann <bommel@apache.org>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47702",
+        "earliest_issue_date": "2026-04-01T18:19:07Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47708,
+        "issue_title": "Failing test testNoConfigNoServerShowsV2Hint on Windows",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nadmin/api\n\n### Describe the bug\n\nTest case `testNoConfigNoServerShowsV2Hint` fails on windows.\n\nRoot cause: the expected string contains `kcadm.sh` hard coded. On windows the executable is `kcadm.bat`.\n\nhttps://github.com/keycloak/keycloak/blob/09eef36e900c580790518d405e84b2351205dd70/rest/admin-v2/tests/src/test/java/org/keycloak/tests/admin/cli/v2/KcAdmV2ClientCLITest.java#L410 \n\n### Version\n\nlatest\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nTest runs successfully.\n\n### Actual behavior\n\nTest fails:\n\n```bash\nerror hint should include --v2\nExpected: a string containing \"kcadm.sh --v2 config credentials\"\n     but: was \"No server URL configured. Use --server or 'kcadm.bat --v2 config credentials' first.\"\n```\n\n### How to Reproduce?\n\nExecute `testNoConfigNoServerShowsV2Hint` test case on Windows\n\n### Anything else?\n\nProposed solution: Use `KcAdmMain.CMD` constant in the expected string. Example: https://github.com/keycloak/keycloak/blob/09eef36e900c580790518d405e84b2351205dd70/integration/client-cli/admin-cli/src/test/java/org/keycloak/client/admin/cli/commands/v2/KcAdmV2HelpTest.java#L49\n\n",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47708",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/admin/api",
+            "team/core-shared",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-04-03T17:32:48.000Z",
+        "fix_commit_hash": "1174c75fc263f2fb1d5e7c744ec3700a9c20661b",
+        "commit_type": "pr",
+        "commit_message": "Use KcAdmMain.CMD in test cases (#47709)\n\nSigned-off-by: Norbert Kelemen <nkelemen18@nkelemen.hu>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47709",
+        "earliest_issue_date": "2026-04-02T07:55:16Z",
+        "predicted_class": "bug",
+        "bic": [
+            "859a7a095eafed246ab4d6f0f876e64679c3ea5c"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47710,
+        "issue_title": "updated popover when there is no change",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nadmin/ui\n\n### Describe the bug\n\nwhen dragging a step in authenticationflows and dropping it where it was before, a `Flow successfully updated` popover appears.\n\nThis was in our case especially irritating because the user has read-only permissions, so he should never see any `successfully updated` message.\n\n<img width=\"909\" height=\"486\" alt=\"Image\" src=\"https://github.com/user-attachments/assets/cb423d26-79e4-48af-9ad3-aabfbeca6553\" />\n\n### Version\n\n26.5.6\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nno popup, or at least a popup indicating a lack of permission if the user has no permission to reorder the steps.\n\n### Actual behavior\n\n`Flow successfully updated` popover \n\n### How to Reproduce?\n\nDrag a step in any flow and drop it where it was before.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47710",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "help wanted",
+            "team/core-clients",
+            "team/core-shared",
+            "priority/low",
+            "status/auto-expire",
+            "status/auto-bump",
+            "team/core-authn",
+            "release/26.7.0"
+        ],
+        "issue_closed_at": "2026-04-29T20:15:38.000Z",
+        "fix_commit_hash": "f02df4382adff2da508681cdfb597d2aae5d9e3d",
+        "commit_type": "pr",
+        "commit_message": "Skip no-op reorder in authentication flow drag-and-drop\n\nWhen a user drags an authentication flow step and drops it back in its original position, the onDrop handler now returns early instead of calling executeChange(). This prevents an unnecessary refresh() call and the false \"Flow successfully updated\" success notification.\n\nCloses #47710\n\nSigned-off-by: chon3806 <93464148+chon3806@users.noreply.github.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47989",
+        "earliest_issue_date": "2026-04-02T09:57:11Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47720,
+        "issue_title": "Release nightly build for API docs is broken",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nci\n\n### Describe the bug\n\nThe release  nightly build fails to build the documentation https://github.com/keycloak-rel/keycloak-rel/actions/runs/23776918435/job/69280805203#step:4:42036.\n\n### Version\n\n999-SNAPSHOT\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nNightly passes.\n\n### Actual behavior\n\nFails.\n\n### How to Reproduce?\n\ndo what https://github.com/keycloak-rel/keycloak-rel/actions/runs/23776918435/job/69280805203#step:4:42036 does\n\n### Anything else?\n\nI have a fix.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47720",
+        "assignees": [
+            "michalvavrik"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/ci",
+            "team/continuous-delivery",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-04-02T15:59:38.000Z",
+        "fix_commit_hash": "7df438da5ca151455c0665e9ee039098cbb01956",
+        "commit_type": "pr",
+        "commit_message": "fix release night doc build (#47721)\n\nCloses: https://github.com/keycloak/keycloak/issues/47720\nFixes typo introduced by https://github.com/keycloak/keycloak/pull/29985\n\nSigned-off-by: Michal Vav\u0159\u00edk <michal.vavrik@aol.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47721",
+        "earliest_issue_date": "2026-04-02T13:38:26Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47733,
+        "issue_title": "Able to update Identity Provider alias via admin console and API",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nadmin/api\n\n### Describe the bug\n\nNormally an identity provider's alias is immutable, but if you replace the `{alias}` in the URL with the `{internalId}` when editing, it will overwrite the alias field with the internal ID.\n\n### Version\n\n26.5.6\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nI would expect one of the following:\n\n1. 404 when navigating to `/admin/master/console/#/{realm}/identity-providers/saml/{internalId}/settings`\n2. Assuming the above is intentional, I would expect a 4XX when trying to _save_ with the bad URL\n3. Assuming both of the above are intentional, I would expect `alias` to not be updated by the request\n\n### Actual behavior\n\nAlias is overwritten with the internal ID from the URL\n\n### How to Reproduce?\n\n1. Create an IdP\n    - I have tested this with SAML and OIDC\n2. Use network tools or API to find the `internalId` of the IdP\n3. Replace `{alias}` in URI with `{internalId}` and hit enter\n    - E.g. `/admin/master/console/#/{realm}/identity-providers/saml/{alias}/settings` becomes `/admin/master/console/#/{realm}/identity-providers/saml/{internalId}/settings`\n4. Hit \"save\"\n    - Note toast message that shows save is successful\n5. Refresh page\n6. Note that the alias has been changed to the `internalId`\n\nhttps://github.com/user-attachments/assets/87beac16-e0de-4858-86f0-9e18ffff0c53\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47733",
+        "assignees": [
+            "martin-kanis"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/admin/api",
+            "team/core-iam",
+            "team/core-shared",
+            "release/26.7.0"
+        ],
+        "issue_closed_at": "2026-04-20T19:43:47.000Z",
+        "fix_commit_hash": "493ed19799e216c8d45d40eb8de9b837e8625e0d",
+        "commit_type": "pr",
+        "commit_message": "Make IDP alias immutable in REST API\n\nCloses #47733\n\nSigned-off-by: Martin Kanis <mkanis@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/47805",
+        "earliest_issue_date": "2026-04-02T16:20:30Z",
+        "predicted_class": "bug",
+        "bic": [
+            "660a4aa48a6949c8615cada039bda8364f2171e8"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 47737,
+        "issue_title": "deploy-testsuite profile is incomplete, causing discrete testsuite execution to fail",
+        "issue_body": "### Before reporting an issue\n\n- [x] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ntestsuite\n\n### Describe the bug\n\nkeycloak-admin-client-tests is a dependency of the testsuite. If it is\nnot deployed to the maven repository, it is not possible to perform\ndiscrete execution of the testsuite. One has to build keycloak locally\nto supply the missing maven artifact via the local repository.\n\nThe deploy-testsuite profile was introduced to facilitate discrete execution of the testsuite, but it does not function as intended with this bug\n\n### Version\n\nmain\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\n`mvn -f testsuite/integration-arquillian/pom.xml install` should execute with no dependency errors from a clean project\n\n### Actual behavior\n\nmaven fails during `integration-arquillian-servers-auth-server-undertow`, with a missing dependency error for `keycloak-authz-client-tests`\n\n### How to Reproduce?\n\n1. Build and deploy keycloak to a maven repository with `-DdeployTestsuite`\n2. In a separate fresh clone of keycloak, run the testsuite\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/47737",
+        "assignees": [
+            "ASzc"
+        ],
+        "labels": [
+            "area/testsuite",
+            "kind/bug",
+            "team/continuous-delivery",
+            "release/26.4.12",
+            "release/26.2.16",
+            "release/26.7.0",
+            "release/26.6.1"
+        ],
+        "issue_closed_at": "2026-04-08T15:17:15.000Z",
+        "fix_commit_hash": "d673624b7a822ab4e77158013e8ecdd143c28815",
+        "commit_type": "commit",
+        "commit_message": "Also deploy keycloak-authz-client-tests when deploy-testsuite profile is active\n\nCloses #47737\n\nSigned-off-by: Alex Szczuczko <aszczucz@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/commit/d673624b7a822ab4e77158013e8ecdd143c28815",
+        "earliest_issue_date": "2026-04-02T18:20:41Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    }
+]
