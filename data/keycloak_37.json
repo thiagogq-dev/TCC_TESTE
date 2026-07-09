@@ -1,0 +1,1169 @@
+[
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26782,
+        "issue_title": "Accessing userinfo fails with CORS when token is expired or session is deleted",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\noidc\n\n### Describe the bug\n\nI use [Fetch API](https://developer.mozilla.org/en-US/docs/Web/API/fetch) to access userinfo endpoint (http://localhost:8180/realms/hawtio/protocol/openid-connect/userinfo) and test various issues related to invalid token.\r\n\r\nAfter successful public-client grant, I get a code (first stage) and access+refresh+id tokens (second stage). Using the access token I can access the userinfo endpoint.\r\n\r\nPreflight `OPTIONS` request:\r\n```\r\nOPTIONS /realms/hawtio/protocol/openid-connect/userinfo HTTP/1.1\r\nHost: localhost:8180\r\nUser-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:122.0) Gecko/20100101 Firefox/122.0\r\nAccept: */*\r\n...\r\nAccess-Control-Request-Method: GET\r\nAccess-Control-Request-Headers: authorization\r\n...\r\nOrigin: http://localhost:3000\r\n...\r\nSec-Fetch-Dest: empty\r\nSec-Fetch-Mode: cors\r\nSec-Fetch-Site: same-site\r\n...\r\n```\r\n\r\n`OPTIONS` response:\r\n```\r\nHTTP/1.1 200 OK\r\nAccess-Control-Allow-Credentials: true\r\nAccess-Control-Allow-Headers: Origin, Accept, X-Requested-With, Content-Type, Access-Control-Request-Method, Access-Control-Request-Headers, DPoP, Authorization\r\nAccess-Control-Allow-Methods: GET, HEAD, OPTIONS\r\nAccess-Control-Allow-Origin: http://localhost:3000\r\nAccess-Control-Max-Age: 3600\r\n...\r\n```\r\n\r\n`GET` request:\r\n```\r\nGET /realms/hawtio/protocol/openid-connect/userinfo HTTP/1.1\r\nHost: localhost:8180\r\n...\r\nauthorization: Bearer <access token>\r\nOrigin: http://localhost:3000\r\n...\r\nSec-Fetch-Dest: empty\r\nSec-Fetch-Mode: cors\r\nSec-Fetch-Site: same-site\r\n...\r\n```\r\n\r\n`GET` response:\r\n```\r\nHTTP/1.1 200 OK\r\ncontent-length: 98\r\nAccess-Control-Allow-Credentials: true\r\nAccess-Control-Allow-Origin: http://localhost:3000\r\nAccess-Control-Expose-Headers: Access-Control-Allow-Methods\r\nContent-Type: application/json\r\nReferrer-Policy: no-referrer\r\nStrict-Transport-Security: max-age=31536000; includeSubDomains\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: SAMEORIGIN\r\nX-XSS-Protection: 1; mode=block\r\n```\r\n\r\nHowever there are two problems I found\r\n\r\n1. Deleting KC session while the token is still valid (`nbf` and `exp` claims)\r\n\r\nPreflight response is fine:\r\n```\r\nHTTP/1.1 200 OK\r\nAccess-Control-Allow-Credentials: true\r\nAccess-Control-Allow-Headers: Origin, Accept, X-Requested-With, Content-Type, Access-Control-Request-Method, Access-Control-Request-Headers, DPoP, Authorization\r\nAccess-Control-Allow-Methods: GET, HEAD, OPTIONS\r\nAccess-Control-Allow-Origin: http://localhost:3000\r\nAccess-Control-Max-Age: 3600\r\nReferrer-Policy: no-referrer\r\nStrict-Transport-Security: max-age=31536000; includeSubDomains\r\nX-Content-Type-Options: nosniff\r\nX-XSS-Protection: 1; mode=block\r\ncontent-length: 0\r\n```\r\n\r\nHowever the response misses all the CORS headers:\r\n```\r\nHTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\nContent-Type: text/plain;charset=utf-8\r\nReferrer-Policy: no-referrer\r\nStrict-Transport-Security: max-age=31536000; includeSubDomains\r\nWWW-Authenticate: Bearer realm=\"hawtio\", error=\"invalid_token\", error_description=\"User session not found or doesn't have client attached on it\"\r\nX-Content-Type-Options: nosniff\r\nX-XSS-Protection: 1; mode=block\r\n```\r\n\r\nAnd the browser shows:\r\n\r\n```\r\nCross-Origin Request Blocked: The Same Origin Policy disallows reading the remote resource at http://localhost:8180/realms/hawtio/protocol/openid-connect/userinfo. (Reason: CORS header \u2018Access-Control-Allow-Origin\u2019 missing). Status code: 401.\r\n```\r\n\r\nI can only detect 401, but it'd be nice to get the content of `WWW-Authenticate` header. See next point\r\n\r\n2. Accessing user info endpoint after the token has expired\r\n\r\nPreflight response is fine:\r\n```\r\nHTTP/1.1 200 OK\r\nAccess-Control-Allow-Credentials: true\r\nAccess-Control-Allow-Headers: Origin, Accept, X-Requested-With, Content-Type, Access-Control-Request-Method, Access-Control-Request-Headers, DPoP, Authorization\r\nAccess-Control-Allow-Methods: GET, HEAD, OPTIONS\r\nAccess-Control-Allow-Origin: http://localhost:3000\r\nAccess-Control-Max-Age: 3600\r\nReferrer-Policy: no-referrer\r\nStrict-Transport-Security: max-age=31536000; includeSubDomains\r\nX-Content-Type-Options: nosniff\r\nX-XSS-Protection: 1; mode=block\r\ncontent-length: 0\r\n```\r\n\r\nHowever the response itself is not quite fine:\r\n```\r\nHTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\nAccess-Control-Allow-Credentials: true\r\nAccess-Control-Allow-Origin: http://localhost:3000\r\nAccess-Control-Expose-Headers: Access-Control-Allow-Methods\r\nContent-Type: text/plain;charset=utf-8\r\nReferrer-Policy: no-referrer\r\nStrict-Transport-Security: max-age=31536000; includeSubDomains\r\nWWW-Authenticate: Bearer realm=\"hawtio\", error=\"invalid_token\", error_description=\"Token verification failed\"\r\nX-Content-Type-Options: nosniff\r\nX-XSS-Protection: 1; mode=block\r\n```\r\n\r\nWhile 401 and `WWW-Authenticate: Bearer realm=\"hawtio\", error=\"invalid_token\", error_description=\"Token verification failed\"` are expected, I'm getting only `Access-Control-Expose-Headers: Access-Control-Allow-Methods` header which mean the JavaScript can't access the information contained in `WWW-Authenticate`.\r\n\r\nI can't call:\r\n```javascript\r\nresponse.headers.get('www-authenticate')\r\n```\r\n\r\nI would get it (checked under debugger) if I got `Access-Control-Expose-Headers: Access-Control-Allow-Methods, WWW-Authenticate`\n\n### Version\n\n23.0.5\n\n### Expected behavior\n\nGetting CORS headers also for failed requests.\n\n### Actual behavior\n\nMissing or insufficient CORS headers in case of token errors.\n\n### How to Reproduce?\n\nUse JavaScript client in browser and 1) remove the session at KC side, 2) wait till the token is expired without refreshing it.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26782",
+        "assignees": [
+            "rmartinc"
+        ],
+        "labels": [
+            "area/oidc",
+            "kind/bug",
+            "release/24.0.0",
+            "team/core-clients"
+        ],
+        "issue_closed_at": "2024-02-14T17:24:08.000Z",
+        "fix_commit_hash": "bc82929e3ab15661c99d54766c66e08c20457da7",
+        "commit_type": "pr",
+        "commit_message": "Cors modifications for UserInfo endpoint\nCloses #26782\n\nSigned-off-by: rmartinc <rmartinc@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27015",
+        "earliest_issue_date": "2024-02-05T11:55:08Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26785,
+        "issue_title": "Fix authentication_test \"flaky\" test in Cypress",
+        "issue_body": "### Description\n\nThe check on the test is wrong and it changes a switch on one try, it fails, reverts the switch on the second try and the test passes, so the test fails once in every execution",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26785",
+        "assignees": [],
+        "labels": [
+            "kind/task",
+            "release/24.0.0"
+        ],
+        "issue_closed_at": "2024-02-05T15:37:17.000Z",
+        "fix_commit_hash": "ac6f16df70cd33d6ee1910c092d49ebaf552c335",
+        "commit_type": "pr",
+        "commit_message": "Add actions for flaky Admin UI tests (#26778)\n\nSigned-off-by: Alfredo Moises Boullosa <aboullos@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/26778",
+        "earliest_issue_date": "2024-02-05T13:33:04Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26790,
+        "issue_title": "Workflow failure: Operator IT on OpenShift",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nci\n\n### Describe the bug\n\n```\r\n2024-02-05 15:55:47  [ERROR] org.keycloak.operator.testsuite.integration.WatchedSecretsTest.testSecretChangesArePropagated  Time elapsed: 76.867 s  <<< ERROR!\r\n2024-02-05 15:55:47  org.awaitility.core.ConditionTimeoutException: Condition with org.keycloak.operator.testsuite.integration.WatchedSecretsTest was not fulfilled within 1 minutes.\r\n2024-02-05 15:55:47  \tat org.awaitility.core.ConditionAwaiter.await(ConditionAwaiter.java:164)\r\n2024-02-05 15:55:47  \tat org.awaitility.core.CallableCondition.await(CallableCondition.java:78)\r\n2024-02-05 15:55:47  \tat org.awaitility.core.CallableCondition.await(CallableCondition.java:26)\r\n2024-02-05 15:55:47  \tat org.awaitility.core.ConditionFactory.until(ConditionFactory.java:939)\r\n2024-02-05 15:55:47  \tat org.awaitility.core.ConditionFactory.until(ConditionFactory.java:908)\r\n2024-02-05 15:55:47  \tat org.keycloak.operator.testsuite.integration.WatchedSecretsTest.testSecretChangesArePropagated(WatchedSecretsTest.java:92)\r\n2024-02-05 15:55:47  \tat java.base/java.lang.reflect.Method.invoke(Method.java:568)\r\n2024-02-05 15:55:47  \tat io.quarkus.test.junit.QuarkusTestExtension.runExtensionMethod(QuarkusTestExtension.java:1013)\r\n2024-02-05 15:55:47  \tat io.quarkus.test.junit.QuarkusTestExtension.interceptTestMethod(QuarkusTestExtension.java:827)\r\n2024-02-05 15:55:47  \tat java.base/java.util.ArrayList.forEach(ArrayList.java:1511)\r\n2024-02-05 15:55:47  \tat java.base/java.util.ArrayList.forEach(ArrayList.java:1511)\r\n```\r\n\r\nFor full log see https://keycloak-jenkins/view/OpenShift/job/rhbk-operator-test-pipeline/303/execution/node/69/log/\n\n### Version\n\nlatest\n\n### Expected behavior\n\n-\n\n### Actual behavior\n\n-\n\n### How to Reproduce?\n\n-\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26790",
+        "assignees": [
+            "shawkins"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/ci",
+            "team/cloud-native",
+            "area/operator",
+            "flaky-job",
+            "release/24.0.0"
+        ],
+        "issue_closed_at": "2024-02-21T16:48:32.000Z",
+        "fix_commit_hash": "daa6cf5951c4e339e719abbfb19f5da752f94906",
+        "commit_type": "pr",
+        "commit_message": "fix: waiting more time for the log to appear (#27208)\n\ncloses: #26790\r\n\r\nSigned-off-by: Steve Hawkins <shawkins@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27208",
+        "earliest_issue_date": "2024-02-05T15:11:48Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26792,
+        "issue_title": "User profile 'uri' validator not working",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ncore\n\n### Describe the bug\n\nWhen adding a new file in the user profile configuration of a realm, I can add a `uri` validator. This validator rejects all URIs.\n\n### Version\n\nnightly\n\n### Expected behavior\n\nWhen adding the `uri` validator, valid URIs should accepts, and everything else rejected\n\n### Actual behavior\n\nNo values are accepted\n\n### How to Reproduce?\n\n1. add a new field `blog` \r\n2. add a validation `uri` for the field\r\n3. in the admin view, enter `https://example.com` as a URI -> failure\n\n### Anything else?\n\nWhen calling the validators, it seems they are always called with a collection, while the current implementation of `UriValidator` doesn't extend `AbstractSimpleValidator` which supplies this behavior. \r\n\r\n",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26792",
+        "assignees": [
+            "mposolda"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/blocker",
+            "area/user-profile",
+            "release/24.0.0",
+            "team/core-iam"
+        ],
+        "issue_closed_at": "2024-02-15T09:30:41.000Z",
+        "fix_commit_hash": "b4d289c562339bea37bba05e5e8697566bae63a6",
+        "commit_type": "pr",
+        "commit_message": "Fixing UriValidator\ncloses #26792\n\nSigned-off-by: mposolda <mposolda@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/26974",
+        "earliest_issue_date": "2024-02-05T15:58:21Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26794,
+        "issue_title": " MULTIVALUED_LIST_TYPE not working for client mappers",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\r\n\r\n### Area\r\n\r\nadmin/ui\r\n\r\n### Describe the bug\r\n\r\nI am developing a custom client mapper for a client. I wanted to use `MULTIVALUED_LIST_TYPE` for one of the mapper configuration options, however upon doing so I receive this exception when trying to save if the field is not empty:\r\n\r\n```\r\n2024-02-05 01:12:30,863 DEBUG [org.jboss.resteasy.reactive.server.handlers.RequestDeserializeHandler] (executor-thread-1) Error occurred during deserialization of input: com.fasterxml.jackson.databind.exc.MismatchedInputException: Cannot deserialize value of type `java.lang.String` from Array value (token `JsonToken.START_ARRAY`)\r\n at [Source: (org.jboss.resteasy.reactive.server.vertx.VertxInputStream); line: 1, column: 327] (through reference chain: org.keycloak.representations.idm.ProtocolMapperRepresentation[\"config\"]->java.util.LinkedHashMap[\"testOption\"])\r\n        at com.fasterxml.jackson.databind.exc.MismatchedInputException.from(MismatchedInputException.java:59)\r\n        at com.fasterxml.jackson.databind.DeserializationContext.reportInputMismatch(DeserializationContext.java:1752)\r\n        at com.fasterxml.jackson.databind.DeserializationContext.handleUnexpectedToken(DeserializationContext.java:1526)\r\n        at com.fasterxml.jackson.databind.deser.std.StdDeserializer._deserializeFromArray(StdDeserializer.java:222)\r\n        at com.fasterxml.jackson.databind.deser.std.StringDeserializer.deserialize(StringDeserializer.java:46)\r\n        at com.fasterxml.jackson.databind.deser.std.StringDeserializer.deserialize(StringDeserializer.java:11)\r\n        at com.fasterxml.jackson.databind.deser.std.MapDeserializer._readAndBindStringKeyMap(MapDeserializer.java:623)\r\n        at com.fasterxml.jackson.databind.deser.std.MapDeserializer.deserialize(MapDeserializer.java:449)\r\n        at com.fasterxml.jackson.databind.deser.std.MapDeserializer.deserialize(MapDeserializer.java:32)\r\n        at com.fasterxml.jackson.databind.deser.impl.MethodProperty.deserializeAndSet(MethodProperty.java:129)\r\n        at com.fasterxml.jackson.databind.deser.BeanDeserializer.vanillaDeserialize(BeanDeserializer.java:314)\r\n        at com.fasterxml.jackson.databind.deser.BeanDeserializer.deserialize(BeanDeserializer.java:177)\r\n        at com.fasterxml.jackson.databind.deser.DefaultDeserializationContext.readRootValue(DefaultDeserializationContext.java:323)\r\n        at com.fasterxml.jackson.databind.ObjectReader._bindAndClose(ObjectReader.java:2105)\r\n        at com.fasterxml.jackson.databind.ObjectReader.readValue(ObjectReader.java:1481)\r\n        at io.quarkus.resteasy.reactive.jackson.runtime.serialisers.FullyFeaturedServerJacksonMessageBodyReader.doReadFrom(FullyFeaturedServerJacksonMessageBodyReader.java:98)\r\n        at io.quarkus.resteasy.reactive.jackson.runtime.serialisers.FullyFeaturedServerJacksonMessageBodyReader.readFrom(FullyFeaturedServerJacksonMessageBodyReader.java:48)\r\n        at io.quarkus.resteasy.reactive.jackson.runtime.serialisers.FullyFeaturedServerJacksonMessageBodyReader.readFrom(FullyFeaturedServerJacksonMessageBodyReader.java:87)\r\n        at org.jboss.resteasy.reactive.server.handlers.RequestDeserializeHandler.readFrom(RequestDeserializeHandler.java:126)\r\n        at org.jboss.resteasy.reactive.server.handlers.RequestDeserializeHandler.handle(RequestDeserializeHandler.java:84)\r\n        at io.quarkus.resteasy.reactive.server.runtime.QuarkusResteasyReactiveRequestContext.invokeHandler(QuarkusResteasyReactiveRequestContext.java:135)\r\n        at org.jboss.resteasy.reactive.common.core.AbstractResteasyReactiveContext.run(AbstractResteasyReactiveContext.java:145)\r\n        at io.quarkus.vertx.core.runtime.VertxCoreRecorder$14.runWith(VertxCoreRecorder.java:576)\r\n        at org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2513)\r\n        at org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1538)\r\n        at org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:29)\r\n        at org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:29)\r\n        at io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)\r\n        at java.base/java.lang.Thread.run(Thread.java:840)`\r\n\r\n```\r\n\r\n### Version\r\n\r\n23.0.6\r\n\r\n### Expected behavior\r\n\r\nClient mapper saves configuration correctly, including the list of values for the MULTIVALUED_LIST_TYPE option.\r\n\r\n### Actual behavior\r\n\r\nThe UI and backend are unable to save the configuration.\r\n\r\n### How to Reproduce?\r\n\r\nCreate a client mapper with a configuration option using the `MULTIVALUED_LIST_TYPE`. Try to add and configure the client mapper in the UI. Enter any value for the option using the multi-valued type. Press Save, and you will see that an unknown error occurs with the above stacktrace.\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26794",
+        "assignees": [
+            "edewit"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "help wanted",
+            "team/ui",
+            "status/auto-expire",
+            "status/auto-bump",
+            "priority/normal",
+            "release/26.0.0"
+        ],
+        "issue_closed_at": "2024-08-21T08:38:33.000Z",
+        "fix_commit_hash": "c58128fcf743d00e02c251712b1840d58626ea56",
+        "commit_type": "commit",
+        "commit_message": "use stringify for client scope mappers (#32224)\n\nfixes: #26794\n\nSigned-off-by: Erik Jan de Wit <erikjan.dewit@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/commit/c58128fcf743d00e02c251712b1840d58626ea56",
+        "earliest_issue_date": "2024-02-05T16:26:04Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26799,
+        "issue_title": "java.lang.IndexOutOfBoundsException when using relative path",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ncore\n\n### Describe the bug\n\nRequest to /auth throws java.lang.IndexOutOfBoundsException: Index: 0, Size: 0\n\n### Version\n\n23.0.6\n\n### Expected behavior\n\nNo exception\n\n### Actual behavior\n\nI use the bitnami helm chart with `httpRelativePath: \"/auth/\"` which causes an exception when making requests to https://url/auth but no exception to https://url/auth/\n\n### How to Reproduce?\n\nDeploy keycloak with `httpRelativePath: \"/auth/\"` and make a request to url/auth\n\n### Anything else?\n\nAlso documented here:  https://github.com/aerogear/keycloak-metrics-spi/issues/190",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26799",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/core",
+            "team/cloud-native"
+        ],
+        "issue_closed_at": "2024-02-15T14:03:58.000Z",
+        "fix_commit_hash": "738277b2c2a2e0981466fdd49d5f1353f845389d",
+        "commit_type": "pr",
+        "commit_message": "Upgrade to Quarkus 3.7.3 (#27037)\n\nCloses #27036\r\n\r\nSigned-off-by: V\u00e1clav Muzik\u00e1\u0159 <vmuzikar@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27037",
+        "earliest_issue_date": "2024-02-05T20:07:29Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26816,
+        "issue_title": "Keycloak server admin docs needs change with the new hashing iteration changes",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ndocs\n\n### Describe the bug\n\nWhile pursuing the changes needed for https://github.com/keycloak/keycloak/issues/26490, I found couple of references of the older hashing iterations in the below Server Admin documentation guides.\r\n\r\n- https://github.com/keycloak/keycloak/blob/main/docs/documentation/server_admin/topics/authentication/password-policies.adoc?plain=1#L37\r\n- https://github.com/keycloak/keycloak/blob/main/docs/documentation/server_admin/topics/admin-cli.adoc?plain=1#L1781\r\n\r\n\n\n### Version\n\nnightly (2/6/2024)\n\n### Expected behavior\n\nWe would want the docs to be up-to-date and not go out of date based on the static values.\n\n### Actual behavior\n\nThe docs still have references of older hashing iteration of 27,500 after the recent documentation update.\n\n### How to Reproduce?\n\nPlease refer to the above documentation links.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26816",
+        "assignees": [
+            "mposolda"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/blocker",
+            "area/docs",
+            "release/24.0.0",
+            "team/core-clients"
+        ],
+        "issue_closed_at": "2024-02-15T07:11:45.000Z",
+        "fix_commit_hash": "e2fb8406a3bd30af52edb3f6a15c6e77468d31dd",
+        "commit_type": "pr",
+        "commit_message": "Fixing the docs about default hashing iterations (#27020)\n\ncloses #26816\r\n\r\nSigned-off-by: mposolda <mposolda@gmail.com>\r\n\r\n\r\nCo-authored-by: andymunro <48995441+andymunro@users.noreply.github.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27020",
+        "earliest_issue_date": "2024-02-06T10:57:53Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26818,
+        "issue_title": "bug in operator example yaml",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\noperator\n\n### Describe the bug\n\nArea\r\noperator\r\n\r\nDescribe the bug\r\nI was reading through the discourse forum today, and noticed this post https://keycloak.discourse.group/t/is-the-keycloak-operator-still-maintained/20350 which prompted me to look at https://operatorhub.io/operator/keycloak-operator and notice that the example has an incorrectly formatted hostname section:\r\n\r\n```yaml\r\nhostname:\r\n  hostname: example.org\r\n```\r\n\r\nVersion\r\n22.x\r\n\r\nExpected behavior\r\nability to install and configure the operator given the examples provided\r\n\r\nActual behavior\r\nunable to install the operator due to invalid example\r\n\r\nHow to Reproduce?\r\nUse the given example structure:\r\napiVersion: k8s.keycloak.org/v2alpha1\r\nkind: Keycloak\r\nmetadata:\r\n  name: example-keycloak\r\n  labels:\r\n    app: sso\r\nspec:\r\n  instances: 1\r\n  hostname: example.org\r\n  tlsSecret: my-tls-secret\r\n:(\r\nAnything else?\r\nhttps://keycloak.discourse.group/t/is-the-keycloak-operator-still-maintained/20350\n\n### Version\n\n22\n\n### Expected behavior\n\ncorrectly formatted example for deploying Keycloak from the Keycloak operator\n\n### Actual behavior\n\nerror on deploying Keycloak operator due to incorrectly formatted yaml\n\n### How to Reproduce?\n\nexample in description\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26818",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "team/cloud-native",
+            "area/operator",
+            "release/24.0.0"
+        ],
+        "issue_closed_at": "2024-02-06T11:21:27.000Z",
+        "fix_commit_hash": "5401c63c9e146128b348331fdc595c4b16deaf33",
+        "commit_type": "pr",
+        "commit_message": "Update Keycloak operator example with correct hostname syntax (#26796)\n\n* Update Keycloak operator example with correct hostname syntax\r\n\r\nCloses #26281\r\n\r\nSigned-off-by: badgerops <github@badgerops.net>\r\n\r\n* Adding missing ',' to ensure valid JSON structure\r\n\r\nCloses #26281\r\n\r\nSigned-off-by: Alexander Schwartz <aschwart@redhat.com>\r\n\r\n---------\r\n\r\nSigned-off-by: badgerops <github@badgerops.net>\r\nSigned-off-by: Alexander Schwartz <aschwart@redhat.com>\r\nCo-authored-by: Alexander Schwartz <aschwart@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/26796",
+        "earliest_issue_date": "2024-02-06T11:02:57Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26826,
+        "issue_title": "Freemarker erroneously escapes/sanitizes URL in template.ftl (&amp;)",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nlogin/ui\n\n### Describe the bug\n\nKeycloak 23.0.x introduced a script in template.ftl\r\n```html\r\n<script type=\"module\">\r\n    import { checkCookiesAndSetTimer } from \"${url.resourcesPath}/js/authChecker.js\";\r\n\r\n    checkCookiesAndSetTimer(\r\n        \"${authenticationSession.authSessionId}\",\r\n        \"${authenticationSession.tabId}\",\r\n         \"${url.ssoLoginInOtherTabsUrl}\"\r\n    );\r\n</script>\r\n```\r\nWhat the browser sees when triggering login\r\n```html\r\n<script type=\"module\">\r\n    import { checkCookiesAndSetTimer } from \"/auth/resources/pss9g/login/keycloak/js/authChecker.js\";\r\n\r\n    checkCookiesAndSetTimer(\r\n        \"173d8521-afb5-421c-b0ca-5bb2e4ebc22e\",\r\n        \"lFfEnCIB5EQ\",\r\n        \"/auth/realms/testRealm/login-actions/restart?client_id=gui&amp;tab_id=lFfEnCIB5EQ&amp;skip_logout=true\"\r\n    );\r\n</script>\r\n```\r\n\r\nIn some cases checkCookiesAndSetTimer does `location.href = \"/auth/realms/testRealm/login-actions/restart?client_id=gui&amp;tab_id=lFfEnCIB5EQ&amp;skip_logout=true\" which leads to broken requests because of the escaped/sanitized &s (ampersands).\n\n### Version\n\n23.0.4\n\n### Expected behavior\n\nThe rendered template.ftl should contain the url with & instead of &amp;amp;\n\n### Actual behavior\n\nThe rendered template.ftl contains the url with &amp;amp; instead of &\n\n### How to Reproduce?\n\n- Go to login page\r\n- open DevTools\r\n- search for \"checkCookiesAndSetTimer\" in HTML\n\n### Anything else?\n\nEscaping happens in `freemarker.core.DollarVaiable#accept(Environment)` in line 68: `markupOutputFormat.output(s, out);`",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26826",
+        "assignees": [
+            "dominiktopp"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/login/ui",
+            "release/24.0.0",
+            "team/core-clients",
+            "release/23.0.7"
+        ],
+        "issue_closed_at": "2024-02-08T10:50:51.000Z",
+        "fix_commit_hash": "edd68d12fb7d02aebf6ed73e8fca3c698f075ee3",
+        "commit_type": "commit",
+        "commit_message": "Fix for freemarker template URL sanitization in template.ftl (#26838)\n\ncloses #26826\r\n\r\nSigned-off-by: Dominik Topp <19268966+dominiktopp@users.noreply.github.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/commit/edd68d12fb7d02aebf6ed73e8fca3c698f075ee3",
+        "earliest_issue_date": "2024-02-06T12:47:59Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26830,
+        "issue_title": "Duplicate \"Refresh\" buttons present in admin-ui",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\r\n\r\n### Area\r\n\r\nadmin/ui\r\n\r\n### Describe the bug\r\n\r\nIt appears that in certain areas of the application, there are two \"Refresh\" buttons displayed concurrently. \r\n\r\n![Screenshot 2024-02-06 at 14 17 19](https://github.com/keycloak/keycloak/assets/4890675/2500b4c0-df4c-4471-8031-e4590384a3b4)\r\n\r\n![Screenshot 2024-02-06 at 15 27 40](https://github.com/keycloak/keycloak/assets/4890675/610960e6-8343-4877-8803-3acd8c2c4f25)\r\n\r\n![Screenshot 2024-02-06 at 15 27 45](https://github.com/keycloak/keycloak/assets/4890675/35b8d3de-e76c-42b2-8c0e-140f198c1be1)\r\n\r\n\r\n### Version\r\n\r\n22.0.5\r\n\r\n### Expected behavior\r\n\r\nOnly one \"Refresh\" button should be present in any given area of the ui.\r\n\r\n### Actual behavior\r\n\r\nTwo \"Refresh\" buttons are displayed, causing potential user confusion.\r\n\r\n### How to Reproduce?\r\n\r\nGo through each component using KeycloakDataTable and remove old refresh buttons\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26830",
+        "assignees": [
+            "agagancarczyk"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2024-02-07T11:24:53.000Z",
+        "fix_commit_hash": "2a8b54114fb9b99e245bb63ea67e598674086735",
+        "commit_type": "pr",
+        "commit_message": "Removed duplicate refresh buttons (#26857)\n\n* fixed refresh btn for events\r\n\r\nSigned-off-by: Agnieszka Gancarczyk <agancarc@redhat.com>\r\n\r\n* cleanup\r\n\r\nSigned-off-by: Agnieszka Gancarczyk <agancarc@redhat.com>\r\n\r\n---------\r\n\r\nSigned-off-by: Agnieszka Gancarczyk <agancarc@redhat.com>\r\nCo-authored-by: Agnieszka Gancarczyk <agancarc@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/26857",
+        "earliest_issue_date": "2024-02-06T14:26:47Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26834,
+        "issue_title": "Disabling \"Reset OTP\" in \"Reset credentials\" flow throws error on \"forgot password\"",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nauthentication\n\n### Describe the bug\n\nAccording to the [server administration guide](https://www.keycloak.org/docs/latest/server_admin/#enabling-forgot-password) it is recommended to disable \"reset OTP\" in the \"reset credentials\" flow if the OTP should not be reset by email.\r\nHowever, if the user clicks the link in the \"reset password\" mail an error is thrown.\n\n### Version\n\n23.0.6\n\n### Expected behavior\n\nThe form to set a new password should be displayed. However, I'm not sure if the user should have to provide the OTP in the next step or if the user should already be logged without OTP in that case.\n\n### Actual behavior\n\nAn error message is displayed. The log shows the following error:\r\n\r\n```\r\n2024-02-06 15:48:33,534 WARN  [org.keycloak.services] (executor-thread-34) KC-SERVICES0013: Failed authentication: org.keycloak.authentication.AuthenticationFlowException\r\n\tat org.keycloak.authentication.AuthenticationProcessor.authenticateOnly(AuthenticationProcessor.java:1039)\r\n\tat org.keycloak.authentication.AuthenticationProcessor.authenticate(AuthenticationProcessor.java:885)\r\n\tat org.keycloak.services.resources.LoginActionsService.processFlow(LoginActionsService.java:364)\r\n\tat org.keycloak.authentication.actiontoken.ActionTokenContext.processFlow(ActionTokenContext.java:160)\r\n\tat org.keycloak.authentication.actiontoken.resetcred.ResetCredentialsActionTokenHandler.handleToken(ResetCredentialsActionTokenHandler.java:67)\r\n\tat org.keycloak.authentication.actiontoken.resetcred.ResetCredentialsActionTokenHandler.handleToken(ResetCredentialsActionTokenHandler.java:39)\r\n\tat org.keycloak.services.resources.LoginActionsService.handleActionToken(LoginActionsService.java:650)\r\n\tat org.keycloak.services.resources.LoginActionsService.executeActionToken(LoginActionsService.java:509)\r\n\tat org.keycloak.services.resources.LoginActionsService$quarkusrestinvoker$executeActionToken_035bd2a6e85ccb740354c6ef1893bd855922beec.invoke(Unknown Source)\r\n\tat org.jboss.resteasy.reactive.server.handlers.InvocationHandler.handle(InvocationHandler.java:29)\r\n\tat io.quarkus.resteasy.reactive.server.runtime.QuarkusResteasyReactiveRequestContext.invokeHandler(QuarkusResteasyReactiveRequestContext.java:141)\r\n\tat org.jboss.resteasy.reactive.common.core.AbstractResteasyReactiveContext.run(AbstractResteasyReactiveContext.java:145)\r\n\tat io.quarkus.vertx.core.runtime.VertxCoreRecorder$14.runWith(VertxCoreRecorder.java:576)\r\n\tat org.jboss.threads.EnhancedQueueExecutor$Task.run(EnhancedQueueExecutor.java:2513)\r\n\tat org.jboss.threads.EnhancedQueueExecutor$ThreadBody.run(EnhancedQueueExecutor.java:1538)\r\n\tat org.jboss.threads.DelegatingRunnable.run(DelegatingRunnable.java:29)\r\n\tat org.jboss.threads.ThreadLocalResettingRunnable.run(ThreadLocalResettingRunnable.java:29)\r\n\tat io.netty.util.concurrent.FastThreadLocalRunnable.run(FastThreadLocalRunnable.java:30)\r\n\tat java.base/java.lang.Thread.run(Thread.java:840)\r\n\r\n2024-02-06 15:48:33,537 WARN  [org.keycloak.events] (executor-thread-34) type=\"RESET_PASSWORD_ERROR\", realmId=\"fbc63abe-050a-4ae2-997b-b407f8371e20\", clientId=\"account-console\", userId=\"04018efd-5574-4011-9ad0-6576f2476f1d\", ipAddress=\"172.17.0.1\", error=\"invalid_user_credentials\", auth_method=\"openid-connect\", auth_type=\"code\", token_id=\"a8b8431a-27fe-41f2-ba3a-f5a8ef4c6ea6\", action=\"reset-credentials\", response_type=\"code\", redirect_uri=\"http://localhost:8080/realms/test/account/#/\", remember_me=\"false\", code_id=\"3bfc3946-4120-4be4-b3ec-06236052c2ca\", response_mode=\"fragment\", username=\"test1\"\r\n```\n\n### How to Reproduce?\n\n1. Set up a realm with mail settings (to receive the \"reset password\" mail)\r\n2. Enable \"forget password\" for the realm.\r\n3. Follow the [instructions in the server administration guide](https://www.keycloak.org/docs/latest/server_admin/#enabling-forgot-password) to disable \"reset OTP\":\r\n  - set \"reset OTP\" requirement to \"disabled\" in \"reset credentials\" flow\r\n  - ensure \"update password\" is \"enabled\" in \"required actions\"\r\n 4. Create a user and configure OTP for that user. Verify the login and log off again.\r\n 5. Click the login form's \"forgot password\" link and provide user name to receive the \"reset password\" mail.\r\n 6. Click the link in the \"reset password\" mail ---> error\r\n\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26834",
+        "assignees": [],
+        "labels": [
+            "area/authentication",
+            "kind/bug",
+            "area/docs",
+            "release/24.0.0",
+            "team/core-clients"
+        ],
+        "issue_closed_at": "2024-02-07T14:58:00.000Z",
+        "fix_commit_hash": "fdfe41bdda2b8e4d5f1696906e8f4aab3e9ca128",
+        "commit_type": "pr",
+        "commit_message": "fix documentation for resetting OTP in \"reset credentials\" flow (#26834)\n\nThe former version stated that the \"Reset OTP\" step had to be disabled in the \"reset credentials\" authentication flow in order to keep the OTP unchanged. This leads to an error. More precisely, the \"Reset - Conditional OTP\" sub-flow has to be disabled.\r\n\r\nFixex #26834\n\nSigned-off-by: Michael Schnitzler <schnitzler.michael+github@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/26855",
+        "earliest_issue_date": "2024-02-06T16:22:56Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26853,
+        "issue_title": "Fixing anchors in security apps guide in prod profile",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ndocs\n\n### Describe the bug\n\nThere is a change 92cc7708fe79945a30d1f75ea338d0780cc2cef6 which hasn't been applied to main yet, which is necessary to fix broken anchors in downstream\n\n### Version\n\nnightly\n\n### Expected behavior\n\nDownstream docs should build\n\n### Actual behavior\n\nThey fail to build with broken references\r\n\r\n```\r\n\u001b[31m\u001b[1mUnknown ID or title \"_saml_jboss_adapter\", used as an internal cross reference\u001b[0m\r\n\u001b[31m\u001b[1mUnknown ID or title \"_java-servlet-filter-adapter\", used as an internal cross reference\u001b[0m\r\n\u001b[31m\u001b[1mUnknown ID or title \"_mod_auth_mellon\", used as an internal cross reference\u001b[0m\r\n```\r\n\n\n### How to Reproduce?\n\nSee downstream RHBK24 build\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26853",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/docs",
+            "release/24.0.0"
+        ],
+        "issue_closed_at": "2024-02-09T11:31:31.000Z",
+        "fix_commit_hash": "d2f74dd83d45c23968d757c60a9d4b2bf21e06f5",
+        "commit_type": "commit",
+        "commit_message": "Fix anchors in securing apps guide in prod profile\n\nCloses #26853\n\nSigned-off-by: Alexander Schwartz <aschwart@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/commit/d2f74dd83d45c23968d757c60a9d4b2bf21e06f5",
+        "earliest_issue_date": "2024-02-07T10:35:56Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26856,
+        "issue_title": "Remove custom user attributes section in server developer guide",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nuser-profile\n\n### Describe the bug\n\nThe server developer guide has instructions on how to add custom attributes for a user, based on account v1 and manually updating the login templates.\r\n\r\nThis should be removed, and we should instead have documentation in the server admin guide for managing user attributes through user profile.\n\n### Version\n\n23.0\n\n### Expected behavior\n\nAdding custom attributes should be covered by server admin guide through configuring user profile\n\n### Actual behavior\n\nServer developer guide contains instructions for adding custom attributes in the old way\n\n### How to Reproduce?\n\nhttps://www.keycloak.org/docs/latest/server_development/index.html#_custom_user_attributes\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26856",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "priority/blocker",
+            "area/user-profile",
+            "release/24.0.0",
+            "team/core-iam"
+        ],
+        "issue_closed_at": "2024-02-08T06:28:33.000Z",
+        "fix_commit_hash": "cd1e4831340dc195ba43af97412a9a6f41dcdb4b",
+        "commit_type": "pr",
+        "commit_message": "Remove section on adding custom attributes with account v1 and custom themes (#26858)\n\nCloses #26856\r\n\r\nSigned-off-by: stianst <stianst@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/26858",
+        "earliest_issue_date": "2024-02-07T11:08:20Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26860,
+        "issue_title": "Messages on empty user and admin events don't make sense",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\r\n\r\n### Area\r\n\r\nadmin/ui\r\n\r\n### Describe the bug\r\n\r\nWhen events are empty, the messages display, but they don't make much sense. Perhaps we should change them to something more meaningful. \r\n\r\n![Screenshot 2024-02-07 at 12 09 58](https://github.com/keycloak/keycloak/assets/4890675/df7f6234-ae77-4492-a379-4544b28151e1)\r\n\r\n### Version\r\n\r\n23.0.5\r\n\r\n### Expected behavior\r\n\r\nCorrect messages display\r\n\r\n### Actual behavior\r\n\r\nIncorrect messages display\r\n\r\n### How to Reproduce?\r\n\r\nGo to Events -> User/ Admin events tab -> Observe that messages read \"Nothing to add\" and There are no more events types left to add\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26860",
+        "assignees": [
+            "agagancarczyk"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2024-03-06T10:26:04.000Z",
+        "fix_commit_hash": "8689208e3a9afe3e02baf0d637466bf5816c574d",
+        "commit_type": "pr",
+        "commit_message": "fixed messages and replaced KeyckloakTextInput (#27591)\n\nSigned-off-by: Agnieszka Gancarczyk <agancarc@redhat.com>\r\nCo-authored-by: Agnieszka Gancarczyk <agancarc@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27591",
+        "earliest_issue_date": "2024-02-07T12:12:10Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26893,
+        "issue_title": "Access tokens includes nonce claim",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\noidc\n\n### Describe the bug\n\nThe `nonce` claim is not relevant to Access Tokens, only ID Tokens.\n\n### Version\n\nmain\n\n### Expected behavior\n\nWhen client is passing the nonce parameter it should only be added to the ID Token\n\n### Actual behavior\n\nWhen client is passing the nonce parameter it is added to the ID Token as expected, but also added to the Access Token, which is not expected.\n\n### How to Reproduce?\n\nSee https://github.com/keycloak/keycloak/blob/cd1e4831340dc195ba43af97412a9a6f41dcdb4b/services/src/main/java/org/keycloak/protocol/oidc/TokenManager.java#L987\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26893",
+        "assignees": [
+            "rmartinc"
+        ],
+        "labels": [
+            "area/oidc",
+            "kind/bug",
+            "priority/important",
+            "team/core-clients",
+            "release/25.0.0"
+        ],
+        "issue_closed_at": "2024-03-07T08:56:58.000Z",
+        "fix_commit_hash": "dea15e25daa0a33813e44f990a1dc6f8f8d157dd",
+        "commit_type": "pr",
+        "commit_message": "Only add the nonce claim to the ID Token (mapper for backwards compatibility)\nCloses #26893\n\nSigned-off-by: rmartinc <rmartinc@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27588",
+        "earliest_issue_date": "2024-02-08T07:20:38Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26915,
+        "issue_title": "Deleting sub-realm roles throw errors (even tho it succeeded)",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\r\n\r\n### Area\r\n\r\nadmin/cli\r\n\r\n### Describe the bug\r\n\r\nI know that when you send a request to delete a sub-realm role, Keycloak takes some time to go over all its resources (such as users/role_policies/etc) and makes sure to delete that sub-realm role reference from all of them which takes a while if you have a lot of clients, resources, and data in your sub-realm, however, that is another issue for another day as sometimes takes like 1-2 minutes to delete one sub-realm role.\r\nMy main issue now for this ticket is that the sub-realm role delete request usually returns an error even when the sub-realm role is deleted correctly.\r\n\r\nFor example, once it returned `404 {\"error\":\"Could not find role with id\"}` I assume that is because it deleted the sub-realm role and it retried again for whatever reason which caused that error, and that is what it got returned to me.\r\nAnother time, it gave me `500 {\"error\":\"unknown_error\"}`.\r\nCurrently, I'm using Keycloak v23.0.6\r\n\r\nThese pictures are for one of these errors (again keep in mind that the sub-realm role got deleted successfully but the request returned an error)\r\n \r\n \r\n<img width=\"948\" alt=\"image\" src=\"https://github.com/keycloak/keycloak/assets/32916450/1b488e58-9482-48f7-b652-f313d5492151\">\r\n\r\n<img width=\"787\" alt=\"image\" src=\"https://github.com/keycloak/keycloak/assets/32916450/33bae3fc-c391-492d-abb1-37fb21c318ba\">\r\n\r\n<img width=\"692\" alt=\"fffffr\" src=\"https://github.com/keycloak/keycloak/assets/32916450/c8513d51-bf61-45de-92b2-5613338498ce\">\r\n\r\n<br><br>\r\nSide rant \ud83d\udde3\ufe0f: Deleting sub-realm roles has been not a fun experience since I have been using Keycloak (which was since v18)\r\n\r\n### Version\r\n\r\n23.0.6\r\n\r\n### Expected behavior\r\n\r\nDeleting a sub-realm role should return success 200\r\n\r\n### Actual behavior\r\n\r\nDeleting sub-realm role returns an error even when it is successfully deleted \r\n\r\n### How to Reproduce?\r\n\r\nCreate a sub-realm that has 200 users and 7 clients and each client should have 1000 role_policies,\r\nthen create a sub-realm role and delete it.\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26915",
+        "assignees": [
+            "pedroigor"
+        ],
+        "labels": [
+            "area/authorization-services",
+            "kind/bug",
+            "priority/important",
+            "area/core",
+            "area/admin/api",
+            "team/core-iam"
+        ],
+        "issue_closed_at": "2024-04-03T11:04:19.000Z",
+        "fix_commit_hash": "365a3feafad76cdb70c2cbf9f049e30c89299da9",
+        "commit_type": "commit",
+        "commit_message": "Remove deleted roles from policy on update\n\nCloses #26915\n\nSigned-off-by: EnneS <nathan.soulier26@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/commit/365a3feafad76cdb70c2cbf9f049e30c89299da9",
+        "earliest_issue_date": "2024-02-09T02:28:20Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26937,
+        "issue_title": "Once all default client scopes are deleted from the realm we can't create a new custom role.",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nadmin/ui\n\n### Describe the bug\n\nI've deleted all default roles from the 'Client Scopes' and i'm not able to create a new one.\r\nThe button **Create a client scope** is missing.\r\n<img width=\"1438\" alt=\"image\" src=\"https://github.com/keycloak/keycloak/assets/19496422/79a1610f-6a71-4601-8420-c59c3f3c9114\">\r\n\n\n### Version\n\n23.0.6\n\n### Expected behavior\n\nTo have the ability to create a custom client scopes.\n\n### Actual behavior\n\nThe button for creating client scopes is missing.\n\n### How to Reproduce?\n\nDelete all client scopes.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26937",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/core",
+            "release/24.0.0",
+            "team/core-clients"
+        ],
+        "issue_closed_at": "2024-02-26T10:16:24.000Z",
+        "fix_commit_hash": "03f6cda85a4f3c12c71788362b4b1b8b81a20f61",
+        "commit_type": "pr",
+        "commit_message": "Prevent user from removing built-in client scopes (#27134)\n\nCloses #26937\r\n\r\nSigned-off-by: Kaustubh B <kbawanka@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27134",
+        "earliest_issue_date": "2024-02-09T15:03:51Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26941,
+        "issue_title": "When loading entries from a remote store at startup, no lifespan or expiry is set",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ncore\n\n### Describe the bug\n\nThe `RemoteCacheSessionLoad` loads the following caches from the remote store at startup:\r\n\r\n* loginFailures\r\n* offlineClientSessions\r\n* offlineSessions\r\n* sessions\r\n* clientSessions\r\n\r\n\n\n### Version\n\nmain\n\n### Expected behavior\n\nThose entries have a lifetime and expiry set, which should be preserved for the local cache to ensure lifetime and expiry.\n\n### Actual behavior\n\nExpiry and lifetime are not written to the local cache\n\n### How to Reproduce?\n\nLook at the code\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26941",
+        "assignees": [
+            "ahus1"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/blocker",
+            "area/core",
+            "release/24.0.0",
+            "team/production-readiness"
+        ],
+        "issue_closed_at": "2024-02-27T16:56:18.000Z",
+        "fix_commit_hash": "ee3a4a6e4f5387f7bd810041bc5d36ac0777efae",
+        "commit_type": "pr",
+        "commit_message": "Set expiry and maxidle when loading entries from the remote store (#26942)\n\nCloses #26941\r\n\r\nSigned-off-by: Michal Hajas <mhajas@redhat.com>\r\nSigned-off-by: Alexander Schwartz <aschwart@redhat.com>\r\nCo-authored-by: Michal Hajas <mhajas@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/26942",
+        "earliest_issue_date": "2024-02-09T18:17:53Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26946,
+        "issue_title": "Multiple protocolMappers with the same name.",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nadmin/api\n\n### Describe the bug\n\nWhen saving the client with client json containing multiple protocolMappers with the same name the response containes \"Client {clientID} already exists\"\n\n### Version\n\n23.x.x\n\n### Expected behavior\n\nThe message should be ProtocolMapper with the given name already exists\n\n### Actual behavior\n\nResponse says \"Client {clientID} already exists\"\n\n### How to Reproduce?\n\nTry to save Client with same ProtocolMappers multiple times using Keycloak API  POST \"URL/admin/realms/api/clients\" Request Body containing ClientRepresentation Json.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26946",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/admin/api",
+            "help wanted",
+            "team/core-clients",
+            "team/core-shared",
+            "priority/low",
+            "status/auto-bump",
+            "release/26.6.0"
+        ],
+        "issue_closed_at": "2026-02-13T16:33:03.000Z",
+        "fix_commit_hash": "c28cac9db330c3637c34c19cc71bae8949f2892d",
+        "commit_type": "pr",
+        "commit_message": "fix: ensuring proper error handling for duplicate protocol mappers\n\ncloses: #26946\n\nSigned-off-by: Steve Hawkins <shawkins@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/46306",
+        "earliest_issue_date": "2024-02-11T12:14:05Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26951,
+        "issue_title": "Roles admin REST API for creating roles: Composite roles are expanded",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\r\n\r\n### Area\r\n\r\nadmin/api\r\n\r\n### Describe the bug\r\n\r\nWhen using the `roles` admin REST API for creating a composite role that contains other composite roles then the contained roles are expanded. This is different from the behaviour when adding composite roles in the Admin UI and the behaviour of `POST {role-name}/composites`. This is unexpected, makes managing roles harder and is probably not intended.\r\n\r\n### Version\r\n\r\n23.0.6\r\n\r\n### Expected behavior\r\n\r\nComposite roles added to a composite role are not expanded.\r\n\r\n### Actual behavior\r\n\r\nComposite roles added to a composite role are expanded.\r\n\r\n### How to Reproduce?\r\n\r\nCreate some roles with composites: `role3 contains (role2 contains role1)`\r\n\r\n```\r\nPOST /auth/admin/realms/master/roles\r\n \r\n{\r\n    \"name\": \"role1\"\r\n}\r\n \r\nPOST /auth/admin/realms/master/roles\r\n \r\n{\r\n    \"composite\": true,\r\n    \"name\": \"role2\",\r\n    \"composites\": {\r\n        \"realm\": [\"role1\"]\r\n    }\r\n}\r\n \r\nPOST /auth/admin/realms/master/roles\r\n \r\n{\r\n    \"composite\": true,\r\n    \"name\": \"role3\",\r\n    \"composites\": {\r\n        \"realm\": [\"role2\"]\r\n    }\r\n}\r\n```\r\n\r\n`role1` was added because `role2` was expanded. (It is not expected to have `role1` added explicitly to `role3` as it is already a inherited role from `role2`.)\r\n\r\n``` \r\nGET /auth/admin/realms/master/roles/role3/composites\r\n \r\n[\r\n    {\r\n        \"id\": \"981a8351-b895-47ad-8923-b94639a47148\",\r\n        \"name\": \"role1\",\r\n        \"composite\": false,\r\n        \"clientRole\": false,\r\n        \"containerId\": \"5f3e9387-7494-44ba-8699-758122ee07b3\"\r\n    },\r\n    {\r\n        \"id\": \"fdd4f720-7016-49c8-aa8d-a9371e7472b6\",\r\n        \"name\": \"role2\",\r\n        \"composite\": true,\r\n        \"clientRole\": false,\r\n        \"containerId\": \"5f3e9387-7494-44ba-8699-758122ee07b3\"\r\n    }\r\n]\r\n```\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26951",
+        "assignees": [
+            "pedroigor"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/admin/api",
+            "help wanted",
+            "release/24.0.0",
+            "team/core-iam"
+        ],
+        "issue_closed_at": "2024-03-01T15:03:05.000Z",
+        "fix_commit_hash": "137907f5ef75e8e77156ca60ac47f4443b260a93",
+        "commit_type": "pr",
+        "commit_message": "Roles admin REST API: Don't expand composite roles\n\nAdditionally:\n- Import clean-up\n- Added requireMapComposite as in RoleResource.addComposites\n\nCloses #26951\n\nSigned-off-by: synth3 <19573241+synth3@users.noreply.github.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/26950",
+        "earliest_issue_date": "2024-02-11T18:12:19Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26972,
+        "issue_title": "NginxProxySslClientCertificateLookupFactory unable to work with custom trust stores",
+        "issue_body": " \ud83d\udc4d\r\n\r\n### Before reporting an issue\r\n\r\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\r\n\r\n### Area\r\n\r\ncore\r\n\r\n### Describe the bug\r\n\r\n[NginxProxySslClientCertificateLookupFactory](https://github.com/keycloak/keycloak/blob/main/services/src/main/java/org/keycloak/services/x509/NginxProxySslClientCertificateLookupFactory.java) is unable to work with trust store providers that are not overwriting the \"file\" ID trust store provider.\r\n\r\n### Version\r\n\r\n23.0.6\r\n\r\n### Expected behavior\r\n\r\nsetting the default trust store provider that is not with ID \"file\" should work properly and provide trust store for the NginxProxySslClientCertificateLookupFactory.\r\n\r\n### Actual behavior\r\n\r\nNginxProxySslClientCertificateLookupFactory is able to work only with \"file\" trust store provider.\r\n \r\n\r\n### How to Reproduce?\r\n\r\nset mTLS for direct grant.\r\nset Nginx as proxy.\r\nenable NginxProxySslClient to consume x509 from nginx header.\r\nprovide custom trust store provider via SPI with ID different then \"file\"\r\nset the custom trust store provider as default on to use.\r\ntry to perform login with mTLS direct grant through Nginx.\r\n\r\n### Anything else?\r\n\r\nthe issue seems to be caused because of hard coded fetch of trust store provider with ID \"file\".\r\n\r\nhttps://github.com/keycloak/keycloak/blob/750bc2c09c63a81aba02ebb6574b2b69fc6386de/services/src/main/java/org/keycloak/services/x509/NginxProxySslClientCertificateLookupFactory.java#L83",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26972",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/core",
+            "help wanted",
+            "team/cloud-native",
+            "team/core-clients",
+            "team/core-shared",
+            "priority/low",
+            "status/auto-expire",
+            "status/auto-bump",
+            "release/26.4.0"
+        ],
+        "issue_closed_at": "2025-08-15T10:37:05.000Z",
+        "fix_commit_hash": "cd62da9b027c9284f52acc47737f48f796d79b40",
+        "commit_type": "pr",
+        "commit_message": "This fix the limitation of working only with TrustStoreProvider with ID \"file\" and enables to work with custom trust store provider via custom SPI. (#27001)\n\nCloses #26972\n\nSigned-off-by: Stav Sapir <stavsap@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27001",
+        "earliest_issue_date": "2024-02-12T16:11:44Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26981,
+        "issue_title": "Workflow failure Quarkus IT - StartCommandDistTest#testWarningWhenOverridingBuildOptionsDuringStart",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\r\n\r\n### Area\r\n\r\nci\r\n\r\n### Describe the bug\r\n\r\nReference GHA run: https://github.com/keycloak/keycloak/actions/runs/7848451978/job/21419988110\r\n\r\nNew unreported flaky tests, probably due to inability to start JGroups Channel due to unavailable ports.\r\n\r\n```\r\n2024-02-09 19:41:58,884 ERROR [org.infinispan.CONFIG] (keycloak-cache-init) ISPN000660: DefaultCacheManager start failed, stopping any running components: org.infinispan.commons.CacheException: Unable to start JGroups Channel\r\n-- \tat org.infinispan.remoting.transport.jgroups.JGroupsTransport.startJGroupsChannelIfNeeded(JGroupsTransport.java:604)\r\n-- \tat org.infinispan.remoting.transport.jgroups.JGroupsTransport.start(JGroupsTransport.java:477)\r\n-- \tat org.infinispan.remoting.transport.jgroups.CorePackageImpl$2.start(CorePackageImpl.java:63)\r\n-- \tat org.infinispan.remoting.transport.jgroups.CorePackageImpl$2.start(CorePackageImpl.java:49)\r\n-- \tat org.infinispan.factories.impl.BasicComponentRegistryImpl.invokeStart(BasicComponentRegistryImpl.java:616)\r\n-- \tat org.infinispan.factories.impl.BasicComponentRegistryImpl.doStartWrapper(BasicComponentRegistryImpl.java:607)\r\n-- \tat org.infinispan.factories.impl.BasicComponentRegistryImpl.startWrapper(BasicComponentRegistryImpl.java:576)\r\n-- \tat org.infinispan.factories.impl.BasicComponentRegistryImpl$ComponentWrapper.running(BasicComponentRegistryImpl.java:807)\r\n-- \tat org.infinispan.factories.impl.BasicComponentRegistryImpl.startDependencies(BasicComponentRegistryImpl.java:634)\r\n-- \tat org.infinispan.factories.impl.BasicComponentRegistryImpl.doStartWrapper(BasicComponentRegistryImpl.java:598)\r\n-- \tat org.infinispan.factories.impl.BasicComponentRegistryImpl.startWrapper(BasicComponentRegistryImpl.java:576)\r\n-- \tat org.infinispan.factories.impl.BasicComponentRegistryImpl$ComponentWrapper.running(BasicComponentRegistryImpl.java:807)\r\n-- \tat org.infinispan.factories.GlobalComponentRegistry.preStart(GlobalComponentRegistry.java:284)\r\n-- \tat org.infinispan.factories.AbstractComponentRegistry.start(AbstractComponentRegistry.java:250)\r\n-- \tat org.infinispan.manager.DefaultCacheManager.internalStart(DefaultCacheManager.java:779)\r\n-- \tat org.infinispan.manager.DefaultCacheManager.start(DefaultCacheManager.java:747)\r\n-- \tat org.infinispan.manager.DefaultCacheManager.<init>(DefaultCacheManager.java:411)\r\n-- \tat org.keycloak.quarkus.runtime.storage.legacy.infinispan.CacheManagerFactory.startCacheManager(CacheManagerFactory.java:104)\r\n-- \tat java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)\r\n-- \tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)\r\n-- \tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)\r\n-- \tat java.base/java.lang.Thread.run(Thread.java:840)\r\n-- Caused by: java.lang.IllegalStateException: fv-az1258-409-39315: failed to find an available port in ports [49664, 49665, 49666, 49667]\r\n-- \tat org.jgroups.protocols.FD_SOCK2.createServer(FD_SOCK2.java:326)\r\n-- \tat org.jgroups.protocols.FD_SOCK2.start(FD_SOCK2.java:161)\r\n-- \tat org.jgroups.stack.ProtocolStack.startStack(ProtocolStack.java:905)\r\n-- \tat org.jgroups.JChannel.startStack(JChannel.java:922)\r\n-- \tat org.jgroups.JChannel._preConnect(JChannel.java:800)\r\n-- \tat org.jgroups.JChannel.connect(JChannel.java:323)\r\n-- \tat org.jgroups.JChannel.connect(JChannel.java:317)\r\n-- \tat org.infinispan.remoting.transport.jgroups.JGroupsTransport.startJGroupsChannelIfNeeded(JGroupsTransport.java:602)\r\n-- \t... 21 more\r\n```\r\n\r\n### Version\r\n\r\nlatest\r\n\r\n### Expected behavior\r\n\r\n.\r\n\r\n### Actual behavior\r\n\r\n.\r\n\r\n### How to Reproduce?\r\n\r\n.\r\n\r\n### Anything else?\r\n\r\n.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26981",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/ci",
+            "team/cloud-native",
+            "flaky-job",
+            "priority/normal",
+            "release/25.0.0"
+        ],
+        "issue_closed_at": "2024-03-11T10:38:57.000Z",
+        "fix_commit_hash": "ccc4cd2ab4cf756f1d2982c2d89c00a4d7650b04",
+        "commit_type": "pr",
+        "commit_message": "task: refine DistributionTest.keepAlive (#27612)\n\ncloses: #26981\r\n\r\nSigned-off-by: Steve Hawkins <shawkins@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27612",
+        "earliest_issue_date": "2024-02-13T08:02:32Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26983,
+        "issue_title": "Group not found in list after creation",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\r\n\r\n### Area\r\n\r\ncore\r\n\r\n### Describe the bug\r\n\r\nConcurrencyTest#createGroup started failing on the 27th October 2023, which was the day after https://github.com/keycloak/keycloak/commit/69497382d8cc6c622e815184d9bc27cb0dc6a400 was merged.\r\n\r\nThe error is that a newly created group is not found in the group list:\r\n```\r\n2024-02-13T07:58:05.2629139Z ConcurrencyTest ++ java.lang.AssertionError: Group g-79 [affcccbf-f981-43a0-8f85-48dd664a9c87]  not found in group list\r\n2024-02-13T07:58:05.2630974Z ConcurrencyTest ++ \tat org.junit.Assert.fail(Assert.java:89)\r\n2024-02-13T07:58:05.2631978Z ConcurrencyTest ++ \tat org.junit.Assert.assertTrue(Assert.java:42)\r\n2024-02-13T07:58:05.2633037Z ConcurrencyTest ++ \tat org.junit.Assert.assertFalse(Assert.java:65)\r\n2024-02-13T07:58:05.2634509Z ConcurrencyTest ++ \tat org.keycloak.testsuite.admin.concurrency.ConcurrencyTest$CreateGroup.run(ConcurrencyTest.java:248)\r\n2024-02-13T07:58:05.2637014Z ConcurrencyTest ++ \tat org.keycloak.testsuite.admin.concurrency.AbstractConcurrencyTest.lambda$run$0(AbstractConcurrencyTest.java:94)\r\n2024-02-13T07:58:05.2638885Z ConcurrencyTest ++ \tat java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)\r\n2024-02-13T07:58:05.2640522Z ConcurrencyTest ++ \tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)\r\n2024-02-13T07:58:05.2642345Z ConcurrencyTest ++ \tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)\r\n2024-02-13T07:58:05.2643793Z ConcurrencyTest ++ \tat java.base/java.lang.Thread.run(Thread.java:840)\r\n```\r\n\r\nThe mentioned PR also introduced a hack to retry listing the groups after the group was created:\r\nhttps://github.com/keycloak/keycloak/blob/ee126f73e532baaabd8c82b94df8c70031ff650b/testsuite/integration-arquillian/tests/base/src/test/java/org/keycloak/testsuite/admin/concurrency/ConcurrencyTest.java#L238-L248\r\n\r\nHowever, this should not be needed the group should be available immediately. As a side-note the retry mechanism above has no wait in-between the retries, so will just pull the endpoint many times in a row.\r\n\r\n\r\n\r\n### Version\r\n\r\nmain\r\n\r\n### Expected behavior\r\n\r\nGroups are available in the list after they have been created\r\n\r\n### Actual behavior\r\n\r\nGroups are not available in the list even after retrying several times\r\n\r\n### How to Reproduce?\r\n\r\nRun ConcurrencyTest.createGroup, or view results from https://github.com/keycloak/keycloak/issues/24337\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26983",
+        "assignees": [
+            "martin-kanis"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/blocker",
+            "area/core",
+            "release/24.0.0",
+            "team/core-iam"
+        ],
+        "issue_closed_at": "2024-02-28T20:06:38.000Z",
+        "fix_commit_hash": "326d63ce7462cbcd94f2efde2eb9070c1a724220",
+        "commit_type": "pr",
+        "commit_message": "Make sure group searches are cached and entries invalidate accordingly\n\nCloses #26983\n\nSigned-off-by: Pedro Igor <pigor.craveiro@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27289",
+        "earliest_issue_date": "2024-02-13T09:34:39Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 26995,
+        "issue_title": "Bad performance when requesting events of a user",
+        "issue_body": "### Description\n\nWhen having a lot of events, requesting events for a specific user takes a lot of time (or times out). This is the result of a missing index on the `event_entity` table for the `user_id` and `type` columns. \r\n\r\nWe can confirm that adding an index like so does resolve the performance issue: \r\n```sql\r\nCREATE INDEX CONCURRENTLY idx_event_entity_user_id_type ON event_entity USING btree (user_id, type);\r\n```\n\n### Discussion\n\n_No response_\n\n### Motivation\n\nQuerying the events for a user should respond in a reasonable time.\n\n### Details\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/26995",
+        "assignees": [],
+        "labels": [
+            "kind/enhancement",
+            "release/26.4.0"
+        ],
+        "issue_closed_at": "2025-07-30T20:52:49.000Z",
+        "fix_commit_hash": "27cd19e68e099542f5b069a1f07c33382daf07f0",
+        "commit_type": "pr",
+        "commit_message": "add index for user_id and type on event_entity\n\nCloses #26995\n\nSigned-off-by: Oliver Cremerius <antikalk@users.noreply.github.com>\nSigned-off-by: Alexander Schwartz <aschwart@redhat.com>\nCo-authored-by: Alexander Schwartz <aschwart@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/26999",
+        "earliest_issue_date": "2024-02-13T14:23:07Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27002,
+        "issue_title": "Refresh doesn't work in Localization/Effective message bundles",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\r\n\r\n### Area\r\n\r\nadmin/ui\r\n\r\n### Describe the bug\r\n\r\nAfter introducing the new refresh functionality to the KeycloakDataTable component, the refresh feature is no longer functioning as expected. Previous implementation was calling submitSearch() with the previously selected search options in the dropdown search form.\r\n\r\n### Version\r\n\r\n23.0.5\r\n\r\n### Expected behavior\r\n\r\nRefresh works as expected\r\n\r\n### Actual behavior\r\n\r\nRefresh doesn't work\r\n\r\n### How to Reproduce?\r\n\r\nGo to Localization > Effective message bundles > select \"Refresh\" \r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27002",
+        "assignees": [
+            "agagancarczyk"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/ui",
+            "release/24.0.0"
+        ],
+        "issue_closed_at": "2024-02-14T13:19:53.000Z",
+        "fix_commit_hash": "ba91f2aacc28b323bb389fdc6631bc7d929c4880",
+        "commit_type": "pr",
+        "commit_message": "refresh the when we need to refresh (#27028)\n\nfixes: #27002\r\n\r\nSigned-off-by: Erik Jan de Wit <erikjan.dewit@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27028",
+        "earliest_issue_date": "2024-02-13T17:44:11Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27005,
+        "issue_title": "Unable to approve/deny permission requests",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\naccount/ui\n\n### Describe the bug\n\nWhen I want to approve/deny a permission request, then I just get an error popup in the top right. It happens because I do not have any previous granted permissions on this resource.\r\n\r\n\r\n\n\n### Version\n\n23.0.6\n\n### Expected behavior\n\nSite doesn't throw error and actually approves/denies the request.\n\n### Actual behavior\n\nSite throws error when I click approve/deny and nothing was actually set (neither approved nor denied)\r\n\r\n![image](https://github.com/keycloak/keycloak/assets/5455170/7c285ee3-60e9-4907-8b77-6d033bd4147d)\r\n\n\n### How to Reproduce?\n\nHave a permission request on a resource, but do NOT have any previous permissions applied to this resource.\n\n### Anything else?\n\nHere is the code that's failing. fetchPermission returns (rightfully) empty for me.\r\n![image](https://github.com/keycloak/keycloak/assets/5455170/b6ef68f6-7c4a-40b9-a4d1-4c36056ea0e4)\r\n",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27005",
+        "assignees": [
+            "edewit"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/account/ui",
+            "team/ui",
+            "release/24.0.0"
+        ],
+        "issue_closed_at": "2024-02-19T12:45:29.000Z",
+        "fix_commit_hash": "f1172105850644f294d696c64209cb3dfbc89341",
+        "commit_type": "pr",
+        "commit_message": "permissions can be empty (#27024)\n\nfixes: #27005\r\n\r\nSigned-off-by: Erik Jan de Wit <erikjan.dewit@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27024",
+        "earliest_issue_date": "2024-02-13T18:52:16Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27031,
+        "issue_title": "Having read-only attributes stored at a user leads to validation warning on every login ",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nuser-profile\n\n### Describe the bug\n\nWhen a user has stored a read-only attribute and logs in and the `verify-profile` required action is enabled for a realm, the log contains a warning `2024-02-14 12:48:00,513 WARN  [org.keycloak.userprofile.validator.ReadOnlyAttributeUnchangedValidator] (executor-thread-8) Attempt to edit denied for attribute 'saml.persistent.name.id.for.foo' with pattern '(?i:^\\QKERBEROS_PRINCIPAL\\E$|^\\QLDAP_ID\\E$|^\\QLDAP_ENTRY_DN\\E$|^\\QCREATED_TIMESTAMP\\E$|^\\QcreateTimestamp\\E$|^\\QmodifyTimestamp\\E$|^\\QuserCertificate\\E$|^\\Qsaml.persistent.name.id.for.\\E.*$|^\\QENABLED\\E$|^\\QEMAIL_VERIFIED\\E$|^\\QdisabledReason\\E$)' of user 'admin'` for every auth request.\n\n### Version\n\n23.0.6\n\n### Expected behavior\n\nNo warnings in the log.\n\n### Actual behavior\n\nWarning `2024-02-14 12:48:00,513 WARN  [org.keycloak.userprofile.validator.ReadOnlyAttributeUnchangedValidator] (executor-thread-8) Attempt to edit denied for attribute 'saml.persistent.name.id.for.foo' with pattern '(?i:^\\QKERBEROS_PRINCIPAL\\E$|^\\QLDAP_ID\\E$|^\\QLDAP_ENTRY_DN\\E$|^\\QCREATED_TIMESTAMP\\E$|^\\QcreateTimestamp\\E$|^\\QmodifyTimestamp\\E$|^\\QuserCertificate\\E$|^\\Qsaml.persistent.name.id.for.\\E.*$|^\\QENABLED\\E$|^\\QEMAIL_VERIFIED\\E$|^\\QdisabledReason\\E$)' of user 'admin'`appears on every auth request.\n\n### How to Reproduce?\n\n1. ` docker run -p 8080:8080 -e KEYCLOAK_ADMIN=admin -e KEYCLOAK_ADMIN_PASSWORD=admin -e KC_FEATURES=declarative-user-profile quay.io/keycloak/keycloak:23.0.6 start-dev`\r\n2. Navigate to `admin` user in admin console on master realm.\r\n3. Add a read-only attribute e.g. `saml.persistent.name.id.for.foo` with value `foo`.\r\n4. Enable `Verify profile` required action on master realm.\r\n5. Reload the page\n\n### Anything else?\n\nWhile debugging I can see that the `ReadOnlyAttributeUnchangedValidator` runs with the list of new values being empty (see https://github.com/keycloak/keycloak/blob/883e83e62540168593046e34292849e16c009760/services/src/main/java/org/keycloak/userprofile/validator/ReadOnlyAttributeUnchangedValidator.java#L70). \r\n\r\nThis makes some sense since normally, when doing an auth request there should not be updates to the user (unless there is an authenticator or a mapper doing this, but this is not the case here). The validator then concludes that there is an intended update because the existing value is `foo` and it should be deleted since the new value is `null`. \r\n\r\nI am not 100% sure this is a bug or if it is intended but I definitely find it strange this validator runs with an empty set of updated attributes in an auth request.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27031",
+        "assignees": [
+            "pedroigor"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/user-profile",
+            "release/24.0.0",
+            "team/core-iam"
+        ],
+        "issue_closed_at": "2024-02-21T23:24:09.000Z",
+        "fix_commit_hash": "5e34769ee04c76723befcec625289075b1dd199c",
+        "commit_type": "pr",
+        "commit_message": "27031 ReadOnlyAttributeUnchangedValidator logs validation errors on debug not warning\n\nSigned-off-by: Sebastian Schuster <sebastian.schuster@bosch.io>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27215",
+        "earliest_issue_date": "2024-02-14T13:05:39Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27072,
+        "issue_title": "Fix \"should filter items by Protocol All\" test in cypress",
+        "issue_body": "### Description\n\nClient Scopes test -> should filter items by Protocol All\r\n\r\nTest failing due to sometimes the number of elements is less than expected and there is no condition to check it",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27072",
+        "assignees": [
+            "Aboullos"
+        ],
+        "labels": [
+            "kind/task",
+            "flaky-test",
+            "release/24.0.0"
+        ],
+        "issue_closed_at": "2024-02-16T09:56:21.000Z",
+        "fix_commit_hash": "74e3b97d54054af452ea5d48650c8b05ad0cfeeb",
+        "commit_type": "pr",
+        "commit_message": "Fix realm_test in cypress (#26400)\n\nSigned-off-by: Alfredo Moises Boullosa <aboullos@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27046",
+        "earliest_issue_date": "2024-02-16T08:38:07Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27080,
+        "issue_title": "Workflow failure: Operator CI - KeycloakTruststoresTests#testTrustroreExists",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nci\n\n### Describe the bug\n\nRecently there were some failures in Operator CI both in GHA and Jenkins\r\n\r\n```\r\nError:  Errors: \r\nError:    KeycloakTruststoresTests.testTrustroreExists:63 \u00bb ConditionTimeout Assertion condition defined as a org.keycloak.operator.testsuite.utils.K8sUtils \r\nexpected: true\r\n but was: false within 5 minutes.\r\n[INFO] \r\nError:  Tests run: 112, Failures: 0, Errors: 1, Skipped: 1\r\n```\r\n\r\nGHA job: https://github.com/keycloak/keycloak/actions/runs/7923983529/job/21634994332\r\nJenkins job: https://keycloak-jenkins.com/view/OpenShift/job/rhbk-operator-test-pipeline/314/\n\n### Version\n\nlatest\n\n### Regression\n\n- [ ] The issue is a regressions\n\n### Expected behavior\n\n.\n\n### Actual behavior\n\n.\n\n### How to Reproduce?\n\n.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27080",
+        "assignees": [
+            "shawkins"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/ci",
+            "team/cloud-native",
+            "flaky-job",
+            "release/25.0.0",
+            "release/24.0.4"
+        ],
+        "issue_closed_at": "2024-03-27T14:23:28.000Z",
+        "fix_commit_hash": "26dc81a92fbce458d7c4b0cc7e33aef41c488ac7",
+        "commit_type": "commit",
+        "commit_message": "fix: ensuring test state is clean between tests (#27904)\n\ncloses: #27080\r\n\r\nSigned-off-by: Steve Hawkins <shawkins@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/commit/26dc81a92fbce458d7c4b0cc7e33aef41c488ac7",
+        "earliest_issue_date": "2024-02-16T12:29:23Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27093,
+        "issue_title": "\"Open ID Connect\" in docs / UIs should be \"OpenID Connect\"",
+        "issue_body": "### Description\n\nIn various locations within docs and the UI, \"OpenID Connect\" is written as \"Open ID Connect\" - it seems good form to just use the style of the specification -  \"OpenID Connect\".\r\n\r\nReference: https://openid.net/specs/openid-connect-core-1_0.html\n\n### Discussion\n\n_No response_\n\n### Motivation\n\nConsistency - there are other locations in docs and the UI where Keycloak is mentions \"OpenID Connect\" \r\n\r\nUsing the same pattern as the specification _could_ mean less confusion for newer folks, but this is probably not really that significant of a problem (modern search engines don't care about the space).\n\n### Details\n\nThere only seem to be ~4 files affected, I can raise a PR for this.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27093",
+        "assignees": [],
+        "labels": [
+            "kind/enhancement",
+            "release/24.0.0"
+        ],
+        "issue_closed_at": "2024-02-19T16:01:58.000Z",
+        "fix_commit_hash": "018914d7fd948ae6df6aea2105c042b29e2a16d0",
+        "commit_type": "pr",
+        "commit_message": "Change Open ID Connect to OpenID Connect in UI and docs\n\nCloses #27093\n\nSigned-off-by: Joshua Sorah <jsorah@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27094",
+        "earliest_issue_date": "2024-02-16T19:06:53Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27095,
+        "issue_title": "Cache Keys for Group pagination and other entries cannot be invalidated and updated",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ninfinispan\n\n### Describe the bug\n\nWhile exploring a solution for #26983 that preserves the ability to cache paginated entries a bug revealed itself to me. It is possible currently to add a a cache entry for some search+pagination combination but then that entry will never be invalidated when any group changes happen. \r\n\r\nCurrently the underlying group IDs will have their cache entries invalidated and then updated accordingly but any new group that gets added to the cache will not necessarily reflect in the results properly due to the cache entry never being invalidated/updated with the new/removed group IDs. \r\n\r\nThis is technically a regression BUT we should preserve the paginated/search based cache entries\n\n### Version\n\nMain\n\n### Regression\n\n- [X] The issue is a regressions\n\n### Expected behavior\n\nCache entry updates as expected\n\n### Actual behavior\n\nCache entry will have stale group IDs\n\n### How to Reproduce?\n\nPerform the same paginated search query on groups multiple times while changing the contents of that page\n\n### Anything else?\n\nI have a suggested fix for this issue that I will link",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27095",
+        "assignees": [
+            "pedroigor",
+            "martin-kanis",
+            "alice-wondered"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/infinispan",
+            "release/24.0.0",
+            "team/core-iam"
+        ],
+        "issue_closed_at": "2024-02-28T20:06:37.000Z",
+        "fix_commit_hash": "326d63ce7462cbcd94f2efde2eb9070c1a724220",
+        "commit_type": "pr",
+        "commit_message": "Make sure group searches are cached and entries invalidate accordingly\n\nCloses #26983\n\nSigned-off-by: Pedro Igor <pigor.craveiro@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27289",
+        "earliest_issue_date": "2024-02-16T20:51:50Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27101,
+        "issue_title": "Translation keys for dedicated scope role mappings are incorrect",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\r\n\r\n### Area\r\n\r\nadmin/ui\r\n\r\n### Describe the bug\r\n\r\nTranslation keys for dedicated scope role mappings are incorrect.\r\n\r\nThis results in the key names being shown on the UI instead of any more useful text.\r\n\r\n![image](https://github.com/keycloak/keycloak/assets/4944041/7fcef605-b2f0-457a-bab5-9a7c893fca03)\r\n\r\nFrom Keycloak 22:\r\n\r\n![image](https://github.com/keycloak/keycloak/assets/4944041/eff9405c-c7e2-4acb-a707-7781fe9c7ffd)\r\n\r\n### Version\r\n\r\n23, nightly\r\n\r\n### Regression\r\n\r\n- [X] The issue is a regressions\r\n\r\n### Expected behavior\r\n\r\nAppropriate help text is displayed\r\n\r\n### Actual behavior\r\n\r\nTranslation key names are displayed.\r\n\r\n### How to Reproduce?\r\n\r\n1) Start Keycloak\r\n2) Go to admin console, choose any client (`account` works)\r\n3) Click scopes\r\n4) Select the \"dedicated\" scope\r\n5) Click the \"Scope\" tab\r\n6) Ensure \"Allow full scope is off\"\r\n7) Be presented with the translation key message\r\n\r\n### Anything else?\r\n\r\nFunctionally still works, just not as great UX (user must look at Keycloak docs instead of the UI for context).\r\n\r\nSeems to surface from here:\r\n\r\nhttps://github.com/keycloak/keycloak/blob/f4c8ded5f6a8db1f1bd23285b4f04b894aa5e468/js/apps/admin-ui/src/clients/scopes/DecicatedScope.tsx#L113\r\n\r\nSeems like it was meant to be translated to `noRoles-client` and `noRolesInstructions-client` based on this documentation\r\nhttps://github.com/keycloak/keycloak/blob/7bde7c30cc1265df8eed7034760c418eb78b462c/docs/documentation/upgrading/topics/keycloak/changes-23_0_0.adoc#L275-L276",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27101",
+        "assignees": [
+            "edewit"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/admin/ui",
+            "team/ui"
+        ],
+        "issue_closed_at": "2024-02-28T11:12:40.000Z",
+        "fix_commit_hash": "f1581adafe932d08c2a1d0c70df7704b4108c0c2",
+        "commit_type": "pr",
+        "commit_message": "Update message keys for dedicated client scope role mapping text. (#27102)\n\nCloses keycloak/keycloak#27101\r\n\r\nSigned-off-by: Joshua Sorah <jsorah@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27102",
+        "earliest_issue_date": "2024-02-18T13:12:13Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27120,
+        "issue_title": "Microsoft social login failure",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ntestsuite\n\n### Describe the bug\n\nThe Microsoft social login is failing due to HTML element changes of the Microsoft login page.\n\n### Version\n\nlatest\n\n### Regression\n\n- [ ] The issue is a regressions\n\n### Expected behavior\n\nLogin via Microsoft social login.\n\n### Actual behavior\n\nThe login flow fails due to modified HTML element. A button in the stay signed in dialog has a different attribute.\n\n### How to Reproduce?\n\n1. Set up the Microsoft application according to the documentation \r\n    https://www.keycloak.org/docs/latest/server_admin/index.html#_microsoft\r\n3. Prepare `social.properties` file containing the required variables (e.g., Client ID, Client Secret, ...)\r\n4. Run the testsuite with following command with your custom `social.properties` file\r\n```\r\n$ mvn -f testsuite/integration-arquillian/pom.xml clean install \\\r\n      -Dtest=SocialLoginTest#microsoftLogin \\\r\n      -Dsocial.config=path\\to\\social.properties \\\r\n      -Dbrowser=chrome\r\n```\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27120",
+        "assignees": [
+            "tondrusk"
+        ],
+        "labels": [
+            "area/testsuite",
+            "kind/bug",
+            "release/24.0.0",
+            "release/22.0.9",
+            "release/23.0.7"
+        ],
+        "issue_closed_at": "2024-02-19T14:56:59.000Z",
+        "fix_commit_hash": "055a0e2231896370b8e663d6074f8891109b12d7",
+        "commit_type": "pr",
+        "commit_message": "Fix Microsoft social login test case\n\nResolves #27120\n\nSigned-off-by: Tomas Ondrusko <tondrusk@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27131",
+        "earliest_issue_date": "2024-02-19T10:37:31Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27133,
+        "issue_title": "Workflow failure: Keycloak CI - Store IT (aurora-postgres)",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nci\n\n### Describe the bug\n\nRecently during the weekend this stage started to fail with following message, occurred in 3 runs leading into the same result on each run.\r\n```\r\nThe error appears to be in '/home/runner/work/keycloak/keycloak/.github/scripts/ansible/roles/mvn_ec2_runner/tasks/run.yml': line 15, column 3, but may\r\nbe elsewhere in the file depending on the exact syntax problem.\r\n\r\nThe offending line appears to be:\r\n\r\n\r\n- name: Run mvn command on the remote hosts\r\n  ^ here\r\nError: Process completed with exit code 4.\r\n``` \r\n\r\njob1: https://github.com/keycloak/keycloak/actions/runs/7937743626/job/21675720361\r\njob2: https://github.com/keycloak/keycloak/actions/runs/7945178083/job/21691732542\r\njob3: https://github.com/keycloak/keycloak/actions/runs/7952710409/job/21707852026\n\n### Version\n\nlatest\n\n### Regression\n\n- [ ] The issue is a regressions\n\n### Expected behavior\n\nn/a\n\n### Actual behavior\n\nn/a\n\n### How to Reproduce?\n\nn/a\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27133",
+        "assignees": [
+            "ryanemerson"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/ci",
+            "flaky-job",
+            "release/24.0.0"
+        ],
+        "issue_closed_at": "2024-02-19T18:07:26.000Z",
+        "fix_commit_hash": "870befa422d92ae3782002a471fdd3cc0eb9e8fb",
+        "commit_type": "pr",
+        "commit_message": "Specify ansible shell executable as child of args element. Fixes #27133\n\nSigned-off-by: Ryan Emerson <remerson@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27124",
+        "earliest_issue_date": "2024-02-19T14:43:53Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27137,
+        "issue_title": "Users with fine-grained permissions can not create a user",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\r\n\r\n### Area\r\n\r\nadmin/ui\r\n\r\n### Describe the bug\r\n\r\nUsers with fine-grained permissions that do have the manage-users permissions for a group, but not the manage-users role, can not create users.\r\n\r\nThe problem is with\r\n```\r\nisDisabled={\r\n            !user?.id &&\r\n            !watchUsernameInput &&\r\n           !realm.registrationEmailAsUsername\r\n          }\r\n```\r\nThe user does not have rights to view `realm.registrationEmailAsUsername` and since the other  2 fields are also `undefined` (username field is not visible since email as username is enabled and since we're creating a user `user.id` is also `undefined`) \r\n\r\n### Version\r\n\r\nnightly\r\n\r\n### Regression\r\n\r\n- [ ] The issue is a regressions\r\n\r\n### Expected behavior\r\n\r\nThe user should be able to create a user\r\n\r\n### Actual behavior\r\n\r\nThe create button is disabled\r\n\r\n### How to Reproduce?\r\n\r\n1. Create a user that has the `query-users` and `query-groups` role\r\n2. Create a group \r\n3. Enable fine grained permissions on that group\r\n4. Enable the fine grained `manage-members` and `manage-membership` on the group for the created user\r\n5. Impersonate the user\r\n6. Try to create a user\r\n\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27137",
+        "assignees": [
+            "jonkoops"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/admin/ui",
+            "team/ui",
+            "release/24.0.0"
+        ],
+        "issue_closed_at": "2024-02-22T14:58:05.000Z",
+        "fix_commit_hash": "0960114c03e38a2fadaef9db21db6f05dcc293f3",
+        "commit_type": "pr",
+        "commit_message": "Check if registrationEmailAsUsername is explicitly set to `false` (#27139)\n\nCloses #27137\r\n\r\nSigned-off-by: Peter Keuter <github@peterkeuter.nl>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27139",
+        "earliest_issue_date": "2024-02-19T16:20:28Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27140,
+        "issue_title": "Locale selector is unnecessarily visible without rights to locales",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nadmin/ui\n\n### Describe the bug\n\nWhen a user with fine grained permissions tries to create a user, it sees a locale selector without any options.\n\n### Version\n\nnightly\n\n### Regression\n\n- [ ] The issue is a regressions\n\n### Expected behavior\n\nThe locale selector should not be visible\n\n### Actual behavior\n\nThe locale selector is visible but without any option\n\n### How to Reproduce?\n\n1. Create a user that has the query-users and query-groups role\r\n2. Create a group\r\n3. Enable fine grained permissions on that group\r\n4. Enable the fine grained manage-members and manage-membership on the group for the created user\r\n5. Impersonate the user\r\n6. Create a user\r\n7. The locales dropdown will be visible without any option\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27140",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/ui",
+            "release/24.0.0"
+        ],
+        "issue_closed_at": "2024-02-19T16:57:41.000Z",
+        "fix_commit_hash": "110b8714ab614963812f0deee1c1d352f6c08f1f",
+        "commit_type": "pr",
+        "commit_message": "Don't render locale selector when there are no options (#27141)\n\nCloses #27140\r\n\r\nSigned-off-by: Peter Keuter <github@peterkeuter.nl>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27141",
+        "earliest_issue_date": "2024-02-19T16:34:34Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27162,
+        "issue_title": "Default locale is set to null when not explicitly choosing a locale",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nadmin/ui\n\n### Describe the bug\n\nWhen creating a user, the default realm-locale is not selected and the first option in the dropdown is shown as selected option. For instance, if Arabic is the first available locale, it will be shown as the selected option. Then, when doing nothing, null is saved and English would be the default selected option.\n\n### Version\n\nnightly\n\n### Regression\n\n- [ ] The issue is a regressions\n\n### Expected behavior\n\nThe default realm locale should be shown and saved with the user.\n\n### Actual behavior\n\nNo value will be saved when not explicitly selecting a value and English will always be used (because the default realm locale will not be used)\n\n### How to Reproduce?\n\n1. Enable localization\r\n2. Enable Arabic as a language\r\n3. Create a user\r\n4. See the language set to Arabic\r\n5. Do nothing with the locale field and save the user\r\n6. Impersonate the user\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27162",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/admin/ui",
+            "team/ui",
+            "release/24.0.0"
+        ],
+        "issue_closed_at": "2024-02-26T08:19:30.000Z",
+        "fix_commit_hash": "fb262a05d93ffc495e496c1c6737206f9559fc98",
+        "commit_type": "pr",
+        "commit_message": "Set the selected locale to default realm locale when creating a user (#27163)\n\n* fix: set the selected locale to default realm locale when creating a user\r\n\r\nSigned-off-by: Peter Keuter <github@peterkeuter.nl>\r\n\r\n* Update js/apps/admin-ui/src/user/CreateUser.tsx\r\n\r\nCo-authored-by: Erik Jan de Wit <edewit@redhat.com>\r\nSigned-off-by: Peter Keuter <github@peterkeuter.nl>\r\n\r\n* fix: check if defaultLocale is set\r\n\r\nSigned-off-by: Peter Keuter <github@peterkeuter.nl>\r\n\r\n* chore: implement proposed change\r\n\r\nSigned-off-by: Peter Keuter <github@peterkeuter.nl>\r\n\r\n---------\r\n\r\nSigned-off-by: Peter Keuter <github@peterkeuter.nl>\r\nCo-authored-by: Erik Jan de Wit <edewit@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27163",
+        "earliest_issue_date": "2024-02-20T10:35:12Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27173,
+        "issue_title": "Newly created authentication subflow is always disabled",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nadmin/ui\n\n### Describe the bug\n\n- Login to admin console\r\n- Go to tab `Authentication` and create some new authentication flow of pre-selected type `Basic` \r\n- Click `Add sub-flow`\r\n- Add subflow of some random name and click `Save`\r\n- Now the subflow is disabled by default and I cannot enable it -> KO\r\n\r\nSee screenshot below (Note that there is workaround as I filled below):\r\n![Screenshot from 2024-02-20 18-07-02](https://github.com/keycloak/keycloak/assets/1223965/a21f025a-96a9-4748-ab7f-47753a882137)\r\n\r\n\r\n\r\n\n\n### Version\n\nnightly\n\n### Regression\n\n- [X] The issue is a regressions\n\n### Expected behavior\n\nWhen I create subflow, I can select any requirement from it\n\n### Actual behavior\n\nNewly created subflow is disabled and I cannot enable it\n\n### How to Reproduce?\n\nSee above\n\n### Anything else?\n\nThere is a workaround: When creating subflow, I first switch `Flow type` to `Form`, but then I immediatelly switch it back to `Generic` . After this, the new subflow look OK and I can change the states.",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27173",
+        "assignees": [
+            "edewit"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/admin/ui",
+            "team/ui",
+            "release/24.0.0"
+        ],
+        "issue_closed_at": "2024-02-26T07:35:07.000Z",
+        "fix_commit_hash": "f023314d526af3076062502dcd731d6aa887a1d8",
+        "commit_type": "pr",
+        "commit_message": "added better default (#27196)\n\nfixes: #27173\r\n\r\nSigned-off-by: Erik Jan de Wit <erikjan.dewit@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27196",
+        "earliest_issue_date": "2024-02-20T17:12:01Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27180,
+        "issue_title": "Grant type \"urn:ietf:params:oauth:grant-type:uma-ticket\" openid-connect/token service endpoint is returning refresh token with invalid Expiration",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nauthorization-services\n\n### Describe the bug\n\nWhen upgraded to version 23 from 21, started experiencing invalid refresh token expiration time for Authorization service with grant type \"urn:ietf:params:oauth:grant-type:uma-ticket\".\r\nFlow:\r\nStep 1: UI level authentication process calls token service with grant type \"grant_type: authorization_code\"\r\nStep 2:  Resource Authorization process calls token service with grant type \"urn:ietf:params:oauth:grant-type:uma-ticket\". With this step, received refresh token expiration time remains unchanged but, issue time gets updated properly.\r\n\r\nWith version 21, Step2 returns updated expiration and issue time.\r\nIn my application, Step 2 gets executed frequently so, eventually it enters into a situation with expiration time is greater than issue time and fails in refresh-token grant.\n\n### Version\n\n23\n\n### Regression\n\n- [ ] The issue is a regressions\n\n### Expected behavior\n\nResource Authorization token service call with grant type \"urn:ietf:params:oauth:grant-type:uma-ticket\" should return refresh_token with updated expiration and issue time.  \n\n### Actual behavior\n\nResource Authorization token service call with grant type \"urn:ietf:params:oauth:grant-type:uma-ticket\" is returning refresh_token with unchanged expiration time.  \n\n### How to Reproduce?\n\nAttached simple Nodejs script can be used to re-create the issue.\r\nStep 1: npm install\r\nStep 2: Provide keycloak details in the .env file\r\nStep 3: npm run start\r\n\r\nScript first Authenticates and then runs Authorization with resource server (grant type \"urn:ietf:params:oauth:grant-type:uma-ticket\") in a loop of 5 times. Script produces difference between issue and expiration of refresh token and access token.\r\n[keycloak-script.zip](https://github.com/keycloak/keycloak/files/14354140/keycloak-script.zip)\r\n\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27180",
+        "assignees": [
+            "pedroigor"
+        ],
+        "labels": [
+            "area/authorization-services",
+            "kind/bug",
+            "priority/important",
+            "team/core-iam",
+            "release/25.0.0",
+            "release/24.0.2"
+        ],
+        "issue_closed_at": "2024-03-07T14:23:20.000Z",
+        "fix_commit_hash": "40385061f7f73d10cfda28eb0299e18baeee7293",
+        "commit_type": "pr",
+        "commit_message": "Make sure refresh token expiration is based on the current time when the token is issued\n\nCloses #27180\n\nSigned-off-by: Pedro Igor <pigor.craveiro@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27577",
+        "earliest_issue_date": "2024-02-21T04:42:01Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27184,
+        "issue_title": "Editing built-in client policy profiles are silently reverted",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\noidc\n\n### Describe the bug\n\nWhen editing client policy profiles through the `JSON editor` the built-in profiles are included in the JSON document:\r\n\r\n![image](https://github.com/keycloak/keycloak/assets/2271511/11ffa5d2-28f7-46df-919f-8530923c6883)\r\n\r\nIf any of the built-in profiles are edited the changes are silently dropped when saving. The same happens if you try to rename one of the built-in profiles.\r\n\r\nIn the `Form view` on the other hand the built-in profiles are marked as read-only and it's not possible to edit them.\n\n### Version\n\n23.0.6\n\n### Regression\n\n- [ ] The issue is a regressions\n\n### Expected behavior\n\nAn error is thrown when trying to update the built-in profiles, or probably better the built-in profiles are not included in the `JSON editor` view and it will only show the custom profiles.\n\n### Actual behavior\n\nBuilt-in profiles are shown in the `JSON editor` and it's possible to edit them, but when saving the changes are silently reverted.\n\n### How to Reproduce?\n\n1. Realm settings\r\n2. Client policies\r\n3. Profiles\r\n4. JSON editor\r\n5. Change for example the description for `fapi-1-baseline` and click `Save`\r\n6. Observe there is no error, and the changes you made are silently reverted\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27184",
+        "assignees": [
+            "mposolda"
+        ],
+        "labels": [
+            "area/oidc",
+            "kind/bug",
+            "priority/important",
+            "area/admin/ui",
+            "team/core-clients",
+            "release/25.0.0"
+        ],
+        "issue_closed_at": "2024-06-03T12:00:38.000Z",
+        "fix_commit_hash": "907469638245316d2462e2fa27a9e3179dfb8769",
+        "commit_type": "pr",
+        "commit_message": "Editing built-in client policy profiles are silently reverted\ncloses #27184\n\nSigned-off-by: mposolda <mposolda@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/30055",
+        "earliest_issue_date": "2024-02-21T07:48:23Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27194,
+        "issue_title": "Workflow failure Admin UI E2E - matrix E2E",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nadmin/ui\n\n### Describe the bug\n\nWhole matrix has failed and E2E testsuite was not executed due to this issue:\r\n```\r\nRun cypress-io/github-action@v6\r\nSkipping install because install parameter is false\r\nwaiting on \"http://localhost:8080\" with timeout of 60 seconds\r\nIt looks like this is your first time using Cypress: 13.6.0\r\n\r\n[STARTED] Task without title.\r\n[SUCCESS] Task without title.\r\n\r\nOpening Cypress...\r\n\r\nDevTools listening on ws://127.0.0.1:36413/devtools/browser/cd5875bf-62b7-4d13-9fdf-3d67c8ae3768\r\n[2437:02[20](https://github.com/keycloak/keycloak/actions/runs/7972202907/job/21763825076#step:11:21)/105511.494183:ERROR:object_proxy.cc(590)] Failed to call method: org.freedesktop.portal.Settings.Read: object_path= /org/freedesktop/portal/desktop: unknown error type: \r\nYour Record Key b8f1d...fc0eb is not valid with this projectId: j4yhox\r\n\r\nIt may have been recently revoked by you or another user.\r\n\r\nPlease log into Cypress Cloud to see the valid Record Keys.\r\n\r\nhttps://on.cypress.io/dashboard/projects/j4yhox\r\nError: The operation was canceled.\r\n``` \r\nhttps://github.com/keycloak/keycloak/actions/runs/7972202907/job/21763825340\n\n### Version\n\nrelease/22.0 & 23.0\n\n### Regression\n\n- [ ] The issue is a regressions\n\n### Expected behavior\n\n-\n\n### Actual behavior\n\n-\n\n### How to Reproduce?\n\n-\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27194",
+        "assignees": [
+            "jonkoops"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "team/ui",
+            "flaky-job",
+            "release/22.0.9",
+            "release/23.0.7"
+        ],
+        "issue_closed_at": "2024-03-06T09:35:21.000Z",
+        "fix_commit_hash": "c56a2da3c68af923c4d091e8fc7b5ba01821f0f3",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Run Cypress tests in parallel using `cypress-split` (#20685) (#27199)\n\nCloses #27194\r\n\r\nSigned-off-by: Jon Koops <jonkoops@gmail.com>",
+        "closer_url": null,
+        "earliest_issue_date": "2024-02-21T09:02:40Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27204,
+        "issue_title": " CVE-2024-1597 - SQL Injection vulnerability in org.postgresql:postgresql",
+        "issue_body": "- Package Manager: maven\r\n- Vulnerable module: org.postgresql:postgresql\r\n- Introduced through: org.keycloak:[keycloak-quarkus-server-deployment@999.0.0-SNAPSHOT](mailto:keycloak-quarkus-server-deployment@999.0.0-SNAPSHOT), org.keycloak:[keycloak-quarkus-server@999.0.0-SNAPSHOT](mailto:keycloak-quarkus-server@999.0.0-SNAPSHOT)\u00a0and others\r\n\r\n### Detailed paths\r\n\r\n- _Introduced through_: org.keycloak:[keycloak-quarkus-server-deployment@999.0.0-SNAPSHOT](mailto:keycloak-quarkus-server-deployment@999.0.0-SNAPSHOT)\u00a0\u203a org.keycloak:[keycloak-quarkus-server@999.0.0-SNAPSHOT](mailto:keycloak-quarkus-server@999.0.0-SNAPSHOT)\u00a0\u203a io.quarkus:[quarkus-jdbc-postgresql@3.2.10.Final](mailto:quarkus-jdbc-postgresql@3.2.10.Final)\u00a0\u203a org.postgresql:postgresql@42.6.0\r\n\r\n# Overview\r\n\r\n[org.postgresql:postgresql](https://mvnrepository.com/artifact/org.postgresql/postgresql)\u00a0is a Java JDBC 4.2 (JRE 8+) driver for PostgreSQL database.\r\n\r\nAffected versions of this package are vulnerable to SQL Injection when using\u00a0`PreferQueryMode=SIMPLE`, which is not the default setting. By passing in a numeric value placeholder immediately preceded by a minus and followed by a second placeholder for a string value, on the same line, an attacker can construct a payload that alters the parameterized query into which it is interpolated. This effectively bypasses the protections against SQL Injection that parameterized queries offer.\r\n\r\n# Remediation\r\n\r\nA fix was pushed into the\u00a0`master`\u00a0branch but not yet published.\r\n\r\n# References\r\n\r\n- [GitHub Commit](https://github.com/pgjdbc/pgjdbc/commit/93b0fcb2711d9c1e3a2a03134369738a02a58b40)\r\n- https://github.com/advisories/GHSA-xfg6-62px-cxc2",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27204",
+        "assignees": [
+            "vmuzikar"
+        ],
+        "labels": [
+            "kind/cve",
+            "release/24.0.0"
+        ],
+        "issue_closed_at": "2024-02-29T09:44:20.000Z",
+        "fix_commit_hash": "4eb8d51ead22ec813581ecb979f511020659b0c3",
+        "commit_type": "pr",
+        "commit_message": "Upgrade to Quarkus 3.8 (#27370)\n\nCloses #26859\r\nCloses #27204\r\n\r\nSigned-off-by: V\u00e1clav Muzik\u00e1\u0159 <vmuzikar@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27370",
+        "earliest_issue_date": "2024-02-21T12:44:31Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27228,
+        "issue_title": "Lowercased \"terms_and_conditions\" is not migrated in fed_user_required_action table",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ncore\n\n### Describe the bug\n\nAfter rolling out Keycloak 21.1.2 we realized that the previously lowercased \"terms_and_conditions\" is now uppercased in the table `user_required_action`. In the table `fed_user_required_action` it is still lowercased. \r\n\r\nWhen creating users via the Admin REST API we need to pass it in uppercase for the feature to work and it stored like that in the `fed_user_required_action` table.\r\n\r\nI checked the migration guide regarding it here: https://www.keycloak.org/docs/latest/upgrading/index.html#terms-and-conditions-user-attribute-migration\r\n\r\nNow, I am confused. Should \"terms_and_conditions\" now be stored in upper or lowercase? \r\n\n\n### Version\n\n21.1.2\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\n\"terms_and_conditions\" is either upper or lowercased and can be used consistently.\n\n### Actual behavior\n\nIt can be used in uppercase and is stored like that in the `user_required_action` and `fed_user_required_action` table. But the `fed_user_required_action` table was not migrated to uppercase.\n\n### How to Reproduce?\n\nCreate users with the Terms and Conditions required action with a federated storage in a Keycloak version below 21.0.0. Upgrade to 21.1.2 and check the `fed_user_required_action` table.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27228",
+        "assignees": [
+            "sguilhen"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/core",
+            "team/core-iam",
+            "release/25.0.0",
+            "release/24.0.2"
+        ],
+        "issue_closed_at": "2024-03-13T11:43:12.000Z",
+        "fix_commit_hash": "1099f03fe619802bba65324a5d7db1d6497b416c",
+        "commit_type": "pr",
+        "commit_message": "Add migration for terms and conditions required action in FED_USER_REQUIRED_ACTION table\n\nCloses #27228\n\nSigned-off-by: Stefan Guilhen <sguilhen@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27607",
+        "earliest_issue_date": "2024-02-22T09:49:46Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27234,
+        "issue_title": "Cannot update email in account console with `update-email` feature enabled",
+        "issue_body": "### Before reporting an issue\r\n\r\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\r\n\r\n### Area\r\n\r\naccount/ui\r\n\r\n### Describe the bug\r\n\r\n- Start the server with `update-email` feature enabled. Something like `./kc.sh start-dev --features=update-email` .\r\n- Create admin user\r\n- Go to account console http://localhost:8080/realms/master/ and login as admin\r\n- I see link `Update email` , but I cannot click on it at all. No JS error reported in browser console (Tested for FF and Chrome and works same in both)\r\n\r\nNOTE: I think this worked in account console V2, so looks it might be a regression.\r\n\r\n### Version\r\n\r\nnightly\r\n\r\n### Regression\r\n\r\n- [X] The issue is a regression\r\n\r\n### Expected behavior\r\n\r\nUser can click on \"Update email\" and update his email (if \"Verify profile\" is not enabled for the realm)\r\n\r\n### Actual behavior\r\n\r\nUser cannot click on \"Update email\" link\r\n\r\n### How to Reproduce?\r\n\r\nSee above\r\n\r\n### Anything else?\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27234",
+        "assignees": [
+            "edewit"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/important",
+            "area/account/ui",
+            "team/ui",
+            "release/24.0.0"
+        ],
+        "issue_closed_at": "2024-02-23T07:24:58.000Z",
+        "fix_commit_hash": "d03890263eb517e72190e81829ae07ead0f93ce9",
+        "commit_type": "pr",
+        "commit_message": "use the right context (#27237)\n\nfixes: #27234\r\n\r\nSigned-off-by: Erik Jan de Wit <erikjan.dewit@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27237",
+        "earliest_issue_date": "2024-02-22T12:23:22Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27243,
+        "issue_title": "Account console not working when lightweight-access-tokens used",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\naccount/api\n\n### Describe the bug\n\nWhen \"Lightweight access tokens\" are used for login to the account-console client, it throws 401 error.\r\n\r\nAccount console calls REST endpoints in `AccountRestService`. So we can hopefully address this issue in REST side without any tweaks in UI.\r\n\r\nWe can possibly do something in `AccountRestService`, so it can figure if lightweight access tokens was used to invoke the REST endpoint. If account endpoint was called and user doesn't have roles, we can:\r\n- Possibly detect if access token used was lightweight token. Maybe we can check if access token doesn't contain roles claims when it is lightweight?\r\n- If it was lightweight token, we can invoke introspection (maybe by programatically calling `AccessTokenIntrospectionProvider`) and check if roles are in the token from the introspection response. If yes, use those roles to check the permissions.\r\n\n\n### Version\n\nnightly\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nIt is possible to invoke account console even if lightweight-access-tokens are enabled\n\n### Actual behavior\n\nIt is not possible to invoke account console even if lightweight-access-tokens are enabled as account REST endpoints returning 401\n\n### How to Reproduce?\n\n- Enable lightweight-access-tokens for account-console client. Can be possibly done by client policy (Perhaps client-role policy together with the executor used to enable lightweight-access-tokens). Once https://github.com/keycloak/keycloak/issues/27238 , it can be easier as it would be simple switch on `account-console` client\r\n\r\n- Login to account-console as any user (with the account roles, which are default roles on users).\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27243",
+        "assignees": [
+            "rmartinc"
+        ],
+        "labels": [
+            "area/oidc",
+            "kind/bug",
+            "area/account/api",
+            "release/24.0.0",
+            "team/core-clients"
+        ],
+        "issue_closed_at": "2024-02-27T08:19:21.000Z",
+        "fix_commit_hash": "562decde3570aebb9ff7f397859f99da75387ed5",
+        "commit_type": "pr",
+        "commit_message": "Perform internal introspect for the access token in the account app\nCloses #27243\n\nSigned-off-by: rmartinc <rmartinc@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27286",
+        "earliest_issue_date": "2024-02-22T16:02:39Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27245,
+        "issue_title": "Account console does not correctly treat link / unlink account",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\naccount/ui\n\n### Describe the bug\n\nUpon unlink of the last account, the message is not tranlated.\r\n\r\n![image](https://github.com/keycloak/keycloak/assets/5391360/4d655c8a-4d4e-4fe3-8619-a29b3b8a74db)\r\n\r\nUpon unlink a account when there are multiple accounts linked, action is performed but error is reported.\r\n\r\n![image](https://github.com/keycloak/keycloak/assets/5391360/d98126ed-493b-4017-8e5e-aede641f60fe)\r\n\n\n### Version\n\nmain\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nErrors are reported correctly and only when relevant.\n\n### Actual behavior\n\nErrors are reported incorrectly.\n\n### How to Reproduce?\n\nGo to account console and try unlinking linked accounts.\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27245",
+        "assignees": [
+            "edewit"
+        ],
+        "labels": [
+            "kind/bug",
+            "priority/blocker",
+            "area/account/ui",
+            "team/ui",
+            "release/25.0.0",
+            "release/24.0.2"
+        ],
+        "issue_closed_at": "2024-03-08T08:56:25.000Z",
+        "fix_commit_hash": "7d104dbe9d077d44b2f9b4054b667a0146f1b1dc",
+        "commit_type": "pr",
+        "commit_message": "no result to parse on success (#27336)\n\n* no result to parse on success\r\n\r\nfixes: #27245\r\nSigned-off-by: Erik Jan de Wit <erikjan.dewit@gmail.com>\r\n\r\n* translate error message\r\n\r\nSigned-off-by: Erik Jan de Wit <erikjan.dewit@gmail.com>\r\n\r\n---------\r\n\r\nSigned-off-by: Erik Jan de Wit <erikjan.dewit@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27336",
+        "earliest_issue_date": "2024-02-22T16:15:18Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27264,
+        "issue_title": "Trivy Analysis warnings should be fixed",
+        "issue_body": "### Description\r\n\r\n**GitHub Action Trivy Analysis warnings should be fixed**\r\n\r\nTrivy Analysis raise follow warnings:\r\n\r\n1) Warning: Unexpected input(s) [_security-checks_](https://github.com/aquasecurity/trivy/discussions/3519), must be replaced by the _scanners_ configuration. \r\nNote that default option look good (_vuln,secret_) \r\n\r\n\r\n2) WARN\tUsing `--template sarif.tpl` is deprecated, see  [BREAKING CHANGE sarif.tpl ](https://github.com/aquasecurity/trivy/discussions/1571) \r\n\r\nCI warnings to be fix => https://github.com/keycloak/keycloak/actions/runs/8026630893/job/21929449778\r\n\r\n### Discussion\r\n\r\n_No response_\r\n\r\n### Motivation\r\n\r\n_No response_\r\n\r\n### Details\r\n\r\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27264",
+        "assignees": [],
+        "labels": [
+            "kind/enhancement",
+            "release/25.0.0"
+        ],
+        "issue_closed_at": "2024-05-10T22:37:57.000Z",
+        "fix_commit_hash": "401d58a90530cffbb4db7369ef51573ffffe1a62",
+        "commit_type": "pr",
+        "commit_message": "Fix GitHub Action Trivy Analysis warnings\n\nUpdate trivy-action to 0.17.0\n\nClose #27264\n\nSigned-off-by: Yves Galante <yves.galante@jmob.net>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27265",
+        "earliest_issue_date": "2024-02-24T10:43:30Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27269,
+        "issue_title": "mvnw clean install -Pdistribution on Windows deletes necessary files during clean of org.keycloak:keycloak-admin-ui ",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nadmin/ui\n\n### Describe the bug\n\nRunning \r\nmvnw -Dmaven.build.cache.enabled=true clean install -Pdistribution\r\n(on Windows system) seems to delete too much files during clean of org.keycloak:keycloak-admin-ui so that build fails and pom files of other components are missing afterwards.\n\n### Version\n\n999.0.0-SNAPSHOT\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nThe clean of org.keycloak:keycloak-admin-ui shouldn't delete files necessary for the build process.\r\n\r\nUsing only mvnw install -Pdistribution it seems to work\n\n### Actual behavior\n\n./mvnw clean install -Pdistribution\r\n\r\n...\r\n[INFO] ----------------< org.keycloak:keycloak-js-adapter-jar >----------------\r\n[INFO] Building Keycloak JavaScript Adapter (JAR) 999.0.0-SNAPSHOT     [20/196]\r\n[INFO]   from adapters\\oidc\\js\\pom.xml\r\n[INFO] --------------------------------[ jar ]---------------------------------\r\n[INFO]\r\n[INFO] --- clean:3.1.0:clean (default-clean) @ keycloak-js-adapter-jar ---\r\n[INFO] Deleting C:\\Users\\builduser\\keycloak\\js\\libs\\keycloak-js\\dist (includes = [], excludes = [*.d.ts])\r\n[INFO]\r\n[INFO] --- enforcer:3.0.0-M3:enforce (enforce-java-version) @ keycloak-js-adapter-jar ---\r\n[INFO]\r\n[INFO] --- enforcer:3.0.0-M3:enforce (enforce-maven-version) @ keycloak-js-adapter-jar ---\r\n[INFO]\r\n[INFO] --- buildnumber:1.4:create (get-scm-revision) @ keycloak-js-adapter-jar ---\r\n[INFO]\r\n[INFO] --- frontend:1.14.2:install-node-and-pnpm (default) @ keycloak-js-adapter-jar ---\r\n[INFO] Installing node version v18.18.2\r\n[INFO] Copying node binary from C:\\Users\\builduser\\.m2\\repository\\com\\github\\eirslett\\node\\18.18.2\\node-18.18.2-win-x64.exe to C:\\Users\\builduser\\keycloak\\node\\node.exe\r\n[INFO] Installed node locally.\r\n[INFO] Installing pnpm version 8.10.0\r\n[INFO] Unpacking C:\\Users\\builduser\\.m2\\repository\\com\\github\\eirslett\\pnpm\\8.10.0\\pnpm-8.10.0.tar.gz into C:\\Users\\builduser\\keycloak\\node\\node_modules\r\n[INFO] Installed pnpm locally.\r\n[INFO] No pnpm executable found, creating proxy script to C:\\Users\\builduser\\keycloak\\node\\node_modules\\pnpm\\bin\\pnpm.cjs.\r\n[INFO]\r\n[INFO] --- frontend:1.14.2:pnpm (pnpm-install) @ keycloak-js-adapter-jar ---\r\n[INFO] Running 'pnpm install --prefer-offline --frozen-lockfile --ignore-scripts' in C:\\Users\\builduser\\keycloak\\js\\libs\\keycloak-js\r\n[INFO] Scope: all 8 workspace projects\r\n[INFO] ../..                                    | Progress: resolved 1, reused 0, downloaded 0, added 0\r\n[INFO] ../..                                    | +988 ++++++++++++++++++++++++++++++++\r\n[INFO] ../..                                    | Progress: resolved 988, reused 25, downloaded 0, added 0\r\n[INFO] ../..                                    | Progress: resolved 988, reused 51, downloaded 0, added 0\r\n[INFO] ../..                                    | Progress: resolved 988, reused 212, downloaded 0, added 0\r\n[INFO] ../..                                    | Progress: resolved 988, reused 347, downloaded 0, added 0\r\n[INFO] ../..                                    | Progress: resolved 988, reused 369, downloaded 0, added 0\r\n[INFO] ../..                                    | Progress: resolved 988, reused 547, downloaded 0, added 0\r\n[INFO] ../..                                    | Progress: resolved 988, reused 769, downloaded 0, added 0\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 0\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 46\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 122\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 230\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 307\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 345\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 351\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 352\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 366\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 368\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 388\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 392\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 429\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 469\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 528\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 613\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 670\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 750\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 770\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 842\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 851\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 852\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 921\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 930\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 979\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 987\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 988\r\n[INFO] ../..                                    | Progress: resolved 988, reused 988, downloaded 0, added 988, done\r\n[INFO]\r\n[INFO] dependencies:\r\n[INFO] + js-sha256 0.11.0\r\n[INFO] + jwt-decode 4.0.0\r\n[INFO]\r\n[INFO] devDependencies:\r\n[INFO] + @rollup/plugin-commonjs 25.0.7\r\n[INFO] + @rollup/plugin-inject 5.0.5\r\n[INFO] + @rollup/plugin-node-resolve 15.2.3\r\n[INFO] + @rollup/plugin-terser 0.4.4\r\n[INFO] + @rollup/plugin-typescript 11.1.6\r\n[INFO] + es6-promise 4.2.8\r\n[INFO] + rollup 4.12.0\r\n[INFO] + shx 0.3.4\r\n[INFO]\r\n[INFO] Done in 49.4s\r\n[INFO]\r\n[INFO] --- frontend:1.14.2:pnpm (run-build) @ keycloak-js-adapter-jar ---\r\n[INFO] Running 'pnpm run build' in C:\\Users\\builduser\\keycloak\\js\\libs\\keycloak-js\r\n[INFO]\r\n[INFO] > keycloak-js@999.0.0-SNAPSHOT build C:\\Users\\builduser\\keycloak\\js\\libs\\keycloak-js\r\n[INFO] > wireit\r\n[INFO]\r\n[INFO] Analyzing\r\n[INFO]   0% [0 / 1] [1 running] build\r\n[INFO]\r\n[INFO] src\\keycloak.js ? dist\\keycloak.mjs...\r\n[INFO] created dist\\keycloak.mjs in 232ms\r\n[INFO]\r\n[INFO] src\\keycloak.js ? dist\\keycloak.js, dist\\keycloak.min.js...\r\n[INFO] (!) Missing shims for Node.js built-ins\r\n[INFO] Creating a browser bundle that depends on \"crypto\" and \"buffer\". You might need to include https://github.com/FredKSchott/rollup-plugin-polyfill-node\r\n[INFO] (!) Missing shims for Node.js built-ins\r\n[INFO] Creating a browser bundle that depends on \"crypto\" and \"buffer\". You might need to include https://github.com/FredKSchott/rollup-plugin-polyfill-node\r\n[INFO] (!) Missing global variable names\r\n[INFO] https://rollupjs.org/configuration-options/#output-globals\r\n[INFO] Use \"output.globals\" to specify browser global variable names corresponding to external modules:\r\n[INFO] crypto (guessing \"require$$0\")\r\n[INFO] buffer (guessing \"require$$1\")\r\n[INFO] crypto (guessing \"require$$0\")\r\n[INFO] buffer (guessing \"require$$1\")\r\n[INFO] (!) Plugin node-resolve: preferring built-in module 'buffer' over local alternative at 'C:\\Users\\builduser\\keycloak\\js\\node_modules\\.pnpm\\buffer@5.7.1\\node_modules\\buffer\\index.js', pass 'preferBuiltins: false' to disable this behavior or 'preferBuiltins: true' to disable this warning\r\n[INFO] created dist\\keycloak.js, dist\\keycloak.min.js in 2.4s\r\n[INFO]\r\n[INFO] src\\keycloak-authz.js ? dist\\keycloak-authz.mjs...\r\n[INFO] created dist\\keycloak-authz.mjs in 35ms\r\n[INFO]\r\n[INFO] src\\keycloak-authz.js ? dist\\keycloak-authz.js, dist\\keycloak-authz.min.js...\r\n[INFO] created dist\\keycloak-authz.js, dist\\keycloak-authz.min.js in 833ms\r\n[INFO]\r\n[INFO] > keycloak-js@999.0.0-SNAPSHOT duplicate-types C:\\Users\\builduser\\keycloak\\js\\libs\\keycloak-js\r\n[INFO] > shx cp dist/keycloak.d.ts dist/keycloak.d.mts && shx cp dist/keycloak-authz.d.ts dist/keycloak-authz.d.mts\r\n[INFO]\r\n[INFO] ? Ran 1 script and skipped 0 in 10,2s.\r\n[INFO]\r\n[INFO] --- resources:3.2.0:resources (default-resources) @ keycloak-js-adapter-jar ---\r\n[INFO] Using 'UTF-8' encoding to copy filtered resources.\r\n[INFO] Using 'UTF-8' encoding to copy filtered properties files.\r\n[INFO] Copying 4 resources\r\n[INFO]\r\n[INFO] --- compiler:3.8.1:compile (default-compile) @ keycloak-js-adapter-jar ---\r\n[INFO] No sources to compile\r\n[INFO]\r\n[INFO] --- resources:3.2.0:testResources (default-testResources) @ keycloak-js-adapter-jar ---\r\n[INFO] Using 'UTF-8' encoding to copy filtered resources.\r\n[INFO] Using 'UTF-8' encoding to copy filtered properties files.\r\n[INFO] skip non existing resourceDirectory C:\\Users\\builduser\\keycloak\\adapters\\oidc\\js\\src\\test\\resources\r\n[INFO]\r\n[INFO] --- compiler:3.8.1:testCompile (default-testCompile) @ keycloak-js-adapter-jar ---\r\n[INFO] No sources to compile\r\n[INFO]\r\n[INFO] --- surefire:3.0.0-M7:test (default-test) @ keycloak-js-adapter-jar ---\r\n[INFO] No tests to run.\r\n[INFO]\r\n[INFO] --- jar:3.1.2:jar (default-jar) @ keycloak-js-adapter-jar ---\r\n[INFO] Building jar: C:\\Users\\builduser\\keycloak\\adapters\\oidc\\js\\target\\keycloak-js-adapter-jar-999.0.0-SNAPSHOT.jar\r\n[INFO]\r\n[INFO] --- source:3.1.0:jar-no-fork (attach-sources) @ keycloak-js-adapter-jar ---\r\n[INFO] Building jar: C:\\Users\\builduser\\keycloak\\adapters\\oidc\\js\\target\\keycloak-js-adapter-jar-999.0.0-SNAPSHOT-sources.jar\r\n[INFO]\r\n[INFO] --- install:2.5.2:install (default-install) @ keycloak-js-adapter-jar ---\r\n[INFO] Installing C:\\Users\\builduser\\keycloak\\adapters\\oidc\\js\\target\\keycloak-js-adapter-jar-999.0.0-SNAPSHOT.jar to C:\\Users\\builduser\\.m2\\repository\\org\\keycloak\\keycloak-js-adapter-jar\\999.0.0-SNAPSHOT\\keycloak-js-adapter-jar-999.0.0-SNAPSHOT.jar\r\n[INFO] Installing C:\\Users\\builduser\\keycloak\\adapters\\oidc\\js\\pom.xml to C:\\Users\\builduser\\.m2\\repository\\org\\keycloak\\keycloak-js-adapter-jar\\999.0.0-SNAPSHOT\\keycloak-js-adapter-jar-999.0.0-SNAPSHOT.pom\r\n[INFO] Installing C:\\Users\\builduser\\keycloak\\adapters\\oidc\\js\\target\\keycloak-js-adapter-jar-999.0.0-SNAPSHOT-sources.jar to C:\\Users\\builduser\\.m2\\repository\\org\\keycloak\\keycloak-js-adapter-jar\\999.0.0-SNAPSHOT\\keycloak-js-adapter-jar-999.0.0-SNAPSHOT-sources.jar\r\n[INFO]\r\n[INFO] ------------------< org.keycloak:keycloak-js-parent >-------------------\r\n[INFO] Building Keycloak JavaScript Parent 999.0.0-SNAPSHOT            [21/196]\r\n[INFO]   from js\\pom.xml\r\n[INFO] --------------------------------[ pom ]---------------------------------\r\n[INFO]\r\n[INFO] --- clean:3.1.0:clean (default-clean) @ keycloak-js-parent ---\r\n[INFO] Deleting C:\\Users\\builduser\\keycloak\\js (includes = [**/.wireit/**, **/node_modules/**], excludes = [])\r\n[INFO] Deleting C:\\Users\\builduser\\keycloak\\js\\apps\\keycloak-server (includes = [server/**], excludes = [])\r\n[INFO]\r\n[INFO] --- enforcer:3.0.0-M3:enforce (enforce-java-version) @ keycloak-js-parent ---\r\n[INFO]\r\n[INFO] --- enforcer:3.0.0-M3:enforce (enforce-maven-version) @ keycloak-js-parent ---\r\n[INFO]\r\n[INFO] --- buildnumber:1.4:create (get-scm-revision) @ keycloak-js-parent ---\r\n[INFO]\r\n[INFO] --- frontend:1.14.2:install-node-and-pnpm (default) @ keycloak-js-parent ---\r\n[INFO] Node v18.18.2 is already installed.\r\n[INFO] PNPM 8.10.0 is already installed.\r\n[INFO] Existing pnpm executable found, skipping linking.\r\n[INFO]\r\n[INFO] --- frontend:1.14.2:pnpm (pnpm-install) @ keycloak-js-parent ---\r\n[INFO] Running 'pnpm install --prefer-offline --frozen-lockfile --ignore-scripts' in C:\\Users\\builduser\\keycloak\\js\r\n[INFO] Scope: all 4 workspace projects\r\n[INFO] Lockfile is up to date, resolution step is skipped\r\n[INFO] Progress: resolved 1, reused 0, downloaded 0, added 0\r\n[INFO] Packages: +988\r\n[INFO] ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\r\n[INFO] Progress: resolved 988, reused 20, downloaded 0, added 0\r\n[INFO] Progress: resolved 988, reused 42, downloaded 0, added 0\r\n[INFO] Progress: resolved 988, reused 221, downloaded 0, added 0\r\n[INFO] Progress: resolved 988, reused 347, downloaded 0, added 0\r\n[INFO] Progress: resolved 988, reused 362, downloaded 0, added 0\r\n[INFO] Progress: resolved 988, reused 524, downloaded 0, added 0\r\n[INFO] Progress: resolved 988, reused 735, downloaded 0, added 0\r\n[INFO] Progress: resolved 988, reused 908, downloaded 0, added 0\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 19\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 100\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 221\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 303\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 339\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 351\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 352\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 366\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 368\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 388\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 402\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 433\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 521\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 556\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 663\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 752\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 786\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 856\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 857\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 860\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 917\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 959\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 986\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 987\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 988\r\n[INFO] Progress: resolved 988, reused 988, downloaded 0, added 988, done\r\n[INFO]\r\n[INFO] devDependencies:\r\n[INFO] + @types/node 20.11.20\r\n[INFO] + @typescript-eslint/eslint-plugin 7.0.0\r\n[INFO] + @typescript-eslint/parser 6.21.0\r\n[INFO] + eslint 8.56.0\r\n[INFO] + eslint-config-prettier 9.1.0\r\n[INFO] + eslint-import-resolver-typescript 3.6.1\r\n[INFO] + eslint-plugin-cypress 2.15.1\r\n[INFO] + eslint-plugin-import 2.29.1\r\n[INFO] + eslint-plugin-lodash 7.4.0\r\n[INFO] + eslint-plugin-mocha 10.3.0\r\n[INFO] + eslint-plugin-prettier 5.1.3\r\n[INFO] + eslint-plugin-react 7.33.2\r\n[INFO] + eslint-plugin-react-hooks 4.6.0\r\n[INFO] + husky 9.0.11\r\n[INFO] + lint-staged 15.2.2\r\n[INFO] + prettier 3.2.5\r\n[INFO] + tslib 2.6.2\r\n[INFO] + typescript 5.3.3\r\n[INFO] + wireit 0.14.4\r\n[INFO]\r\n[INFO] Done in 47.8s\r\n[INFO]\r\n[INFO] --- source:3.1.0:jar-no-fork (attach-sources) @ keycloak-js-parent ---\r\n[INFO]\r\n[INFO] --- install:2.5.2:install (default-install) @ keycloak-js-parent ---\r\n[INFO] Installing C:\\Users\\builduser\\keycloak\\js\\pom.xml to C:\\Users\\builduser\\.m2\\repository\\org\\keycloak\\keycloak-js-parent\\999.0.0-SNAPSHOT\\keycloak-js-parent-999.0.0-SNAPSHOT.pom\r\n[INFO]\r\n[INFO] -------------------< org.keycloak:keycloak-admin-ui >-------------------\r\n[INFO] Building Keycloak Admin UI 999.0.0-SNAPSHOT                     [22/196]\r\n[INFO]   from js\\apps\\admin-ui\\pom.xml\r\n[INFO] --------------------------------[ jar ]---------------------------------\r\n[INFO]\r\n[INFO] --- clean:3.1.0:clean (default-clean) @ keycloak-admin-ui ---\r\n[INFO] Deleting C:\\Users\\builduser\\keycloak\\js\\apps\\admin-ui (includes = [**/.wireit/**, **/node_modules/**], excludes = [])\r\n[INFO]\r\n[INFO] --- enforcer:3.0.0-M3:enforce (enforce-java-version) @ keycloak-admin-ui ---\r\n[INFO]\r\n[INFO] --- enforcer:3.0.0-M3:enforce (enforce-maven-version) @ keycloak-admin-ui ---\r\n[INFO]\r\n[INFO] --- buildnumber:1.4:create (get-scm-revision) @ keycloak-admin-ui ---\r\n[INFO]\r\n[INFO] --- frontend:1.14.2:install-node-and-pnpm (default) @ keycloak-admin-ui ---\r\n[INFO] Node v18.18.2 is already installed.\r\n[INFO] PNPM 8.10.0 is already installed.\r\n[INFO] Existing pnpm executable found, skipping linking.\r\n[INFO]\r\n[INFO] --- frontend:1.14.2:pnpm (pnpm-install) @ keycloak-admin-ui ---\r\n[INFO] Running 'pnpm install --prefer-offline --frozen-lockfile --ignore-scripts' in C:\\Users\\builduser\\keycloak\\js\\apps\\admin-ui\r\n[INFO] Scope: all 4 workspace projects\r\n[INFO] ../..                                    | Progress: resolved 1, reused 0, downloaded 0, added 0\r\n[INFO] ../..                                    | +988 ++++++++++++++++++++++++++++++++\r\n[INFO] ../..                                    | Progress: resolved 1, reused 1, downloaded 0, added 0\r\n[INFO] ../..                                    | Progress: resolved 1, reused 1, downloaded 0, added 1, done\r\n[INFO] ?ENOENT? ENOENT: no such file or directory, open 'C:\\Users\\builduser\\keycloak\\js\\node_modules\\.pnpm\\vite@5.1.4_@types+node@20.11.20_lightningcss@1.23.0\\node_modules\\vite\\package.json'\r\n[INFO]\r\n[INFO] pnpm: ENOENT: no such file or directory, open 'C:\\Users\\builduser\\keycloak\\js\\node_modules\\.pnpm\\vite@5.1.4_@types+node@20.11.20_lightningcss@1.23.0\\node_modules\\vite\\package.json'\r\n[INFO] ------------------------------------------------------------------------\r\n[INFO] Reactor Summary for Keycloak 999.0.0-SNAPSHOT:\r\n[INFO]\r\n[INFO] Keycloak BOM Parent ................................ SUCCESS [  2.133 s]\r\n[INFO] Keycloak BOM for adapters .......................... SUCCESS [  0.047 s]\r\n[INFO] Keycloak BOM for server extensions ................. SUCCESS [  0.037 s]\r\n[INFO] Keycloak BOM utilities for the quickstarts ......... SUCCESS [  0.032 s]\r\n[INFO] Keycloak ........................................... SUCCESS [  0.100 s]\r\n[INFO] Keycloak Common .................................... SUCCESS [ 11.012 s]\r\n[INFO] Keycloak Core ...................................... SUCCESS [ 12.674 s]\r\n[INFO] Keycloak Server SPI ................................ SUCCESS [  8.173 s]\r\n[INFO] Keycloak Server Private SPI ........................ SUCCESS [ 14.319 s]\r\n[INFO] Keycloak Crypto Parent ............................. SUCCESS [  0.047 s]\r\n[INFO] Keycloak Crypto Default ............................ SUCCESS [ 10.721 s]\r\n[INFO] Keycloak SAML Core Public API ...................... SUCCESS [  5.076 s]\r\n[INFO] Keycloak SAML Core ................................. SUCCESS [ 12.348 s]\r\n[INFO] Keycloak Model Parent .............................. SUCCESS [  0.037 s]\r\n[INFO] Keycloak Database Support .......................... SUCCESS [  1.366 s]\r\n[INFO] Keycloak Database Support - Private classes ........ SUCCESS [  4.261 s]\r\n[INFO] Keycloak REST Services ............................. SUCCESS [ 43.910 s]\r\n[INFO] Keycloak Crypto FIPS 140-2 Integration ............. SUCCESS [ 11.566 s]\r\n[INFO] Keycloak Crypto Wildfly Elytron Integration ........ SUCCESS [  9.257 s]\r\n[INFO] Keycloak JavaScript Adapter (JAR) .................. SUCCESS [01:04 min]\r\n[INFO] Keycloak JavaScript Parent ......................... SUCCESS [02:21 min]\r\n[INFO] Keycloak Admin UI .................................. FAILURE [ 34.970 s]\r\n[INFO] Keycloak Account UI ................................ SKIPPED\r\n[INFO] Keycloak Themes .................................... SKIPPED\r\n[INFO] Keycloak Dependencies Parent ....................... SKIPPED\r\n[INFO] Keycloak Dependencies Server Min ................... SKIPPED\r\n[INFO] Keycloak Model JPA ................................. SKIPPED\r\n[INFO] Keycloak Kerberos Federation ....................... SKIPPED\r\n[INFO] Keycloak LDAP UserStoreProvider .................... SKIPPED\r\n[INFO] Keycloak Database Support - REST services .......... SKIPPED\r\n[INFO] Keycloak Model Infinispan .......................... SKIPPED\r\n[INFO] Keycloak SSSD Federation ........................... SKIPPED\r\n[INFO] Keycloak Authz: Parent ............................. SKIPPED\r\n[INFO] Keycloak AuthZ: Policy Provider Parent ............. SKIPPED\r\n[INFO] Keycloak AuthZ: Common Policy Providers ............ SKIPPED\r\n[INFO] Keycloak Dependencies Server All ................... SKIPPED\r\n[INFO] Keycloak Quarkus Parent ............................ SKIPPED\r\n[INFO] Keycloak Configuration API ......................... SKIPPED\r\n[INFO] Keycloak Administration UI ......................... SKIPPED\r\n[INFO] Admin UI REST extensions ........................... SKIPPED\r\n[INFO] Keycloak Quarkus Server Extension .................. SKIPPED\r\n[INFO] Keycloak Quarkus Server Deployment ................. SKIPPED\r\n[INFO] Keycloak Docs Parent ............................... SKIPPED\r\n[INFO] Keycloak Guides Maven Plugin ....................... SKIPPED\r\n[INFO] Keycloak Guides .................................... SKIPPED\r\n[INFO] Keycloak Federation ................................ SKIPPED\r\n[INFO] Keycloak Legacy Database Support ................... SKIPPED\r\n[INFO] Keycloak Util Embedded LDAP ........................ SKIPPED\r\n[INFO] Keycloak Util Parent ............................... SKIPPED\r\n[INFO] Keycloak Integration ............................... SKIPPED\r\n[INFO] Keycloak Admin REST Client JavaEE .................. SKIPPED\r\n[INFO] Keycloak Admin REST Client ......................... SKIPPED\r\n[INFO] Keycloak Client Registration API ................... SKIPPED\r\n[INFO] Keycloak Client CLI ................................ SKIPPED\r\n[INFO] Keycloak Client Registration CLI ................... SKIPPED\r\n[INFO] Keycloak Admin CLI ................................. SKIPPED\r\n[INFO] Keycloak Client CLI Distribution ................... SKIPPED\r\n[INFO] Keycloak Adapter SPI ............................... SKIPPED\r\n[INFO] Keycloak Tomcat Adapter SPI ........................ SKIPPED\r\n[INFO] Keycloak Undertow Integration SPI .................. SKIPPED\r\n[INFO] Keycloak Servlet Integration ....................... SKIPPED\r\n[INFO] Keycloak Jakarta Servlet Integration ............... SKIPPED\r\n[INFO] Common JBoss/Wildfly Core Classes .................. SKIPPED\r\n[INFO] Keycloak Jetty Adapter SPI ......................... SKIPPED\r\n[INFO] Keycloak Client Adapter SPI Modules ................ SKIPPED\r\n[INFO] Keycloak SAML Client Adapter Public API ............ SKIPPED\r\n[INFO] Keycloak SAML Client Adapter Core .................. SKIPPED\r\n[INFO] Keycloak SAML Client Adapter Core Jakarta .......... SKIPPED\r\n[INFO] Keycloak Jetty Core SAML Integration ............... SKIPPED\r\n[INFO] Keycloak Jetty 9.4.x SAML Integration .............. SKIPPED\r\n[INFO] Keycloak SAML Jetty Integration .................... SKIPPED\r\n[INFO] Keycloak Undertow SAML Adapter ..................... SKIPPED\r\n[INFO] Keycloak SAML Tomcat Integration ................... SKIPPED\r\n[INFO] Keycloak Tomcat Core SAML Integration .............. SKIPPED\r\n[INFO] Keycloak Tomcat SAML Integration ................... SKIPPED\r\n[INFO] Keycloak Authz: Client API ......................... SKIPPED\r\n[INFO] Keycloak Authz: Policy Enforcer .................... SKIPPED\r\n[INFO] Keycloak Adapter Core .............................. SKIPPED\r\n[INFO] Keycloak WildFly Elytron SAML Adapter .............. SKIPPED\r\n[INFO] Keycloak Wildfly SAML Adapter Subsystem ............ SKIPPED\r\n[INFO] Keycloak WildFly Elytron Jakarta SAML Adapter ...... SKIPPED\r\n[INFO] Keycloak Wildfly Jakarta SAML Adapter Subsystem .... SKIPPED\r\n[INFO] Keycloak SAML Wildfly Integration .................. SKIPPED\r\n[INFO] Keycloak SAML Servlet Filter ....................... SKIPPED\r\n[INFO] Keycloak SAML Jakarta Servlet Filter ............... SKIPPED\r\n[INFO] Keycloak SAML Client Adapter Modules ............... SKIPPED\r\n[INFO] Keycloak Installed Application ..................... SKIPPED\r\n[INFO] Keycloak JAX-RS OAuth Client ....................... SKIPPED\r\n[INFO] Keycloak Jetty Core Integration .................... SKIPPED\r\n[INFO] Keycloak Jetty 9.4.x Integration ................... SKIPPED\r\n[INFO] Keycloak Jetty Integration ......................... SKIPPED\r\n[INFO] Keycloak Servlet Filter Adapter Integration ........ SKIPPED\r\n[INFO] Keycloak Servlet Filter Adapter Integration ........ SKIPPED\r\n[INFO] Keycloak Tomcat Integration ........................ SKIPPED\r\n[INFO] Keycloak Tomcat Core Integration ................... SKIPPED\r\n[INFO] Keycloak Tomcat Integration ........................ SKIPPED\r\n[INFO] Keycloak Undertow Integration ...................... SKIPPED\r\n[INFO] spring-boot-container-bundle ....................... SKIPPED\r\n[INFO] Keycloak Spring Security Integration ............... SKIPPED\r\n[INFO] Keycloak Spring Boot Adapter Core .................. SKIPPED\r\n[INFO] Keycloak Spring Boot 2 Integration ................. SKIPPED\r\n[INFO] Keycloak Wildfly Elytron OIDC Adapter .............. SKIPPED\r\n[INFO] Keycloak Wildfly Adapter Subsystem ................. SKIPPED\r\n[INFO] Keycloak WildFly Integration ....................... SKIPPED\r\n[INFO] Keycloak OIDC Client Adapter Modules ............... SKIPPED\r\n[INFO] Keycloak Adapters .................................. SKIPPED\r\n[INFO] Keycloak Misc ...................................... SKIPPED\r\n[INFO] Keycloak :: Spring :: Boot ......................... SKIPPED\r\n[INFO] Keycloak :: Spring :: Boot :: Default ::  Starter .. SKIPPED\r\n[INFO] keycloak-test-helper ............................... SKIPPED\r\n[INFO] Keycloak JavaScript Admin Client ................... SKIPPED\r\n[INFO] Keycloak JavaScript Adapter ........................ SKIPPED\r\n[INFO] Keycloak Quarkus Server App ........................ SKIPPED\r\n[INFO] Keycloak Quarkus Server Distribution ............... SKIPPED\r\n[INFO] Keycloak Quarkus Test Parent ....................... SKIPPED\r\n[INFO] Keycloak Quarkus Server JUnit 5 Internal Test Framework SKIPPED\r\n[INFO] Keycloak Quarkus Server Integration tests .......... SKIPPED\r\n[INFO] Keycloak TestSuite ................................. SKIPPED\r\n[INFO] DB Allocator Plugin ................................ SKIPPED\r\n[INFO] Keycloak Arquillian Integration TestSuite .......... SKIPPED\r\n[INFO] Test apps .......................................... SKIPPED\r\n[INFO] Test apps distribution ............................. SKIPPED\r\n[INFO] Keycloak Authz Tests: Hello World Example .......... SKIPPED\r\n[INFO] Keycloak Authz: Servlet Authorization Test ......... SKIPPED\r\n[INFO] Keycloak Authz: Simple Servlet App with Policy Enforcer SKIPPED\r\n[INFO] integration-arquillian-test-apps-servlets .......... SKIPPED\r\n[INFO] integration-arquillian-test-apps-servlets-jakarta .. SKIPPED\r\n[INFO] Keycloak Test App Profile JEE ...................... SKIPPED\r\n[INFO] integration-arquillian-test-apps-cors-parent ....... SKIPPED\r\n[INFO] Angular Product Portal JS .......................... SKIPPED\r\n[INFO] JAX-RS Database Service Using OAuth Bearer Tokens .. SKIPPED\r\n[INFO] spring-boot-adapter-app ............................ SKIPPED\r\n[INFO] Fuse Test Applications ............................. SKIPPED\r\n[INFO] Customer Portal - Secured in Karaf/Fuse ............ SKIPPED\r\n[INFO] CXF JAXRS Example - Secured in Karaf/Fuse .......... SKIPPED\r\n[INFO] CXF JAXRS Example - Secured in Karaf/Fuse 7 on Undertow SKIPPED\r\n[INFO] CXF JAXWS Example - Secured in Karaf/Fuse .......... SKIPPED\r\n[INFO] CXF JAXWS Example - Secured in Karaf/Fuse 7 on Undertow SKIPPED\r\n[INFO] Product Portal - Secured in Karaf/Fuse ............. SKIPPED\r\n[INFO] Product Portal - Secured in Karaf/Fuse 7 on Undertow SKIPPED\r\n[INFO] Camel endpoint example - Secured in Karaf/Fuse ..... SKIPPED\r\n[INFO] Camel endpoint example - Secured in Karaf/Fuse 7.0 on Undertow SKIPPED\r\n[INFO] Keycloak Fuse Example - Features ................... SKIPPED\r\n[INFO] Keycloak Examples - External Config ................ SKIPPED\r\n[INFO] Servers ............................................ SKIPPED\r\n[INFO] Testsuite Adapter SPI .............................. SKIPPED\r\n[INFO] Adapter Undertow SPI (JakartaEE) ................... SKIPPED\r\n[INFO] Undertow OIDC Adapter (JakartaEE) .................. SKIPPED\r\n[INFO] Undertow SAML Adapter (JakartaEE) .................. SKIPPED\r\n[INFO] Auth Server ........................................ SKIPPED\r\n[INFO] Auth Server Services ............................... SKIPPED\r\n[INFO] Auth Server Services - Testsuite Providers Deployment SKIPPED\r\n[INFO] Auth Server Services - Testsuite Providers ......... SKIPPED\r\n[INFO] Keycloak TestSuite Utils ........................... SKIPPED\r\n[INFO] Test Util .......................................... SKIPPED\r\n[INFO] Auth Server - Undertow ............................. SKIPPED\r\n[INFO] Auth Server - Quarkus .............................. SKIPPED\r\n[INFO] App Server ......................................... SKIPPED\r\n[INFO] App Server - SPI ................................... SKIPPED\r\n[INFO] Keycloak Arquillian Integration TestSuite - Cache Server SKIPPED\r\n[INFO] Keycloak Arquillian Integration TestSuite - Cache Server - Infinispan SKIPPED\r\n[INFO] Keycloak Arquillian Integration TestSuite - Cache Server - Legacy SKIPPED\r\n[INFO] Tests .............................................. SKIPPED\r\n[INFO] Base TestSuite ..................................... SKIPPED\r\n[INFO] Other Tests Modules ................................ SKIPPED\r\n[INFO] Tests for logical storage layer .................... SKIPPED\r\n[INFO] Keycloak Examples .................................. SKIPPED\r\n[INFO] Keycloak Examples - Admin Client ................... SKIPPED\r\n[INFO] Provider Examples .................................. SKIPPED\r\n[INFO] REST Example ....................................... SKIPPED\r\n[INFO] Authenticator Example .............................. SKIPPED\r\n[INFO] JS Console ......................................... SKIPPED\r\n[INFO] Keycloak Examples - Kerberos Credential Delegation . SKIPPED\r\n[INFO] Themes Examples .................................... SKIPPED\r\n[INFO] SAML Examples ...................................... SKIPPED\r\n[INFO] Keycloak SAML Adapter as a Servlet Filter .......... SKIPPED\r\n[INFO] LDAP Demo Application .............................. SKIPPED\r\n[INFO] Distribution Parent ................................ SKIPPED\r\n[INFO] Feature Pack Builds ................................ SKIPPED\r\n[INFO] Keycloak Distribution Licenses Common .............. SKIPPED\r\n[INFO] Keycloak Distribution Maven Plugins Parent ......... SKIPPED\r\n[INFO] Keycloak Licenses Processor Maven Plugin ........... SKIPPED\r\n[INFO] Keycloak Feature Pack: Adapter ..................... SKIPPED\r\n[INFO] Adapters Distribution Parent ....................... SKIPPED\r\n[INFO] Keycloak Adapter Overlay Distribution .............. SKIPPED\r\n[INFO] Keycloak Tomcat Adapter Distro ..................... SKIPPED\r\n[INFO] Keycloak SAML Wildfly Modules ...................... SKIPPED\r\n[INFO] Keycloak SAML Wildfly Jakarta Modules .............. SKIPPED\r\n[INFO] Keycloak SAML Wildfly Adapter Jakarta Distro ....... SKIPPED\r\n[INFO] Keycloak SAML Wildfly Adapter Distro ............... SKIPPED\r\n[INFO] Keycloak Wildfly SAML Adapter ...................... SKIPPED\r\n[INFO] Keycloak SAML Tomcat Adapter Distro ................ SKIPPED\r\n[INFO] SAML Adapters Distribution Parent .................. SKIPPED\r\n[INFO] Galleon Feature Pack Builds ........................ SKIPPED\r\n[INFO] Keycloak Galleon Feature Pack: SAML Adapter ........ SKIPPED\r\n[INFO] Keycloak Galleon Feature Pack: SAML Adapter Layer Metadata Tests SKIPPED\r\n[INFO] ------------------------------------------------------------------------\r\n[INFO] BUILD FAILURE\r\n[INFO] ------------------------------------------------------------------------\r\n[INFO] Total time:  06:34 min\r\n[INFO] Finished at: 2024-02-25T00:47:07+01:00\r\n[INFO] ------------------------------------------------------------------------\r\n[ERROR] Failed to execute goal com.github.eirslett:frontend-maven-plugin:1.14.2:pnpm (pnpm-install) on project keycloak-admin-ui: Failed to run task: 'pnpm install --prefer-offline --frozen-lockfile --ignore-scripts' failed. org.apache.commons.exec.ExecuteException: Process exited with an error: 1 (Exit value: 1) -> [Help 1]\r\n[ERROR]\r\n[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.\r\n[ERROR] Re-run Maven using the -X switch to enable full debug logging.\r\n[ERROR]\r\n[ERROR] For more information about the errors and possible solutions, please read the following articles:\r\n[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException\r\n[ERROR]\r\n[ERROR] After correcting the problems, you can resume the build with the command\r\n[ERROR]   mvn <args> -rf :keycloak-admin-ui\r\n\r\nmvnw clean install -Pdistribution -rf :keycloak-admin-ui\r\nPicked up JAVA_TOOL_OPTIONS: \"-Dfile.encoding=UTF8\"\r\n[INFO] Loading cache configuration from C:\\Users\\builduser\\keycloak\\.mvn\\maven-build-cache-config.xml\r\n[INFO] Scanning for projects...\r\n[ERROR] [ERROR] Some problems were encountered while processing the POMs:\r\n[ERROR] Child module C:\\Users\\builduser\\keycloak\\js\\libs\\keycloak-admin-client\\pom.xml of C:\\Users\\builduser\\keycloak\\js\\pom.xml does not exist @\r\n[ERROR] Child module C:\\Users\\builduser\\keycloak\\js\\libs\\keycloak-js\\pom.xml of C:\\Users\\builduser\\keycloak\\js\\pom.xml does not exist @\r\n @\r\n[ERROR] The build could not read 1 project -> [Help 1]\r\n[ERROR]\r\n[ERROR]   The project org.keycloak:keycloak-js-parent:999.0.0-SNAPSHOT (C:\\Users\\builduser\\keycloak\\js\\pom.xml) has 2 errors\r\n[ERROR]     Child module C:\\Users\\builduser\\keycloak\\js\\libs\\keycloak-admin-client\\pom.xml of C:\\Users\\builduser\\keycloak\\js\\pom.xml does not exist\r\n[ERROR]     Child module C:\\Users\\builduser\\keycloak\\js\\libs\\keycloak-js\\pom.xml of C:\\Users\\builduser\\keycloak\\js\\pom.xml does not exist\r\n[ERROR]\r\n[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.\r\n[ERROR] Re-run Maven using the -X switch to enable full debug logging.\r\n[ERROR]\r\n[ERROR] For more information about the errors and possible solutions, please read the following articles:\r\n[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/ProjectBuildingException\n\n### How to Reproduce?\n\nOn a Windows system\r\nInstall JDK 17.0.10\r\nInstall Git 2.44.0\r\nStart Git CMD\r\ngit clone https://github.com/keycloak/keycloak.git\r\ncd keycloak\r\necho Change file encoding to UTF8, otherwise failing tests break the build earlier\r\nset JAVA_TOOL_OPTIONS=\"-Dfile.encoding=UTF8\"\r\nmvnw clean install -Pdistribution\n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27269",
+        "assignees": [
+            "hmlnarik"
+        ],
+        "labels": [
+            "kind/bug",
+            "area/admin/ui",
+            "help wanted",
+            "team/ui",
+            "status/auto-expire",
+            "status/auto-bump",
+            "priority/normal",
+            "release/25.0.0",
+            "release/24.0.2"
+        ],
+        "issue_closed_at": "2024-03-13T11:34:34.000Z",
+        "fix_commit_hash": "d3a81b5f15e079ed5016dfb5194ff6bd88bc0e4e",
+        "commit_type": "pr",
+        "commit_message": "Fix JS build on Windows (#27806)\n\nFixes: #27269\r\n\r\nSigned-off-by: Hynek Mlnarik <hmlnarik@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27806",
+        "earliest_issue_date": "2024-02-25T10:35:30Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27271,
+        "issue_title": "AuthorityKeyIdentifierExtension should be calculated from caCert (if it present) in generateV3Certificate, not from subjPubKeyInfo",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\ncore\n\n### Describe the bug\n\n1. Affected to crypto area, but no such element in area list\r\n2. Method `CertificateUtils.generateV3Certificate` not used in codebase yet\r\n\r\nIn `BCCertificateUtilsProvider`, `BCFIPSCertificateUtilsProvider` and `ElytronCertificateUtils` in `generateV3Certificate` calculated from `subjPubKeyInfo`/`keyPair`, but should from `caCert` (if it present)\r\n\r\nhttps://github.com/keycloak/keycloak/blob/53a9eb1d429e13f363512ae04ae1646221dc7a3b/crypto/default/src/main/java/org/keycloak/crypto/def/BCCertificateUtilsProvider.java#L113-L115\r\n\r\nhttps://github.com/keycloak/keycloak/blob/53a9eb1d429e13f363512ae04ae1646221dc7a3b/crypto/fips1402/src/main/java/org/keycloak/crypto/fips/BCFIPSCertificateUtilsProvider.java#L115-L117\r\n\r\nhttps://github.com/keycloak/keycloak/blob/53a9eb1d429e13f363512ae04ae1646221dc7a3b/crypto/elytron/src/main/java/org/keycloak/crypto/elytron/ElytronCertificateUtils.java#L125-L126\r\n\r\nAccording to https://datatracker.ietf.org/doc/html/rfc3280#section-4.2.1.1 **only Self-Signed** may set `SubjectKeyIdentifier` and `AuthorityKeyIdentifier` to same values, but `generateV3Certificate` accepts `caCert` and `caPrivateKey` used for certificate signing, so `caCert` should be using for `AuthorityKeyIdentifier` calculation\n\n### Version\n\nmain\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\n`AuthorityKeyIdentifierExtension` should be calculated from `caCert`\n\n### Actual behavior\n\n`AuthorityKeyIdentifierExtension` calculated from `subjPubKeyInfo`/`keyPair`\n\n### How to Reproduce?\n\n```java\r\nCertificateUtils.generateV3Certificate(keyPair, caPrivateKey, caCertificate, \"Name\");\r\n```\r\n\r\nIn generated certificate `AuthorityKeyIdentifierExtension` equals to `SubjectKeyIdentifier`\r\n\n\n### Anything else?\n\nNo",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27271",
+        "assignees": [],
+        "labels": [
+            "kind/bug",
+            "area/core",
+            "help wanted",
+            "release/24.0.0",
+            "team/core-clients"
+        ],
+        "issue_closed_at": "2024-02-27T14:59:52.000Z",
+        "fix_commit_hash": "3b721512c4d920a44046b318e0a32e38f5093fb8",
+        "commit_type": "pr",
+        "commit_message": "x509Certificate AuthorityKeyIdentifierExtension (#27272)\n\ncloses #27271 \r\n\r\nSigned-off-by: coursar <coursar@gmail.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/27272",
+        "earliest_issue_date": "2024-02-25T11:24:56Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "keycloak",
+        "issue_number": 27275,
+        "issue_title": "Invalidating offline token is not working from client sessions tab  ",
+        "issue_body": "### Before reporting an issue\n\n- [X] I have read and understood the above terms for submitting issues, and I understand that my issue may be closed without action if I do not follow them.\n\n### Area\n\nauthentication\n\n### Describe the bug\n\nI have configured an user and public client with direct access grant. \r\nThen used offline token scope to retrieve access_token and refresh_token through \"*/protocol/openid-connect/token\" endpoint.\r\nNow i want to invalidate/revoke offline_token using Keycloak ui , \r\nI tried to logout the offline session from Client details --> Sessions tab. \r\n![Screenshot 2024-02-26 at 11 11 20\u202fam](https://github.com/keycloak/keycloak/assets/15014026/3a093f1e-8681-4886-bf2c-11b344721a7b)\r\n\r\nBut Offline token is not invalidated, iam able to get new access_token using the offline token received earlier.\n\n### Version\n\nkeycloak-23.0.5\n\n### Regression\n\n- [ ] The issue is a regression\n\n### Expected behavior\n\nOffline token should be invalidated and should not allow to retrieve access token using the offline token\n\n### Actual behavior\n\n Able to get new access_token using the offline token  which was logged out through UI\n\n### How to Reproduce?\n\n1. Configured an user and public client with direct access grant. \r\n2. Get access_token and refresh_token through \"*/protocol/openid-connect/token\" endpoint , using offline token scope \r\n3.  Logout the offline session from Keycloak UI by going to Client details --> Sessions tab. \r\n4.  Now  get new access token using the offline token \"*/protocol/openid-connect/token\" endpoint\r\n     Able to retrieve access token using the offline token \n\n### Anything else?\n\n_No response_",
+        "issue_url": "https://github.com/keycloak/keycloak/issues/27275",
+        "assignees": [
+            "martin-kanis"
+        ],
+        "labels": [
+            "area/authentication",
+            "kind/bug",
+            "priority/important",
+            "team/core-iam",
+            "release/25.0.0",
+            "release/24.0.2"
+        ],
+        "issue_closed_at": "2024-03-21T12:05:00.000Z",
+        "fix_commit_hash": "4154d27941e4cc7ccb0452e6f43978897b5dc3d3",
+        "commit_type": "pr",
+        "commit_message": "Invalidating offline token is not working from client sessions tab\n\nCloses #27275\n\nSigned-off-by: Martin Kanis <mkanis@redhat.com>",
+        "closer_url": "https://github.com/keycloak/keycloak/pull/28101",
+        "earliest_issue_date": "2024-02-26T00:17:35Z",
+        "predicted_class": "bug"
+    }
+]
