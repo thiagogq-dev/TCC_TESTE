@@ -1,0 +1,998 @@
+[
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2649,
+        "issue_title": "Warmers do not load field data cache for sorting on new segments",
+        "issue_body": "Hi,\n\nOne the use cases for warmers is to pre-load the fields data cache with fields used for sorting. \n\nThe documentation doesn't specify how to load a field for sorting, but the following loads the id field into the cache if you put a new warmer _after_ data has already been indexed:\n\nPUT to /tests/_warmer/warmer1\n\n``` json\n{\n    \"query\": {\n        \"match_all\": {}\n    },\n    \"sort\": [\n        { \"id\": { \"order\" : \"desc\" }}\n    ]\n\n}\n```\n\nHowever, new segments will not have the id field loaded. \n\nTo reproduce follow this sequence (on a fresh node). I tried it on 0.20.4:\nCreate an empty tests index with the folldwing mapping:\n\n``` json\n{\n   \"test\" : {\n       \"properties\" : {\n           \"id\" : { \"type\": \"string\" }\n       }\n   }\n}\n```\n- Load the warmer:  PUT to /tests/_warmer/warmer1 \n\n``` json\n{\n    \"query\": {\n        \"match_all\": {}\n    },\n    \"sort\": [\n        { \"id\": { \"order\" : \"desc\" }}\n    ]\n\n}\n```\n- Load two documents with the following structure (different ids): PUT to /tests/test/2\n\n``` json\n{\n    \"id\": \"2\"\n}\n```\n- Call refresh: GET to _refresh\n- Get the nodes stats. Cache is empty: GET to /_cluster/nodes/stats\n\n``` json\n            \"cache\": {\n               \"field_evictions\": 0,\n               \"field_size\": \"0b\",\n               \"field_size_in_bytes\": 0,\n               \"filter_count\": 0,\n               \"filter_evictions\": 0,\n               \"filter_size\": \"0b\",\n               \"filter_size_in_bytes\": 0,\n               \"bloom_size\": \"0b\",\n               \"bloom_size_in_bytes\": 0,\n               \"id_cache_size\": \"0b\",\n               \"id_cache_size_in_bytes\": 0\n            },\n```\n- Put the warmer in again: PUT to /tests/_warmer/warmer1 \n\n``` json\n{\n    \"query\": {\n        \"match_all\": {}\n    },\n    \"sort\": [\n        { \"id\": { \"order\" : \"desc\" }}\n    ]\n\n}\n```\n- Now the cache will be loaded: GET to /_cluster/nodes/stats :\n\n``` json\n\"cache\": {\n               \"field_evictions\": 0,\n               \"field_size\": \"132b\",\n               \"field_size_in_bytes\": 132,\n               \"filter_count\": 0,\n               \"filter_evictions\": 0,\n               \"filter_size\": \"0b\",\n               \"filter_size_in_bytes\": 0,\n               \"bloom_size\": \"0b\",\n               \"bloom_size_in_bytes\": 0,\n               \"id_cache_size\": \"0b\",\n               \"id_cache_size_in_bytes\": 0\n            },\n```\n\nCheers,\nBoaz\n\nNOTE: This may just be a documentation issue as I'm guessing how you should \"warm\" a sort field. If this is the wrong way, I'd be happy know.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2649",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.90.0.Beta1",
+            "v0.20.5"
+        ],
+        "issue_closed_at": "2013-02-13T16:51:42.000Z",
+        "fix_commit_hash": "681239b41324cafc8eb211f781cacea74386f672",
+        "commit_type": "commit",
+        "commit_message": "Warmers do not load field data cache for sorting on new segments\nfixes #2649",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/681239b41324cafc8eb211f781cacea74386f672",
+        "earliest_issue_date": "2013-02-13T15:57:55Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2651,
+        "issue_title": "Cached script filter is not used in consecutive searches",
+        "issue_body": "To reproduce, start Elasticsearch in foreground mode, run this script [file-script_filter_cache.sh](https://gist.github.com/imotov/4948908#file-script_filter_cache-sh) and check the standard output of the Elasticsearch server.\n\nExpected result: only first request should cause script to be executed\n\nActual result: script is executed for both requests\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2651",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.90.0.Beta1",
+            "v0.20.5"
+        ],
+        "issue_closed_at": "2013-02-14T11:30:33.000Z",
+        "fix_commit_hash": "37f16127c56ae0ce007052cfe05b54895b92e33b",
+        "commit_type": "commit",
+        "commit_message": "Fix ScriptFilter cache key calculation\n\nFixes #2651",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/37f16127c56ae0ce007052cfe05b54895b92e33b",
+        "earliest_issue_date": "2013-02-14T11:11:53Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2656,
+        "issue_title": "UncategorizedExecutionException in Terms Query",
+        "issue_body": "I got that weird UncategorizedExecutionException when i execute a terms - query through the API: \n\nQueryBuilder builder = QueryBuilders.boolQuery().must(QueryBuilders.termsQuery(\"foo\", docIds.toArray())).must(QueryBuilders.rangeQuery(FIELD_INDEXED_AT).lt(dateTime));\nSearchResponse searchResponse = getClient().prepareSearch(indexName).setQuery(builder).execute().actionGet(10*1000);\n\nHere is what query builder generates: \n\n{\n  \"bool\" : {\n    \"must\" : [ {\n      \"terms\" : {\n        \"foo\" : [ \"33425\", \"33862\", \"42689\" ]\n      }\n    }, {\n      \"range\" : {\n        \"indexedAt\" : {\n          \"from\" : null,\n          \"to\" : \"2013-02-15T22:03:10.556+01:00\",\n          \"include_lower\" : true,\n          \"include_upper\" : true\n        }\n      }\n    } ]\n  }\n}\n\nIf i send that terms query using HTTP Requestor, then everything seems ok. Query is valid and i get some hits from ES. We are using ES 0.19.8. \n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2656",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2013-03-01T20:27:02.000Z",
+        "fix_commit_hash": "aaa3c48b3c105ed62acf5e7d2ad3a29866bbec13",
+        "commit_type": "commit",
+        "commit_message": "Throw IAE if indices is null or contains a null value.\n\nCloses #2656",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/aaa3c48b3c105ed62acf5e7d2ad3a29866bbec13",
+        "earliest_issue_date": "2013-02-15T21:32:34Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2675,
+        "issue_title": "Index dynamic settings might not be allowed to be applied on master with no data node",
+        "issue_body": "Each component internally in ES registers which settings are allowed to be changed. The problem is that shard level components registering dynamic settings will not be registered in case of master with no data nodes. Note, index level components will work well, because hte index is created on the master first to check if it can be created, so it only applies to shard level settings.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2675",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.6",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-02-26T15:23:45.000Z",
+        "fix_commit_hash": "de243493c9a31354d742c34a66817e8a06798026",
+        "commit_type": "commit",
+        "commit_message": "Changing dynamic index and cluster settings should work on master-only nodes\n\nFixes #2675",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/de243493c9a31354d742c34a66817e8a06798026",
+        "earliest_issue_date": "2013-02-22T18:37:05Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2676,
+        "issue_title": "Get settings on empty node fails with ArrayIndexOutOfBoundsException[0]",
+        "issue_body": "Running curl http://localhost:9200/_settings returns with {\"error\":\"ArrayIndexOutOfBoundsException[0]\",\"status\":500} when there are no indices. \n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2676",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2013-02-22T22:08:46.000Z",
+        "fix_commit_hash": "915019587d5fb0c085f84c9f08c474de35744ae8",
+        "commit_type": "commit",
+        "commit_message": "Get settings on empty node fails with ArrayIndexOutOfBoundsException[0]\nfixes #2676",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/915019587d5fb0c085f84c9f08c474de35744ae8",
+        "earliest_issue_date": "2013-02-22T21:59:00Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2686,
+        "issue_title": "IdsQueryBuilder with empty ids list causes error",
+        "issue_body": "Maybe this could create a query that match zero documents?\n\nException :\nCaused by: org.elasticsearch.action.search.SearchPhaseExecutionException: Failed to execute phase [query], total failure; shardFailures {[1][telenet][0]: SearchParseException[[telenet][0]: from[0],size[84]: Parse Failure [Failed to parse source [{\"from\":0,\"size\":84,\"query\":{\"f\niltered\":{\"query\":{\"bool\":{\"must\":{\"ids\":{\"type\":\"media\",\"values\":[]}}}},\"filter\":{\"fquery\":{\"query\":{\"match_all\":{}},\"_cache\":true}}}},\"sort\":[{\"org.taktik.mediafield.creationdate\":{\"order\":\"desc\"}}]}]]]; nested: QueryParsingException[[telenet] [ids] query, no ids values prov\nided]; }{[1][telenet][1]: SearchParseException[[telenet][1]: from[0],size[84]: Parse Failure [Failed to parse source [{\"from\":0,\"size\":84,\"query\":{\"filtered\":{\"query\":{\"bool\":{\"must\":{\"ids\":{\"type\":\"media\",\"values\":[]}}}},\"filter\":{\"fquery\":{\"query\":{\"match_all\":{}},\"_cache\":t\nrue}}}},\"sort\":[{\"org.taktik.mediafield.creationdate\":{\"order\":\"desc\"}}]}]]]; nested: QueryParsingException[[telenet] [ids] query, no ids values provided]; }{[1][telenet][3]: SearchParseException[[telenet][3]: from[0],size[84]: Parse Failure [Failed to parse source [{\"from\":0,\n\"size\":84,\"query\":{\"filtered\":{\"query\":{\"bool\":{\"must\":{\"ids\":{\"type\":\"media\",\"values\":[]}}}},\"filter\":{\"fquery\":{\"query\":{\"match_all\":{}},\"_cache\":true}}}},\"sort\":[{\"org.taktik.mediafield.creationdate\":{\"order\":\"desc\"}}]}]]]; nested: QueryParsingException[[telenet] [ids] quer\ny, no ids values provided]; }{[1][telenet][4]: SearchParseException[[telenet][4]: from[0],size[84]: Parse Failure [Failed to parse source [{\"from\":0,\"size\":84,\"query\":{\"filtered\":{\"query\":{\"bool\":{\"must\":{\"ids\":{\"type\":\"media\",\"values\":[]}}}},\"filter\":{\"fquery\":{\"query\":{\"matc\nh_all\":{}},\"_cache\":true}}}},\"sort\":[{\"org.taktik.mediafield.creationdate\":{\"order\":\"desc\"}}]}]]]; nested: QueryParsingException[[telenet] [ids] query, no ids values provided]; }\n        at org.elasticsearch.action.search.type.TransportSearchTypeAction$BaseAsyncAction.onFirstPhaseResult(TransportSearchTypeAction.java:260)\n        at org.elasticsearch.action.search.type.TransportSearchTypeAction$BaseAsyncAction$3.onFailure(TransportSearchTypeAction.java:213)\n        at org.elasticsearch.search.action.SearchServiceTransportAction.sendExecuteQuery(SearchServiceTransportAction.java:144)\n        at org.elasticsearch.action.search.type.TransportSearchQueryThenFetchAction$AsyncAction.sendExecuteFirstPhase(TransportSearchQueryThenFetchAction.java:80)\n        at org.elasticsearch.action.search.type.TransportSearchTypeAction$BaseAsyncAction.performFirstPhase(TransportSearchTypeAction.java:205)\n        at org.elasticsearch.action.search.type.TransportSearchTypeAction$BaseAsyncAction.performFirstPhase(TransportSearchTypeAction.java:192)\n        at org.elasticsearch.action.search.type.TransportSearchTypeAction$BaseAsyncAction$2.run(TransportSearchTypeAction.java:178)\n        ... 3 more\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2686",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2013-02-25T11:26:53.000Z",
+        "fix_commit_hash": "bde36647fb5e84b091865714f4d2c98eba52afd7",
+        "commit_type": "commit",
+        "commit_message": "Terms/Ids filter: Support empty list of values, resulting in no match for it\ncloses #2687\nalso closes #2686",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/bde36647fb5e84b091865714f4d2c98eba52afd7",
+        "earliest_issue_date": "2013-02-25T10:52:55Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2687,
+        "issue_title": "Terms/Ids filter: Support empty list of values, resulting in no match for it",
+        "issue_body": "",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2687",
+        "assignees": [],
+        "labels": [
+            ">enhancement",
+            "v0.90.0.Beta1"
+        ],
+        "issue_closed_at": "2013-02-25T11:26:53.000Z",
+        "fix_commit_hash": "bde36647fb5e84b091865714f4d2c98eba52afd7",
+        "commit_type": "commit",
+        "commit_message": "Terms/Ids filter: Support empty list of values, resulting in no match for it\ncloses #2687\nalso closes #2686",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/bde36647fb5e84b091865714f4d2c98eba52afd7",
+        "earliest_issue_date": "2013-02-25T11:26:21Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2692,
+        "issue_title": "Using Java node client and deleting all indexes cause system hungs",
+        "issue_body": "Using elasticsearch 0.20.5 in Java 1.6 with Ubuntu 12.04 (but also happens with Windows), the system is frozen when you try to delete all indexes when there are no indexes yet into the elasticsearch. This error is a bit strange but I can reproduce it without any problem.\n\nFirst of all create a new project in Eclipse (in my case but of course in command line or Intellij should do the same). Then add elasticsearch 0.20.5 as dependency and write one simple test:\n\n``` java\nNode node = nodeBuilder().local(true).node();\nClient client = node.client();\n\nDeleteByQueryRequestBuilder deleteByQueryRequestBuilder = new DeleteByQueryRequestBuilder(client);\n\ndeleteByQueryRequestBuilder.setQuery(QueryBuilders.matchAllQuery());\ndeleteByQueryRequestBuilder.execute().actionGet();\n\nnode.close();\n```\n\nThen I run the test and the output is:\n\n```\n26-feb-2013 10:17:31 org.elasticsearch.node\nINFO: [Assassin] {0.20.5}[4352]: initializing ...\n26-feb-2013 10:17:31 org.elasticsearch.plugins\nINFO: [Assassin] loaded [], sites []\n26-feb-2013 10:17:33 org.elasticsearch.node\nINFO: [Assassin] {0.20.5}[4352]: initialized\n26-feb-2013 10:17:33 org.elasticsearch.node\nINFO: [Assassin] {0.20.5}[4352]: starting ...\n26-feb-2013 10:17:33 org.elasticsearch.transport\nINFO: [Assassin] bound_address {local[1]}, publish_address {local[1]}\n26-feb-2013 10:17:33 org.elasticsearch.cluster.service\nINFO: [Assassin] new_master [Assassin][1][local[1]]{local=true}, reason: local-disco-initial_connect(master)\n26-feb-2013 10:17:33 org.elasticsearch.discovery\nINFO: [Assassin] elasticsearch/1\n26-feb-2013 10:17:33 org.elasticsearch.http\nINFO: [Assassin] bound_address {inet[/0.0.0.0:9200]}, publish_address {inet[/<ipaddress>:9200]}\n26-feb-2013 10:17:33 org.elasticsearch.node\nINFO: [Assassin] {0.20.5}[4352]: started\n26-feb-2013 10:17:33 org.elasticsearch.gateway\nINFO: [Assassin] recovered [0] indices into cluster_state\n```\n\nBut the test never ends, the actionGet() call does not return any result it is hung there.\n\nThen I abort the test and I do the next modification in test:\n\n``` java\nNode node = nodeBuilder().local(true).node();\nClient client = node.client();\n\nString json = \"{\" +\n            \"\\\"user\\\":\\\"kimchy\\\",\" +\n            \"\\\"postDate\\\":\\\"2013-01-30\\\",\" +\n            \"\\\"message\\\":\\\"trying out Elastic Search\\\"\" +\n        \"}\";\n\nIndexResponse response = client.prepareIndex(\"twitter\", \"tweet\")\n                .setSource(json)\n                .execute()\n                .actionGet();\n\nDeleteByQueryRequestBuilder deleteByQueryRequestBuilder = new DeleteByQueryRequestBuilder(client);\n\ndeleteByQueryRequestBuilder.setQuery(QueryBuilders.matchAllQuery());\ndeleteByQueryRequestBuilder.execute().actionGet();\n\nnode.close();\n```\n\nAnd then it works as expected, but now comes the \"paranoic\" part, I rerun the first test again without preparing an index before deleting:\n\n``` java\nNode node = nodeBuilder().local(true).node();\nClient client = node.client();\n\nDeleteByQueryRequestBuilder deleteByQueryRequestBuilder = new DeleteByQueryRequestBuilder(client);\n\ndeleteByQueryRequestBuilder.setQuery(QueryBuilders.matchAllQuery());\ndeleteByQueryRequestBuilder.execute().actionGet();\n\nnode.close();\n```\n\nBut now also it works as expected, mostly because there is one index. (data directory is there already created so can work perfectly).\n\n```\nINFO: [Cold War] recovered [1] indices into cluster_state\n```\n\nSo it seems that delete all command does not work correctly when there is no indexes to remove (first time you start the node). Maybe I am doing wrong about how to remove all indexes, but anyway there is still an error on operation which makes all application (test in my case) hungs.\n\nAlex.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2692",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v0.20.6",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-03-01T14:17:12.000Z",
+        "fix_commit_hash": "39f362326e46b0e0df075288e1b5521f825d2b7b",
+        "commit_type": "commit",
+        "commit_message": "Short Curcuit response if no indices exits and make sure listener is notified.\n\nCloses #2692",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/39f362326e46b0e0df075288e1b5521f825d2b7b",
+        "earliest_issue_date": "2013-02-26T09:26:42Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2693,
+        "issue_title": "malformed elasticsearch.yml causes unresponsive hang",
+        "issue_body": "The sample application below will be stuck after \"it runs...\". ThreadDump/Debugging shows, it is never returning from XContentSettingsloader#serializeValue(...) [118:125].\n\nThis is especially annoying, as there is no Exception thrown.\n\njdk: jdk1.7.0_15\nelasticsearch: 0.20.5\n### Sample application\n\nsrc/main/java/Runner.java:\n\n```\n    import org.elasticsearch.client.Client;\n    import org.elasticsearch.node.Node;\n    import static org.elasticsearch.node.NodeBuilder.nodeBuilder;\n    public class Runner {    \n        public static void main(String[] args) {\n            System.out.println(\"it runs...\");\n            //http://www.elasticsearch.org/guide/reference/java-api/client.html\n            Node node = nodeBuilder().node();\n            System.out.println(\"got node\");\n            Client client = node.client();\n            System.out.println(\"got client\");\n            node.close();\n        }\n    }\n```\n\nsrc/main/resources/elasticsearch.yml:\n\n```\n    cluster.name=malformed_yaml__XContentSettingsLoader_will_hang\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2693",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.6",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-02-27T17:58:15.000Z",
+        "fix_commit_hash": "3b2d4032923c0708a09ed7a32b2d316f2432f91d",
+        "commit_type": "commit",
+        "commit_message": "malformed elasticsearch.yml causes unresponsive hang\nfixes #2693",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/3b2d4032923c0708a09ed7a32b2d316f2432f91d",
+        "earliest_issue_date": "2013-02-26T14:56:46Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2694,
+        "issue_title": "\"-4\" parsed as a date",
+        "issue_body": "```\n$ curl -s -XPOST localhost:9200/test/1 \\\n       -d '{\"foo\":[{\"bar\": \"-4\"},{\"bar\": \"::1\"}]}' | \\\n       jq .\n{\n  \"status\": 400,\n  \"error\": \"MapperParsingException[Failed to parse [foo.bar]]; nested: MapperParsingException[failed to parse date field [::1], tried both date format [dateOptionalTime], and timestamp number]; nested: IllegalArgumentException[Invalid format: \\\"::1\\\"]; \"\n}\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2694",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            ">enhancement",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-03-01T21:15:34.000Z",
+        "fix_commit_hash": "9b68e98ea24f08e2a21575750bd0240374512a13",
+        "commit_type": "commit",
+        "commit_message": "more strict check before trying to parse and detect a string as a date\nfixes #2694",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/9b68e98ea24f08e2a21575750bd0240374512a13",
+        "earliest_issue_date": "2013-02-26T15:06:12Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2695,
+        "issue_title": "Ids filter without a type throws IndexOutOfBounds",
+        "issue_body": "In 0.90.0.Beta1, an `ids` filter without a `type` throws an IndexOutOfBoundsException. Used to work correctly in 0.20\n\n```\nFailure [Failed to parse source [\n{\n   \"query\" : {\n      \"constant_score\" : {\n         \"filter\" : {\n            \"ids\" : {\n               \"values\" : [\n                  1\n               ]\n            }\n         }\n      }\n   }\n}\n]]\n    at org.elasticsearch.search.SearchService.parseSource(SearchService.java:566)\n    at org.elasticsearch.search.SearchService.createContext(SearchService.java:481)\n    at org.elasticsearch.search.SearchService.createContext(SearchService.java:466)\n    at org.elasticsearch.search.SearchService.executeQueryPhase(SearchService.java:236)\n    at org.elasticsearch.search.action.SearchServiceTransportAction.sendExecuteQuery(SearchServiceTransportAction.java:141)\n    at org.elasticsearch.action.search.type.TransportSearchQueryThenFetchAction$AsyncAction.sendExecuteFirstPhase(TransportSearchQueryThenFetchAction.java:80)\n    at org.elasticsearch.action.search.type.TransportSearchTypeAction$BaseAsyncAction.performFirstPhase(TransportSearchTypeAction.java:205)\n    at org.elasticsearch.action.search.type.TransportSearchTypeAction$BaseAsyncAction.performFirstPhase(TransportSearchTypeAction.java:192)\n    at org.elasticsearch.action.search.type.TransportSearchTypeAction$BaseAsyncAction$2.run(TransportSearchTypeAction.java:178)\n    at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)\n    at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:615)\n    at java.lang.Thread.run(Thread.java:722)\nCaused by: java.lang.IndexOutOfBoundsException: Index: 1, Size: 1\n    at java.util.ArrayList.rangeCheck(ArrayList.java:604)\n    at java.util.ArrayList.get(ArrayList.java:382)\n    at org.elasticsearch.index.mapper.Uid.createTypeUids(Uid.java:149)\n    at org.elasticsearch.index.query.IdsFilterParser.parse(IdsFilterParser.java:111)\n    at org.elasticsearch.index.query.QueryParseContext.parseInnerFilter(QueryParseContext.java:230)\n    at org.elasticsearch.index.query.ConstantScoreQueryParser.parse(ConstantScoreQueryParser.java:68)\n    at org.elasticsearch.index.query.QueryParseContext.parseInnerQuery(QueryParseContext.java:193)\n    at org.elasticsearch.index.query.IndexQueryParserService.parse(IndexQueryParserService.java:272)\n    at org.elasticsearch.index.query.IndexQueryParserService.parse(IndexQueryParserService.java:250)\n    at org.elasticsearch.search.query.QueryParseElement.parse(QueryParseElement.java:33)\n    at org.elasticsearch.search.SearchService.parseSource(SearchService.java:554)\n    ... 11 more\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2695",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-02-27T17:59:01.000Z",
+        "fix_commit_hash": "8ab602ec810fefec1e84afe041aaab784ec594ce",
+        "commit_type": "commit",
+        "commit_message": "Fix AIOOB exception in UID type/id tuple creation.\n\nCloses #2695",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/8ab602ec810fefec1e84afe041aaab784ec594ce",
+        "earliest_issue_date": "2013-02-26T17:46:39Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2696,
+        "issue_title": "Allow index: \"no\" for _type",
+        "issue_body": "0.90 Beta 1 breaking change from prior versions.  Looks like index: no with _type no longer works.\n\ncurl -XPUT http://localhost:9200/sequence -d '\n{\n  settings: {\n    number_of_shards: 1,  \n    number_of_replicas: 0,  \n    auto_expand_replicas: \"0-all\" \n  }\n}'\n\ncurl -XPUT http://localhost:9200/sequence/sequence/_mapping -d '\n{\n  sequence: {\n    _source : { enabled : 0 },\n    _all    : { enabled : 0 },\n    _type   : { index : \"no\" },\n    enabled : 0\n  }\n}'\n\n{\"error\":\"MapperParsingException[Wrong value for index [false] for field [_type]]\",\"status\":400}\n\nNo clue where the false is coming from unless the code is converting no to false somewhere.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2696",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-02-26T21:06:58.000Z",
+        "fix_commit_hash": "1e937fd5d1ee6265782c311593a8711b0e537003",
+        "commit_type": "commit",
+        "commit_message": "Allow index: \"no\" for _type\nfixes #2696",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/1e937fd5d1ee6265782c311593a8711b0e537003",
+        "earliest_issue_date": "2013-02-26T20:38:18Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2701,
+        "issue_title": "Nested sort not calculating avg/sum",
+        "issue_body": "In 0.90.0.Beta1, while `score_mode`s of `min` and `max` return the correct values in `sort[]`, `avg` and `sum` don't:\n\n```\ncurl -XPUT 'http://127.0.0.1:9200/test/?pretty=1'  -d '\n{\n   \"mappings\" : {\n      \"test\" : {\n         \"properties\" : {\n            \"foo\" : {\n               \"type\" : \"nested\"\n            }\n         }\n      }\n   }\n}\n'\n\ncurl -XPOST 'http://127.0.0.1:9200/test/test?pretty=1'  -d '\n{\n   \"foo\" : [\n      {\n         \"val\" : 10,\n         \"tag\" : \"foo\"\n      },\n      {\n         \"val\" : 20,\n         \"tag\" : \"bar\"\n      }\n   ]\n}\n'\n\ncurl -XGET 'http://127.0.0.1:9200/test/test/_search?pretty=1'  -d '\n{\n   \"sort\" : [\n      {\n         \"foo.val\" : {\n            \"sort_order\" : \"asc\",\n            \"sort_mode\" : \"sum\"\n         }\n      }\n   ]\n}\n'\n\n# {\n#    \"hits\" : {\n#       \"hits\" : [\n#          {\n#             \"_source\" : {\n#                \"foo\" : [\n#                   {\n#                      \"tag\" : \"foo\",\n#                      \"val\" : 10\n#                   },\n#                   {\n#                      \"tag\" : \"bar\",\n#                      \"val\" : 20\n#                   }\n#                ]\n#             },\n#             \"sort\" : [\n#                10\n#             ],\n#             \"_score\" : null,\n#             \"_index\" : \"test\",\n#             \"_id\" : \"kHkGLjyASUycZveKsg9Low\",\n#             \"_type\" : \"test\"\n#          }\n#       ],\n#       \"max_score\" : null,\n#       \"total\" : 1\n#    },\n#    \"timed_out\" : false,\n#    \"_shards\" : {\n#       \"failed\" : 0,\n#       \"successful\" : 5,\n#       \"total\" : 5\n#    },\n#    \"took\" : 4\n# }\n\n\ncurl -XGET 'http://127.0.0.1:9200/test/test/_search?pretty=1'  -d '\n{\n   \"sort\" : [\n      {\n         \"foo.val\" : {\n            \"sort_order\" : \"asc\",\n            \"sort_mode\" : \"avg\"\n         }\n      }\n   ]\n}\n'\n\n# {\n#    \"hits\" : {\n#       \"hits\" : [\n#          {\n#             \"_source\" : {\n#                \"foo\" : [\n#                   {\n#                      \"tag\" : \"foo\",\n#                      \"val\" : 10\n#                   },\n#                   {\n#                      \"tag\" : \"bar\",\n#                      \"val\" : 20\n#                   }\n#                ]\n#             },\n#             \"sort\" : [\n#                10\n#             ],\n#             \"_score\" : null,\n#             \"_index\" : \"test\",\n#             \"_id\" : \"kHkGLjyASUycZveKsg9Low\",\n#             \"_type\" : \"test\"\n#          }\n#       ],\n#       \"max_score\" : null,\n#       \"total\" : 1\n#    },\n#    \"timed_out\" : false,\n#    \"_shards\" : {\n#       \"failed\" : 0,\n#       \"successful\" : 5,\n#       \"total\" : 5\n#    },\n#    \"took\" : 2\n# }\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2701",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-03-01T18:53:28.000Z",
+        "fix_commit_hash": "d99b532f0f6e2a6bbadc7421eb5960083687ec73",
+        "commit_type": "commit",
+        "commit_message": "Supporting sort modes `avg` and `sum` when sorting inside nested objects.\nPreviously this commit either sort modes `min` or `max` (depending on sort order) was used when sort modes `avg` and `sum` were picked.\n\nCloses #2701",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/d99b532f0f6e2a6bbadc7421eb5960083687ec73",
+        "earliest_issue_date": "2013-02-27T11:15:44Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2710,
+        "issue_title": "Explain API does not support POST",
+        "issue_body": "It looks like the Explain API does not support POST requests, which means that certain clients will be unable to utilize it since they don't support GET with request bodies (notably javascript clients).\n\nAny chance of adding POST support to Explain like we have for the other GET methods?\n\nDemonstration, on 0.20.5:\n\n``` bash\n$ curl -XGET localhost:9200/test/benchmark/Yju6VrbaTUauZVMXhU5IBw/_explain?pretty -d '{\n  \"query\":{\n    \"match\":{\n      \"field1\":\"pattern\"\n    }\n  }\n}'\n\n{\n  \"ok\" : true,\n  \"_index\" : \"test\",\n  \"_type\" : \"benchmark\",\n  \"_id\" : \"Yju6VrbaTUauZVMXhU5IBw\",\n  \"matched\" : true,\n  \"explanation\" : {\n    \"value\" : 0.33165708,\n    \"description\" : \"weight(field1:pattern in 26), product of:\",\n    \"details\" : [ {\n      \"value\" : 0.99999994,\n      \"description\" : \"queryWeight(field1:pattern), product of:\",\n      \"details\" : [ {\n        \"value\" : 3.5376759,\n        \"description\" : \"idf(docFreq=263631, maxDocs=3335007)\"\n      }, {\n        \"value\" : 0.28267145,\n        \"description\" : \"queryNorm\"\n      } ]\n    }, {\n      \"value\" : 0.3316571,\n      \"description\" : \"fieldWeight(field1:pattern in 26), product of:\",\n      \"details\" : [ {\n        \"value\" : 1.0,\n        \"description\" : \"tf(termFreq(field1:pattern)=1)\"\n      }, {\n        \"value\" : 3.5376759,\n        \"description\" : \"idf(docFreq=263631, maxDocs=3335007)\"\n      }, {\n        \"value\" : 0.09375,\n        \"description\" : \"fieldNorm(field=field1, doc=26)\"\n      } ]\n    } ]\n  }\n\n\n\n$ curl -XPOST localhost:9200/test/benchmark/Yju6VrbaTUauZVMXhU5IBw/_explain?pretty -d '{\n  \"query\":{\n    \"match\":{\n      \"field1\":\"pattern\"\n    }\n  }\n}'\n\nNo handler found for uri [/test/benchmark/Yju6VrbaTUauZVMXhU5IBw/_explain?pretty] and method [POST]\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2710",
+        "assignees": [],
+        "labels": [
+            "v0.20.6",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-02-28T17:27:05.000Z",
+        "fix_commit_hash": "b4b3e350a6072bab214fffdbbb1bec89f29da9a2",
+        "commit_type": "commit",
+        "commit_message": "Expose _explain via POST\n\nCloses #2710",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/b4b3e350a6072bab214fffdbbb1bec89f29da9a2",
+        "earliest_issue_date": "2013-02-28T17:07:51Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2711,
+        "issue_title": "NullPointerException when applying a sort and using ignoreMapped(true) and the field does not exist (0.20.5)",
+        "issue_body": "code:\nSortBuilder sortBuilder = SortBuilders.fieldSort(query.getSortField()).ignoreUnmapped(true);\nsortBuilder.order(query.getSortOrder());\n\nResult:\norg.elasticsearch.search.builder.SearchSourceBuilderException: Failed to build search source\n    at org.elasticsearch.search.builder.SearchSourceBuilder.buildAsBytes(SearchSourceBuilder.java:559)\n    at org.elasticsearch.action.search.SearchRequest.source(SearchRequest.java:251)\n    at org.elasticsearch.action.search.SearchRequestBuilder.doExecute(SearchRequestBuilder.java:814)\n    at org.elasticsearch.action.ActionRequestBuilder.execute(ActionRequestBuilder.java:62)\n    at org.elasticsearch.action.ActionRequestBuilder.execute(ActionRequestBuilder.java:57)\n    at \n...........\nCaused by: java.lang.NullPointerException\n    at org.elasticsearch.common.jackson.dataformat.smile.SmileGenerator._writeFieldName(SmileGenerator.java:580)\n    at org.elasticsearch.common.jackson.dataformat.smile.SmileGenerator.writeFieldName(SmileGenerator.java:453)\n    at org.elasticsearch.common.xcontent.json.JsonXContentGenerator.writeFieldName(JsonXContentGenerator.java:74)\n    at org.elasticsearch.common.xcontent.XContentBuilder.field(XContentBuilder.java:267)\n    at org.elasticsearch.common.xcontent.XContentBuilder.startObject(XContentBuilder.java:136)\n    at org.elasticsearch.search.sort.FieldSortBuilder.toXContent(FieldSortBuilder.java:78)\n    at org.elasticsearch.search.builder.SearchSourceBuilder.toXContent(SearchSourceBuilder.java:673)\n    at org.elasticsearch.search.builder.SearchSourceBuilder.buildAsBytes(SearchSourceBuilder.java:556)\n    ... 100 more\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2711",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v0.20.6",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-03-01T11:26:10.000Z",
+        "fix_commit_hash": "b03f3fcd6c504bfc8a5054a3e81c88930f38b5cd",
+        "commit_type": "commit",
+        "commit_message": "throw IAE if fieldname is null - Closes #2711",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/b03f3fcd6c504bfc8a5054a3e81c88930f38b5cd",
+        "earliest_issue_date": "2013-02-28T20:54:14Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2716,
+        "issue_title": "Mapping: Posting a mapping with default analyzer fails",
+        "issue_body": "Seems like reposting a mapping explicitly mentioning the default analyzer throws an error when it should not\nwith the following mapping.json\n\n``` json\n{\"foobar\":{\"dynamic\":false,\"properties\":{\"description\": {\n  \"index\":\"analyzed\",\n  \"analyzer\":\"default\",\n  \"type\":\"string\"}}}}\n```\n\nputting the mapping the 1st time everything goes well\n\n`curl -XPUT -d @mapping.json http://localhost:9200/twitter/foobar/_mapping`\n\n``` json\n{\"ok\":true,\"acknowledged\":true}\n```\n\nbut the second time\n`curl -XPUT -d @mapping.json http://localhost:9200/twitter/foobar/_mapping`\n\n``` json\n{\"error\":\"MergeMappingException[Merge failed with failures {[mapper [description] has different index_analyzer, mapper [description] has different search_analyzer]}]\",\"status\":400}\n```\n\nwith this mapping instead there's no problem posting it over and over\n\n``` json\n{\"foobar\":{\"dynamic\":false,\"properties\":{\"description\": {\n  \"index\":\"analyzed\",\n  \"analyzer\":\"english\",\n  \"type\":\"string\"}}}}\n```\n\nso seems like for some reason the default analyzer is not considered to be equal to itself\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2716",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v2.0.0-beta1",
+            "good first issue",
+            "v1.5.0"
+        ],
+        "issue_closed_at": "2014-11-14T09:59:06.000Z",
+        "fix_commit_hash": "e77f9720d2fb74afb5ce82b3ad7d75d21a00e74f",
+        "commit_type": "commit",
+        "commit_message": "Mapping: Fixes Merging of default analyzer\n\nFixed behaviour where two representations of the default index analyzer weren't being treated as equivalent. Added REST test to confirm fix.\n\nCloses #2716",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/e77f9720d2fb74afb5ce82b3ad7d75d21a00e74f",
+        "earliest_issue_date": "2013-03-01T14:09:36Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2724,
+        "issue_title": "Interchanged values in field_data stats",
+        "issue_body": "In version `0.9.0.Beta1` there is an interchange between `field_data.memory_size` and `field_data.memory_size_in_bytes`.\n\nTo reproduce:\n1. curl `http://localhost:9200/_nodes/_local/stats?pretty=true`\n\nActual result:\n\n```\n        \"field_data\" : {\n          \"memory_size\" : 257199478,\n          \"memory_size_in_bytes\" : \"245.2mb\"\n        },\n```\n\nExpected result:\n\n```\n        \"field_data\" : {\n          \"memory_size\" : \"245.2mb\",\n          \"memory_size_in_bytes\" : 257199478\n        },\n```\n\nHere is a pull request: https://github.com/elasticsearch/elasticsearch/pull/2725\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2724",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-03-04T10:42:33.000Z",
+        "fix_commit_hash": "dc28151ad77df81fc8b77b7ecf0ebe9d0430ffee",
+        "commit_type": "commit",
+        "commit_message": "fixed interchanged values in field_data stats fixes #2724",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/dc28151ad77df81fc8b77b7ecf0ebe9d0430ffee",
+        "earliest_issue_date": "2013-03-04T10:05:23Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2729,
+        "issue_title": "Phrase Suggester \"size\" should override \"shard_size\" when searching on index with 1 shard",
+        "issue_body": "When using the phrase suggester against and index with 1 shard, setting the \"size\" parameter > 5 will not return the correct number of suggestions unless you also set \"shard_size\" to the same number.   The minimum \"shard_size\" should be set to something like ceil(size/num_shards) to ensure the correct number of suggestions are returned.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2729",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-03-05T08:22:41.000Z",
+        "fix_commit_hash": "315744be55b3fb4949c6632d5877bc43bc666d7f",
+        "commit_type": "commit",
+        "commit_message": "Set shardSize according to the total size if not explicitly specified. Closes #2729",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/315744be55b3fb4949c6632d5877bc43bc666d7f",
+        "earliest_issue_date": "2013-03-05T03:19:31Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2731,
+        "issue_title": "Problems with range searches for time with lte",
+        "issue_body": "Hello,\n\nI cannot find this issue as reported, but I'm having problems with range queries over fields of date type with 'lte' enabled. Full gist reproducing the problem, as well as some analysis by clintongormley can be found here: https://gist.github.com/anonymous/4482696\nFor now I can live with 'lt' query which seems to work fine, but this is either an evident bug or I'm misusing the date field.\n\nNOTE: My ElasticSearch version is 0.20.5.\n\nPrzemek\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2731",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.6",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-03-06T02:10:35.000Z",
+        "fix_commit_hash": "e1409a9f0e3f52f35633cf47051c3e4258f67636",
+        "commit_type": "commit",
+        "commit_message": "Problems with range searches for time with lte\nfixes #2731",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/e1409a9f0e3f52f35633cf47051c3e4258f67636",
+        "earliest_issue_date": "2013-03-05T09:14:19Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2733,
+        "issue_title": "Network: A closed channel might not always fire up a close event",
+        "issue_body": "For some reason, it seems like netty will not always fire up a proper close event on a channel, thus causing us to propagate it up the stack to treat a node as disconnected. It does throw a failure up the networking handlers in that case, which we catch. We should try and disconnect on those events as well...\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2733",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ">enhancement",
+            "v0.20.6",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-03-05T19:49:11.000Z",
+        "fix_commit_hash": "9a25867bfe154357165c87a7b509029ff832efa4",
+        "commit_type": "commit",
+        "commit_message": "Network: A closed channel might not always fire up a close event\nfixes #2733",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/9a25867bfe154357165c87a7b509029ff832efa4",
+        "earliest_issue_date": "2013-03-05T19:48:48Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2744,
+        "issue_title": "has_child returns parent and child",
+        "issue_body": "When I run a `has_child` query on 0.20.5, it is returning both the child and the parent:\n\n```\ncurl -XPUT 'http://127.0.0.1:9200/test/?pretty=1'  -d '\n{\n   \"mappings\" : {\n      \"test\" : {\n         \"_parent\" : {\n            \"type\" : \"foo\"\n         }\n      }\n   }\n}\n'\n\ncurl -XPUT 'http://127.0.0.1:9200/test/foo/1?pretty=1'  -d '\n{\n   \"foo\" : 1\n}\n'\n\n# {\n#    \"ok\" : true,\n#    \"_index\" : \"test\",\n#    \"_id\" : \"1\",\n#    \"_type\" : \"foo\",\n#    \"_version\" : 1\n# }\n\ncurl -XPOST 'http://127.0.0.1:9200/test/test?parent=1&pretty=1'  -d '\n{\n   \"foo\" : 1\n}\n'\n\n# {\n#    \"ok\" : true,\n#    \"_index\" : \"test\",\n#    \"_id\" : \"GBEoJRcGQnCDN93_JiUAKQ\",\n#    \"_type\" : \"test\",\n#    \"_version\" : 1\n# }\n\n\ncurl -XGET 'http://127.0.0.1:9200/test/_search?pretty=1'  -d '\n{\n   \"query\" : {\n      \"has_child\" : {\n         \"query\" : {\n            \"match\" : {\n               \"foo\" : 1\n            }\n         },\n         \"type\" : \"test\"\n      }\n   }\n}\n'\n\n# {\n#    \"hits\" : {\n#       \"hits\" : [\n#          {\n#             \"_source\" : {\n#                \"foo\" : 1\n#             },\n#             \"_score\" : 1,\n#             \"_index\" : \"test\",\n#             \"_id\" : \"1\",\n#             \"_type\" : \"foo\"\n#          },\n#          {\n#             \"_source\" : {\n#                \"foo\" : 1\n#             },\n#             \"_score\" : 1,\n#             \"_index\" : \"test\",\n#             \"_id\" : \"GBEoJRcGQnCDN93_JiUAKQ\",\n#             \"_type\" : \"test\"\n#          }\n#       ],\n#       \"max_score\" : 1,\n#       \"total\" : 2\n#    },\n#    \"timed_out\" : false,\n#    \"_shards\" : {\n#       \"failed\" : 0,\n#       \"successful\" : 5,\n#       \"total\" : 5\n#    },\n#    \"took\" : 3\n# }\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2744",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.6",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-03-11T20:11:54.000Z",
+        "fix_commit_hash": "237c4ddf5418ffc997fc083b114bf3c34a3ac00f",
+        "commit_type": "commit",
+        "commit_message": "Introdue ParentIdCollector that collects only if the parent ID is non null ie. if the document has a parent.\n\nCloses #2744",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/237c4ddf5418ffc997fc083b114bf3c34a3ac00f",
+        "earliest_issue_date": "2013-03-07T18:12:07Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2746,
+        "issue_title": "Term/Terms filters on numeric fields gives wrong result",
+        "issue_body": "We use the wrong shift when doing numeric based exact term/terms filter. This only applies to 0.90.0.Beta1 release.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2746",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-03-08T06:12:27.000Z",
+        "fix_commit_hash": "eb956e7c091a02924c9a640d5a17d389f0e5ff3b",
+        "commit_type": "commit",
+        "commit_message": "Term/Terms filters on numeric fields gives wrong result\nfixes #2746",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/eb956e7c091a02924c9a640d5a17d389f0e5ff3b",
+        "earliest_issue_date": "2013-03-08T06:11:54Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2749,
+        "issue_title": "Invalid string for refresh_interval is successfully accepted(but internally fails), log spews heavily after restart",
+        "issue_body": "curl -X PUT localhost:9200/mytestindex\ncurl -X PUT 'localhost:9200/mytestindex/_settings?pretty' -d ' { \"index.refresh_interval\" : \"\" } '\n{\n  \"ok\" : true\n}\n\nHowever in the logs - \n    [2013-03-08 10:13:44,021][WARN ][index.settings           ] [Lyja] [mytestindex] failed to refresh settings for [org.elasticsearch.index.shard.service.InternalIndexShard$ApplyRefreshSettings@78fc8ee1]\n        org.elasticsearch.ElasticSearchParseException: Failed to parse []\n            at org.elasticsearch.common.unit.TimeValue.parseTimeValue(TimeValue.java:253)\n            at org.elasticsearch.common.settings.ImmutableSettings.getAsTime(ImmutableSettings.java:191)\n            at org.elasticsearch.index.shard.service.InternalIndexShard$ApplyRefreshSettings.onRefreshSettings(InternalIndexShard.java:700)\n            at org.elasticsearch.index.settings.IndexSettingsService.refreshSettings(IndexSettingsService.java:54)\n            at org.elasticsearch.indices.cluster.IndicesClusterStateService.applySettings(IndicesClusterStateService.java:323)\n            at org.elasticsearch.indices.cluster.IndicesClusterStateService.clusterChanged(IndicesClusterStateService.java:175)\n            at org.elasticsearch.cluster.service.InternalClusterService$2.run(InternalClusterService.java:315)\n            at java.util.concurrent.ThreadPoolExecutor$Worker.runTask(ThreadPoolExecutor.java:886)\n            at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:908)\n            at java.lang.Thread.run(Thread.java:619)\n    Caused by: java.lang.NumberFormatException: For input string: \"\"\n            at java.lang.NumberFormatException.forInputString(NumberFormatException.java:48)\n            at java.lang.Long.parseLong(Long.java:431)\n            at java.lang.Long.parseLong(Long.java:468)\n            at org.elasticsearch.common.unit.TimeValue.parseTimeValue(TimeValue.java:249)\n            ... 9 more\n\nIf the issue is missed, and ES restarted, then there is heavy spew in the logs with the above trace repeated continuously. I can pass it garbage like \"asfad\" and it still accepts successfuly but prints error in the log. I am using version 0.20.1.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2749",
+        "assignees": [
+            "imotov"
+        ],
+        "labels": [],
+        "issue_closed_at": "2013-03-12T19:25:16.000Z",
+        "fix_commit_hash": "3a534c64e5c07499b855cc79e4824460dcc12449",
+        "commit_type": "commit",
+        "commit_message": "Add dynamic settings validation\n\nFixes #2749",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/3a534c64e5c07499b855cc79e4824460dcc12449",
+        "earliest_issue_date": "2013-03-08T15:18:51Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2750,
+        "issue_title": "has_child query AVG score mode does not always work correctly",
+        "issue_body": "",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2750",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.6",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-03-08T16:50:18.000Z",
+        "fix_commit_hash": "cc6c07365c89e1608b78a46af7744a67ff5277a1",
+        "commit_type": "commit",
+        "commit_message": "has_child query AVG score mode does not always work correctly\nfixes #2750",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/cc6c07365c89e1608b78a46af7744a67ff5277a1",
+        "earliest_issue_date": "2013-03-08T16:48:14Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2752,
+        "issue_title": "PhraseSuggest CandidateGenerator doesn't respect `size` parameter",
+        "issue_body": "the size parameter on CandidateGenerator is ignored and always set to 5.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2752",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-03-09T13:12:00.000Z",
+        "fix_commit_hash": "dc9a05228714b6a951301f1f185a1970d3320de6",
+        "commit_type": "commit",
+        "commit_message": "Respect CandidateGenerator#size if set in the request and reduce the total #of candidates to the shard size.\n\nCloses #2752",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/dc9a05228714b6a951301f1f185a1970d3320de6",
+        "earliest_issue_date": "2013-03-09T12:16:46Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2763,
+        "issue_title": "geojson parsing error with optional field crs",
+        "issue_body": "Tested with ElasticSearch 0.20.2\n\nI try to index a document with a field of type geo_shape. The value of this field is : \n\n```\n{\n  \"type\": \"point\",\n  \"crs\": {\n    \"type\": \"name\",\n    \"properties\": {\n      \"name\": \"EPSG:4326\"\n    }\n  },\n  \"coordinates\": [\n    -4.107070529535928,\n    47.99207200300211\n  ]\n}\n```\n\nThis value contains the optional field `crs` _before_ the field `coordinates`. (I think it could work with reordered fields.)\n\nThe parsing fails with this error : \n\n```\norg.elasticsearch.index.mapper.MapperParsingException: Failed to parse [json_way]\n        at org.elasticsearch.index.mapper.core.AbstractFieldMapper.parse(AbstractFieldMapper.java:320)\n        at org.elasticsearch.index.mapper.object.ObjectMapper.serializeObject(ObjectMapper.java:507)\n        at org.elasticsearch.index.mapper.object.ObjectMapper.parse(ObjectMapper.java:449)\n        at org.elasticsearch.index.mapper.DocumentMapper.parse(DocumentMapper.java:486)\n        at org.elasticsearch.index.mapper.DocumentMapper.parse(DocumentMapper.java:430)\n        at org.elasticsearch.index.shard.service.InternalIndexShard.prepareIndex(InternalIndexShard.java:318)\n        at org.elasticsearch.action.bulk.TransportShardBulkAction.shardOperationOnPrimary(TransportShardBulkAction.java:157)\n        at org.elasticsearch.action.support.replication.TransportShardReplicationOperationAction$AsyncShardOperationAction.performOnPrimary(TransportShardReplicationOperationAction.java:533)\n        at org.elasticsearch.action.support.replication.TransportShardReplicationOperationAction$AsyncShardOperationAction$1.run(TransportShardReplicationOperationAction.java:431)\n        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1110)\n        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:603)\n        at java.lang.Thread.run(Thread.java:722)\nCaused by: org.elasticsearch.ElasticSearchParseException: Coordinates not included\n        at org.elasticsearch.common.geo.GeoJSONShapeParser.parse(GeoJSONShapeParser.java:98)\n        at org.elasticsearch.index.mapper.geo.GeoShapeFieldMapper.parseCreateField(GeoShapeFieldMapper.java:133)\n        at org.elasticsearch.index.mapper.core.AbstractFieldMapper.parse(AbstractFieldMapper.java:307)\n        ... 11 more\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2763",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2013-03-13T14:20:21.000Z",
+        "fix_commit_hash": "125b33d3dc9dfe261807ad2015697b47744d045a",
+        "commit_type": "commit",
+        "commit_message": "GeoJSONShapeParser parses JSON correctly and extracts coordinates even if 'crs' field is included.\n\nFixes #2763",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/125b33d3dc9dfe261807ad2015697b47744d045a",
+        "earliest_issue_date": "2013-03-12T13:46:37Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2766,
+        "issue_title": "Repeated ConnectExceptions in logs until node is restarted",
+        "issue_body": "We were reviewing our logs today and found this particular log message repeated for the same channel for multiple days:\n\n```\n[2013-03-08 17:56:32,922][TRACE][transport.netty          ] [xxx] (ignoring) exception caught on transport layer [[id: 0xe611b9cc]]\njava.net.ConnectException: connection timed out\n        at org.elasticsearch.common.netty.channel.socket.nio.NioClientBoss.processConnectTimeout(NioClientBoss.java:136)\n        at org.elasticsearch.common.netty.channel.socket.nio.NioClientBoss.process(NioClientBoss.java:82)\n        at org.elasticsearch.common.netty.channel.socket.nio.AbstractNioSelector.run(AbstractNioSelector.java:312)\n        at org.elasticsearch.common.netty.channel.socket.nio.NioClientBoss.run(NioClientBoss.java:41)\n        at org.elasticsearch.common.netty.util.ThreadRenamingRunnable.run(ThreadRenamingRunnable.java:108)\n        at org.elasticsearch.common.netty.util.internal.DeadLockProofWorker$1.run(DeadLockProofWorker.java:42)\n        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)\n        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:615)\n        at java.lang.Thread.run(Thread.java:722)\n[2013-03-08 17:56:32,923][TRACE][transport.netty          ] [xxx] (ignoring) exception caught on transport layer [[id: 0xe611b9cc]]\njava.net.ConnectException: connection timed out\n        at org.elasticsearch.common.netty.channel.socket.nio.NioClientBoss.processConnectTimeout(NioClientBoss.java:136)\n        at org.elasticsearch.common.netty.channel.socket.nio.NioClientBoss.process(NioClientBoss.java:82)\n        at org.elasticsearch.common.netty.channel.socket.nio.AbstractNioSelector.run(AbstractNioSelector.java:312)\n        at org.elasticsearch.common.netty.channel.socket.nio.NioClientBoss.run(NioClientBoss.java:41)\n        at org.elasticsearch.common.netty.util.ThreadRenamingRunnable.run(ThreadRenamingRunnable.java:108)\n        at org.elasticsearch.common.netty.util.internal.DeadLockProofWorker$1.run(DeadLockProofWorker.java:42)\n        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)\n        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:615)\n        at java.lang.Thread.run(Thread.java:722)\n[2013-03-08 17:56:33,425][TRACE][transport.netty          ] [xxx] (ignoring) exception caught on transport layer [[id: 0xe611b9cc]]\njava.net.ConnectException: connection timed out\n        at org.elasticsearch.common.netty.channel.socket.nio.NioClientBoss.processConnectTimeout(NioClientBoss.java:136)\n        at org.elasticsearch.common.netty.channel.socket.nio.NioClientBoss.process(NioClientBoss.java:82)\n        at org.elasticsearch.common.netty.channel.socket.nio.AbstractNioSelector.run(AbstractNioSelector.java:312)\n        at org.elasticsearch.common.netty.channel.socket.nio.NioClientBoss.run(NioClientBoss.java:41)\n        at org.elasticsearch.common.netty.util.ThreadRenamingRunnable.run(ThreadRenamingRunnable.java:108)\n        at org.elasticsearch.common.netty.util.internal.DeadLockProofWorker$1.run(DeadLockProofWorker.java:42)\n        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)\n        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:615)\n        at java.lang.Thread.run(Thread.java:722)\n```\n\nThe message went away when the node was restarted. I don't understand the Netty code well enough to attempt a fix on my own, but here's what I've found: given that the channel ID was constant for the 48+ hours the message was appearing, it looks like ES was continuing to use a dead channel instead of initiating a fresh connection to the remote node. I think the fix is to explicitly close the channel in all cases in NettyTransport#exceptionCaught (as the isCloseConnectionException and fall-through cases do) but given that the log message specifically says the exception is ignored, I'm not sure if this is current behavior is intentional or not.\n\nThanks,\nAlex\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2766",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.6",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-03-12T21:49:13.000Z",
+        "fix_commit_hash": "55ceb01c44c7a45c165aab1d4c9e5e88254f0bd1",
+        "commit_type": "commit",
+        "commit_message": "force close connection if its on a connect failure\nrelates to Repeated ConnectExceptions in logs until node is restarted, fixes #2766",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/55ceb01c44c7a45c165aab1d4c9e5e88254f0bd1",
+        "earliest_issue_date": "2013-03-12T20:24:20Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2767,
+        "issue_title": "Multi-valued field sorting: \"sort_order\" is actually \"order\" ?",
+        "issue_body": "The syntax used in the new [multi-valued fields](https://github.com/elasticsearch/elasticsearch/issues/2634) (and on the [Sort documentation](http://www.elasticsearch.org/guide/reference/api/search/sort.html)) specifies \"sort_order\", but it appears that the property is actually \"order\".\n\nJust looking for a clarification if \"order\" or \"sort_order\" is the intended parameter name. \n\nRecreation, on 0.90.0.Beta1:\n\n``` bash\n#add some test data\n$ curl -X POST \"http://localhost:9200/index/document/2\" -d '{\"id\":2,\"sortingfield\":[\"g\",\"h\",\"i\"]}'\n$ curl -X POST \"http://localhost:9200/index/document/3\" -d '{\"id\":3,\"sortingfield\":[\"e\",\"f\"]}'\n$ curl -X POST \"http://localhost:9200/index/document/1\" -d '{\"id\":1,\"sortingfield\":[\"a\", \"b\", \"c\"]}'\n```\n\n``` bash\n# \"sort_order\" examples\n$ curl -XGET localhost:9200/index/document/_search?pretty -d '{\n   \"query\": {\n     \"match_all\": {}\n   },\n   \"sort\": [\n     {\"sortingfield\" : {\"sort_order\" : \"asc\", \"sort_mode\" : \"avg\"}}\n   ]\n }' | grep \"_source\"\n\n      \"_score\" : null, \"_source\" : {\"id\":1,\"sortingfield\":[\"a\", \"b\", \"c\"]},\n      \"_score\" : null, \"_source\" : {\"id\":3,\"sortingfield\":[\"e\",\"f\"]},\n      \"_score\" : null, \"_source\" : {\"id\":2,\"sortingfield\":[\"g\",\"h\",\"i\"]},\n\n\n$ curl -XGET localhost:9200/index/document/_search?pretty -d '{\n   \"query\": {\n     \"match_all\": {}\n   },\n   \"sort\": [\n     {\"sortingfield\" : {\"sort_order\" : \"desc\", \"sort_mode\" : \"avg\"}}\n   ]\n }' | grep \"_source\"\n\n      \"_score\" : null, \"_source\" : {\"id\":1,\"sortingfield\":[\"a\", \"b\", \"c\"]},\n      \"_score\" : null, \"_source\" : {\"id\":3,\"sortingfield\":[\"e\",\"f\"]},\n      \"_score\" : null, \"_source\" : {\"id\":2,\"sortingfield\":[\"g\",\"h\",\"i\"]},\n```\n\nAnd now using just \"order\", which shows correct sorting:\n\n``` bash\n# \"order\" examples\n$ curl -XGET localhost:9200/index/document/_search?pretty -d '{\n   \"query\": {\n     \"match_all\": {}\n   },\n   \"sort\": [\n     {\"sortingfield\" : {\"order\" : \"asc\", \"sort_mode\" : \"avg\"}}\n   ]\n }' | grep \"_source\"\n\n      \"_score\" : null, \"_source\" : {\"id\":1,\"sortingfield\":[\"a\", \"b\", \"c\"]},\n      \"_score\" : null, \"_source\" : {\"id\":3,\"sortingfield\":[\"e\",\"f\"]},\n      \"_score\" : null, \"_source\" : {\"id\":2,\"sortingfield\":[\"g\",\"h\",\"i\"]},\n\n$ curl -XGET localhost:9200/index/document/_search?pretty -d '{\n   \"query\": {\n     \"match_all\": {}\n   },\n   \"sort\": [\n     {\"sortingfield\" : {\"order\" : \"desc\", \"sort_mode\" : \"avg\"}}\n   ]\n }' | grep \"_source\"\n\n      \"_score\" : null, \"_source\" : {\"id\":2,\"sortingfield\":[\"g\",\"h\",\"i\"]},\n      \"_score\" : null, \"_source\" : {\"id\":3,\"sortingfield\":[\"e\",\"f\"]},\n      \"_score\" : null, \"_source\" : {\"id\":1,\"sortingfield\":[\"a\", \"b\", \"c\"]},\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2767",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-03-15T08:04:56.000Z",
+        "fix_commit_hash": "33608c333f19c0db9f91bc299ea3fc2a8c2738f9",
+        "commit_type": "commit",
+        "commit_message": "Add `sort_oder` and `sortOrder` as valid field names for defining the sort order in a Sort object.\n\nCloses #2767",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/33608c333f19c0db9f91bc299ea3fc2a8c2738f9",
+        "earliest_issue_date": "2013-03-12T21:19:34Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2772,
+        "issue_title": "tieBreaker in multiMatch should be a float, not an integer",
+        "issue_body": "In multiMatchQueryBuilder, tieBreaker is an integer, but it should be a float\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2772",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2013-03-13T12:45:11.000Z",
+        "fix_commit_hash": "93ca6e2c4bf0741e20218c761618c42db960ecf5",
+        "commit_type": "commit",
+        "commit_message": "tieBreaker in MultiMatchQueryBuilder should be a float, not an integer\n\nCloses #2772",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/93ca6e2c4bf0741e20218c761618c42db960ecf5",
+        "earliest_issue_date": "2013-03-13T12:44:32Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2773,
+        "issue_title": "Sort Fails with AIOOB exception if field has rarely a value.",
+        "issue_body": "I ran into this playing with kibana-dashboard this morning and I am very suprised that our tests don't catch that. It seems we using numDocs as an upperBound rather than numOrds in the sorting code....\n\n```\norg.elasticsearch.search.query.QueryPhaseExecutionException: [twitter][1]: query[filtered(place.country:united _all:states)->cache(created-at:[1363171743730 TO 1363175343730])],from[0],size[100],sort[<custom:\"place.country\": org.elasticsearch.index.fielddata.fieldcomparator.BytesRefFieldComparatorSource@38aa2a95>!]: Query Failed [Failed to execute main query]\n    at org.elasticsearch.search.query.QueryPhase.execute(QueryPhase.java:139)\n    at org.elasticsearch.search.SearchService.executeQueryPhase(SearchService.java:242)\n    at org.elasticsearch.search.action.SearchServiceTransportAction.sendExecuteQuery(SearchServiceTransportAction.java:141)\n    at org.elasticsearch.action.search.type.TransportSearchQueryThenFetchAction$AsyncAction.sendExecuteFirstPhase(TransportSearchQueryThenFetchAction.java:80)\n    at org.elasticsearch.action.search.type.TransportSearchTypeAction$BaseAsyncAction.performFirstPhase(TransportSearchTypeAction.java:205)\n    at org.elasticsearch.action.search.type.TransportSearchTypeAction$BaseAsyncAction.performFirstPhase(TransportSearchTypeAction.java:192)\n    at org.elasticsearch.action.search.type.TransportSearchTypeAction$BaseAsyncAction$2.run(TransportSearchTypeAction.java:178)\n    at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1110)\n    at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:603)\n    at java.lang.Thread.run(Thread.java:722)\nCaused by: java.lang.ArrayIndexOutOfBoundsException: 2538\n    at org.apache.lucene.util.packed.Direct8.get(Direct8.java:52)\n    at org.elasticsearch.index.fielddata.plain.PagedBytesAtomicFieldData$BytesValues.getValueByOrd(PagedBytesAtomicFieldData.java:143)\n    at org.elasticsearch.index.fielddata.fieldcomparator.BytesRefOrdValComparator.binarySearch(BytesRefOrdValComparator.java:459)\n    at org.elasticsearch.index.fielddata.fieldcomparator.BytesRefOrdValComparator.binarySearch(BytesRefOrdValComparator.java:452)\n    at org.elasticsearch.index.fielddata.fieldcomparator.BytesRefOrdValComparator.setBottom(BytesRefOrdValComparator.java:431)\n    at org.elasticsearch.index.fielddata.fieldcomparator.BytesRefOrdValComparator$PerSegmentComparator.setBottom(BytesRefOrdValComparator.java:165)\n    at org.elasticsearch.index.fielddata.fieldcomparator.BytesRefOrdValComparator.setNextReader(BytesRefOrdValComparator.java:410)\n    at org.elasticsearch.index.fielddata.fieldcomparator.BytesRefOrdValComparator$PerSegmentComparator.setNextReader(BytesRefOrdValComparator.java:155)\n    at org.apache.lucene.search.TopFieldCollector$OneComparatorNonScoringCollector.setNextReader(TopFieldCollector.java:97)\n    at org.apache.lucene.search.IndexSearcher.search(IndexSearcher.java:602)\n    at org.elasticsearch.search.internal.ContextIndexSearcher.search(ContextIndexSearcher.java:192)\n    at org.apache.lucene.search.IndexSearcher.search(IndexSearcher.java:572)\n    at org.apache.lucene.search.IndexSearcher.search(IndexSearcher.java:524)\n    at org.apache.lucene.search.IndexSearcher.search(IndexSearcher.java:501)\n    at org.apache.lucene.search.IndexSearcher.search(IndexSearcher.java:345)\n    at org.elasticsearch.search.query.QueryPhase.execute(QueryPhase.java:128)\n    ... 9 more\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2773",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-03-13T14:15:05.000Z",
+        "fix_commit_hash": "365cde82d3e36ce67b989c81b3446dcf64de6017",
+        "commit_type": "commit",
+        "commit_message": "Use numOrds rather than numDocs as upperbound for sorting\n\nCloses #2773",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/365cde82d3e36ce67b989c81b3446dcf64de6017",
+        "earliest_issue_date": "2013-03-13T13:37:21Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2785,
+        "issue_title": "StoreStats's throttleTimeInNanos overflows causing serialization issues",
+        "issue_body": "It appears that the new SimpleRateLimiter that was added to Lucene 4.x returns the targetNS (meaning the time when the method should exit) instead of the duration that was actually paused.  This then leads to StoreStats overflowing the throttleTimeInNanos which then causes serialization issues with writeVLong (arithmetic exceptions, etc)\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2785",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v0.90.0.Beta1"
+        ],
+        "issue_closed_at": "2013-03-15T22:38:17.000Z",
+        "fix_commit_hash": "c25eb7defe0e8698ae36fb7abb515f8564c2d0eb",
+        "commit_type": "commit",
+        "commit_message": "Fix bug in RateLimiter.SimpleRateLimiter causing numeric overflow in StoreStats\n\nCloses #2785",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/c25eb7defe0e8698ae36fb7abb515f8564c2d0eb",
+        "earliest_issue_date": "2013-03-15T20:38:42Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2789,
+        "issue_title": "Mapping: dynamic flag is explicitly returned even when not set",
+        "issue_body": "When we rebuild the mappings based on dynamic additions of fields / wrappers, or explicitly, we set in the serialized form the dynamic field, even when its in its \"default\" set. We don't do that with other mappings, we should not do it with this one.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2789",
+        "assignees": [],
+        "labels": [
+            ">enhancement",
+            "v0.90.0.RC1"
+        ],
+        "issue_closed_at": "2013-03-16T00:29:28.000Z",
+        "fix_commit_hash": "111a13222e4b5510bb693b67d20c187d41126f42",
+        "commit_type": "commit",
+        "commit_message": "Mapping: dynamic flag is explicitly returned even when not set\nfixes #2789",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/111a13222e4b5510bb693b67d20c187d41126f42",
+        "earliest_issue_date": "2013-03-16T00:29:08Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2800,
+        "issue_title": "Stemmer override with large rule set causing java.lang.OutOfMemoryError: Java heap space",
+        "issue_body": "Hello,\n\nI was trying to create czech lemmatisation analyzer using [stemmer override filter](http://www.elasticsearch.org/guide/reference/index-modules/analysis/stemmer-override-tokenfilter.html) and czech dictionary from [aspell](ftp://ftp.gnu.org/gnu/aspell/dict/cs).\n\nThis dictionary contains around `300 000` words in base form and some suffix/prefix rules. After expansion format file looks like this\n\n```\nAakjaer Aakjaerech Aakjaery Aakjaer\u016fm Aakjaer\u016f Aakjaerem Aakjaere Aakjaerovi Aakjaeru Aakjaera Aakjaerov\u00e9\nAakjaerov\u00e1 Aakjaerov\u00fdmi Aakjaerov\u00fdm Aakjaerov\u00fdch Aakjaerovou Aakjaerov\u00e9\nAakjaer\u016fv Aakjaerov\u00fdma Aakjaerov\u00fdmi Aakjaerov\u00fdch Aakjaerovou Aakjaerovo Aakjaerovy Aakjaerovi Aakjaerov\u00fdm \n```\n\neach line is one word with its forms. \n\nBecause of rules format `form => lemma` the final rule set is expanded from `300 000` to `4 364 674` lines. \n\nWhen I was trying on my local machine to index czech wikipedia pages (around `400 000` documents) `java.lang.OutOfMemoryError: Java heap space` error occured after approx 10 minutes of indexing (log file [here](https://gist.github.com/vhyza/9f88b921a1d0f650ccd8#file-elasticsearch-log))\n\nI'm using snapshot build of elasticsearch ([54e7e309a5d407b2fb1123a79e6af9d62e41ea1e](https://github.com/elasticsearch/elasticsearch/commit/54e7e309a5d407b2fb1123a79e6af9d62e41ea1e)), `JAVA_OPTS -Xss200000 -Xms2g -Xmx2g` with no other indices.\n\nIndex settings/mapping and river settings are in separate [gist](https://gist.github.com/vhyza/9f88b921a1d0f650ccd8#file-stemmer_override_test-sh)\n\nI was trying to achieve this functionality using [synonym token filter](http://www.elasticsearch.org/guide/reference/index-modules/analysis/synonym-tokenfilter.html), because of better format of synonym rules - `form1, form2, form3, form4 => lemma` (so number of rules are only about `300 000`).\n\nBut it's not the same. In the case of using `stemmer override filter`, when token was not found in rule set, stemmer was used. I probably can do the same by adding [keyword marker](http://www.elasticsearch.org/guide/reference/index-modules/analysis/keyword-marker-tokenfilter.html) and [stemmer](http://www.elasticsearch.org/guide/reference/index-modules/analysis/stemmer-tokenfilter.html) in the filter chain, but I don't think it is the right way to do that.\n\nPlease, is there some better 'compressed' format of `stemmer override filter` rules? Any thoughts how to avoid `java.lang.OutOfMemoryError: Java heap space` error?\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2800",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">enhancement",
+            "v0.90.0.RC2"
+        ],
+        "issue_closed_at": "2013-03-21T06:59:14.000Z",
+        "fix_commit_hash": "5f05c2106fe2ea1531bf2187b0b908ba2e72af76",
+        "commit_type": "commit",
+        "commit_message": "Use more efficient StemmerOverrideFilter from Lucene trunk\n\nCloses #2800",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/5f05c2106fe2ea1531bf2187b0b908ba2e72af76",
+        "earliest_issue_date": "2013-03-19T18:42:18Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2806,
+        "issue_title": "0.90.0.RC1 Percolator Query, NPE",
+        "issue_body": "I think this is a bug in the latest build but I'm not sure how to open a ticket. This is using 0.90.0.RC1. We've been using ES from 0.19.x through 0.20.5 and this worked fine up to this point. Looks like it is broken in the newest build.\n\n1) POST http://localhost:9200/_percolator/foo/1\n{\n  \"source\": \"foo\",\n  \"query\": {\n    \"term\": {\n      \"foo\": \"bar\"\n    }\n  }\n}\n\n2) PUT http://localhost:9200/foo\n\n3) POST http://localhost:9200/foo/doc/_percolate\n{\n  \"query\": {\n    \"term\": {\n      \"source\": \"foo\"\n    }\n  },\n  \"doc\": {\n    \"foo\": \"bar\"\n  }\n}\n\nES 0.90.0.RC1 returns:\n\n{\nerror: NullPointerException[null]\nstatus: 500\n}\n\nThanks!\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2806",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v0.90.0.RC2"
+        ],
+        "issue_closed_at": "2013-03-21T18:39:20.000Z",
+        "fix_commit_hash": "064d27291630e189632b8ef654b1759417e3f8ff",
+        "commit_type": "commit",
+        "commit_message": "Respect offset and length when iterating over BytesRef in Uid. The length is starting at offset\n\nCloses #2806",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/064d27291630e189632b8ef654b1759417e3f8ff",
+        "earliest_issue_date": "2013-03-21T16:20:58Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2807,
+        "issue_title": "When faceting on integer field using TERMS , 0.9 fails to count records where the facet field is missing",
+        "issue_body": "reproduceable example:\nhttps://gist.github.com/roytmana/5215441\n\nsorry my curl commands could be somewhat wrong - I am on windows and not using it much\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2807",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v0.90.0.RC2"
+        ],
+        "issue_closed_at": "2013-03-21T21:46:29.000Z",
+        "fix_commit_hash": "075779a39754d0b680fe7739d042f4360ec59f70",
+        "commit_type": "commit",
+        "commit_message": "Call onMissing if doc has no value in the field.\n\nCloses #2807",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/075779a39754d0b680fe7739d042f4360ec59f70",
+        "earliest_issue_date": "2013-03-21T19:26:45Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2808,
+        "issue_title": "Date math in query_string caches now()",
+        "issue_body": "When using `\"now\"` in date math in the query string, the value for `now` is cached:\n\n```\ncurl -XPUT 'http://127.0.0.1:9200/test/?pretty=1'  -d '\n{\n   \"mappings\" : {\n      \"test\" : {\n         \"properties\" : {\n            \"date\" : {\n               \"type\" : \"date\"\n            }\n         }\n      }\n   }\n}\n'\n\ncurl -XPOST 'http://127.0.0.1:9200/test/test?pretty=1'  -d '\n{\n   \"date\" : \"2020-01-01\"\n}\n'\n```\n\nRun this query multiple times:\n\n```\ncurl -XGET 'http://127.0.0.1:9200/test/test/_search?pretty=1'  -d '\n{\n   \"query\" : {\n      \"query_string\" : {\n         \"query\" : \"date:[now TO *]\"\n      }\n   },\n   \"explain\" : 1\n}\n'\n```\n\nYou will see that the description line `\"ConstantScore(date:[1363953493782 TO *])\"` reuses the same start date\n\n```\n# {\n#    \"hits\" : {\n#       \"hits\" : [\n#          {\n#             \"_source\" : {\n#                \"date\" : \"2020-01-01\"\n#             },\n#             \"_score\" : 1,\n#             \"_index\" : \"test\",\n#             \"_shard\" : 4,\n#             \"_id\" : \"iOPrtwzdQFGixdfwaAAlcQ\",\n#             \"_node\" : \"gx3hk4y7S0Khhx8IQ4uYQQ\",\n#             \"_type\" : \"test\",\n#             \"_explanation\" : {\n#                \"value\" : 1,\n#                \"details\" : [\n#                   {\n#                      \"value\" : 1,\n#                      \"description\" : \"boost\"\n#                   },\n#                   {\n#                      \"value\" : 1,\n#                      \"description\" : \"queryNorm\"\n#                   }\n#                ],\n#                \"description\" : \"ConstantScore(date:[1363953493782 TO *]), product of:\"\n#             }\n#          }\n#       ],\n#       \"max_score\" : 1,\n#       \"total\" : 1\n#    },\n#    \"timed_out\" : false,\n#    \"_shards\" : {\n#       \"failed\" : 0,\n#       \"successful\" : 5,\n#       \"total\" : 5\n#    },\n#    \"took\" : 5\n# }\n```\n\nA `range` query on the other hand, updates the start date on each run:\n\n```\ncurl -XGET 'http://127.0.0.1:9200/test/test/_search?pretty=1'  -d '\n{\n   \"query\" : {\n      \"range\" : {\n         \"date\" : {\n            \"gt\" : \"now\"\n         }\n      }\n   },\n   \"explain\" : 1\n}\n'\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2808",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.90.0.RC2",
+            "v0.20.7"
+        ],
+        "issue_closed_at": "2013-03-27T19:32:41.000Z",
+        "fix_commit_hash": "c18c609af171c06a217adef0b2f123f1e247cbbf",
+        "commit_type": "commit",
+        "commit_message": "Date math in query_string caches now()\nfixes #2808",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/c18c609af171c06a217adef0b2f123f1e247cbbf",
+        "earliest_issue_date": "2013-03-22T12:01:46Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2812,
+        "issue_title": "TooManyOpenFiles might cause data-loss in ElasticSearch (Lucene)",
+        "issue_body": "Under certain circumstances a TooManyOpenFiles exception (in Java thrown as FileNotFoundException) might cause data loss where entire shards (lucene indices) are deleted. This is mainly caused by [Lucene-4870](https://issues.apache.org/jira/browse/LUCENE-4870) - currently all Elasticsearch releases are affected by this.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2812",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v0.20.6",
+            "v0.90.0.RC2"
+        ],
+        "issue_closed_at": "2013-03-22T16:19:22.000Z",
+        "fix_commit_hash": "560d2c094e6d8c2c8605a0b1c45afb006e072e6f",
+        "commit_type": "commit",
+        "commit_message": "Fix issue where entire shards are lost due to too many open files exceptions and a but in Lucene's\nIndexWriter / DirectoryReader where an existsing index was not detected and then deleted due to a wrong\ncreation mode. See LUCENE-4870\n\nCloses #2812",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/560d2c094e6d8c2c8605a0b1c45afb006e072e6f",
+        "earliest_issue_date": "2013-03-22T16:17:31Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2814,
+        "issue_title": "0.90.0.RC1 Percolator, Not Matching Properly on Custom Analyzer",
+        "issue_body": "I found this bug in 0.90.0.RC1. (Works properly in 0.20.6 and earlier). It seems to have something to do with the custom analyzer/tokenizer being specified.\n\n1) PUT http://localhost:9200/foo\n{\n  \"settings\": {\n    \"number_of_shards\": 1,\n    \"number_of_replicas\": 0,\n    \"index\": {\n      \"analysis\": {\n        \"analyzer\": {\n          \"lwhitespacecomma\": {\n            \"tokenizer\": \"whitespacecomma\",\n            \"filter\": [\n              \"lowercase\"\n            ]\n          }\n        },\n        \"tokenizer\": {\n          \"whitespacecomma\": {\n            \"pattern\": \"(,|\\s+)\",\n            \"type\": \"pattern\"\n          }\n        }\n      }\n    }\n  },\n  \"mappings\": {\n    \"doc\": {\n      \"properties\": {\n        \"filingcategory\": {\n            \"type\": \"string\",\n            \"analyzer\": \"lwhitespacecomma\"\n        }\n      }\n    }\n  }\n}\n\n2) POST http://localhost:9200/_percolator/foo/1\n{\n  \"source\": \"productizer\",\n  \"query\": {\n    \"constant_score\": {\n      \"query\": {\n        \"query_string\": {\n          \"query\": \"filingcategory:s\"\n        }\n      }\n    }\n  }\n}\n\n3) POST http://localhost:9200/foo/doc/_percolate\n{\n  \"query\": {\n    \"term\": {\n      \"source\": \"productizer\"\n    }\n  },\n  \"doc\": {\n    \"filingcategory\": \"s\"\n  }\n}\n\nReturns (in 0.90.0.RC1): {\"ok\":true,\"matches\":[]}\n\nReturns (in 0.20.6 or below): {\"ok\":true,\"matches\":[\"1\"]}\n\nThanks!\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2814",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v0.90.0.RC2"
+        ],
+        "issue_closed_at": "2013-03-25T22:00:10.000Z",
+        "fix_commit_hash": "aa97c031f27e7c7caf89643c958ce5e9044988b4",
+        "commit_type": "commit",
+        "commit_message": "Don't reset tokenstream before passing to the MemoryIndex, otherwise some tokenizer might swallow tokens.\n\nCloses #2814",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/aa97c031f27e7c7caf89643c958ce5e9044988b4",
+        "earliest_issue_date": "2013-03-25T13:19:18Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2816,
+        "issue_title": "Alias filter is ignored if a sort field is specified",
+        "issue_body": "Repro: https://gist.github.com/imotov/5242738\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2816",
+        "assignees": [
+            "imotov"
+        ],
+        "labels": [
+            ">bug",
+            "v0.90.0.RC2"
+        ],
+        "issue_closed_at": "2013-03-26T11:25:59.000Z",
+        "fix_commit_hash": "9ae421a8b2094009023ba7d0717c6d91d7c47035",
+        "commit_type": "commit",
+        "commit_message": "Fix filtering aliases with non-empty sort options\n\nFixes #2816",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/9ae421a8b2094009023ba7d0717c6d91d7c47035",
+        "earliest_issue_date": "2013-03-26T02:57:06Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2817,
+        "issue_title": "Phrase suggester throws ArrayIndexOutOfBoundsException when stopwords are the only text values",
+        "issue_body": "-Version 0.90.0.RC1\nWhen searching for phrase suggestions and all suggestions are stop words, then I would expect empty results instead of an ArrayIndexOutOfBoundsException.\n\n``` bash\ncurl -XPUT http://localhost:9200/test -d '{ \"number_of_shards\":1, \"number_of_replicas\":0 }'\ncurl -XPUT http://localhost:9200/test/test/1 -d '{ \"subject\": \"a test subject\" }'\ncurl -XPOST http://localhost:9200/test/_suggest?pretty=true -d '{\n  \"text\": \"a an the\",\n  \"sug2\": {\n    \"phrase\": {\n      \"field\": \"subject\",\n      \"size\": 1,\n      \"real_word_error_likelihood\": 0.95,\n      \"max_errors\": 0.5,\n      \"gram_size\": 2,\n      \"direct_generator\": [\n        {\n          \"field\": \"subject\",\n          \"suggest_mode\": \"always\",\n          \"min_word_len\": 1\n        }\n      ]\n    }\n  }\n}'\n\n# Response\n{\n  \"_shards\" : {\n    \"total\" : 1,\n    \"successful\" : 0,\n    \"failed\" : 1,\n    \"failures\" : [ {\n      \"index\" : \"test\",\n      \"shard\" : 0,\n      \"reason\" : \"BroadcastShardOperationFailedException[[test][0] ]; nested: ElasticSearchException[failed to execute suggest]; nested: ArrayIndexOutOfBoundsException[0]; \"\n    } ]\n  }\n}\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2817",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v0.90.0.RC2"
+        ],
+        "issue_closed_at": "2013-03-26T16:47:49.000Z",
+        "fix_commit_hash": "17f83f33bbcd81f883bf97da7d65f87a006a9df9",
+        "commit_type": "commit",
+        "commit_message": "Terminate early when no terms left in the suggest string.\n\nCloses #2817",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/17f83f33bbcd81f883bf97da7d65f87a006a9df9",
+        "earliest_issue_date": "2013-03-26T16:14:10Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2818,
+        "issue_title": "elasticsearch.yaml comment unclear",
+        "issue_body": " Set this option to a higher value (2-4) for large clusters:\n discovery.zen.minimum_master_nodes: 3\n\n\"2-4\" should probably be \"enough for a quorum\", as per clintongormley on IRC.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2818",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2014-08-08T10:44:41.000Z",
+        "fix_commit_hash": "f28ada641635a69db5406b209c3af4ad4c00ef31",
+        "commit_type": "commit",
+        "commit_message": "Docs: Made config comment about min_master_nodes more explicit\n\nCloses #2818",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/f28ada641635a69db5406b209c3af4ad4c00ef31",
+        "earliest_issue_date": "2013-03-26T21:12:16Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2820,
+        "issue_title": "Least used store distributor allocates all data to the last directory on the list",
+        "issue_body": "See https://groups.google.com/d/msg/elasticsearch/UaaCsk7xwFs/vHpB9TOl5n8J\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2820",
+        "assignees": [
+            "imotov"
+        ],
+        "labels": [
+            ">bug",
+            "v0.90.0.RC2"
+        ],
+        "issue_closed_at": "2013-03-28T15:47:52.000Z",
+        "fix_commit_hash": "9bc50ea60945a470ba8bd432407ebe98af996f77",
+        "commit_type": "commit",
+        "commit_message": "Fix LeastUsedDistributor and ensure random distribution for multiple non-fs directories\n\nIf we cannot determine available space the fallback scenario is now to use random distribution instead of always using the last directory.\n\nFixes #2820",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/9bc50ea60945a470ba8bd432407ebe98af996f77",
+        "earliest_issue_date": "2013-03-27T16:36:11Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2835,
+        "issue_title": "{sort: \"field\"} throws misleading errors",
+        "issue_body": "eg:\n\n```\ncurl -XGET 'http://127.0.0.1:9200/_all/_search?pretty=1'  -d '\n{\n   \"sort\" : \"_score\",\n   \"query\" : {\n      \"match_all\" : {}\n   }\n}\n'\n```\n\nthrows the error: \n\n```\nElasticSearchIllegalArgumentException[sort option [match_all] not supported]\n```\n\nEither we should support `{ sort: \"string\"}` or we should complain that an array hasn't been passed to `sort`\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2835",
+        "assignees": [],
+        "labels": [
+            ">enhancement",
+            "v0.90.0.RC2"
+        ],
+        "issue_closed_at": "2013-03-30T12:46:55.000Z",
+        "fix_commit_hash": "6a1cb8f61b65b85aafd95b6b916ddb2cde937359",
+        "commit_type": "commit",
+        "commit_message": "{sort: \"field\"} throws misleading errors\nfixes #2835",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/6a1cb8f61b65b85aafd95b6b916ddb2cde937359",
+        "earliest_issue_date": "2013-03-30T12:11:57Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2837,
+        "issue_title": "ignore_indices doesn't fail if all the indices requested are not present",
+        "issue_body": "ignore_indices=missing doesn't fail if all the indices requested are not present, it defaults to searching everything which is far from desirable, specially when doing a heavy facet (e.g. termstats) in a daily index case (e.g. logs_2013-04-01) and there is no data indexed for the day\n\nTo reproduce start a node and index any document to index \"A\" then curl this:\n\ncurl 'http://localhost:9200/B,C/_search?ignore_indices=missing&pretty'\n\nTried on 0.20.6 this returns the document just indexed to index \"A\".\n\nIf that is the expected behavior for the 'missing' value then I suggest adding another value to ignore_indices, for example \"ignore_indices=missing_some\" that will fail if none of the queried indices are there\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2837",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ">breaking",
+            "v0.90.0.RC2"
+        ],
+        "issue_closed_at": "2013-04-02T17:06:30.000Z",
+        "fix_commit_hash": "cf00acf5b048608e3d184cc5cc6876ef0af356fb",
+        "commit_type": "commit",
+        "commit_message": "If no specified index or alias exists and `ignore_indices` is set to `missing` an index missing error is returned instead of resolving to all open indices (e.g. when searching). This breaks backwards comp. with 0.20.x and before.\nCloses #2837",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/cf00acf5b048608e3d184cc5cc6876ef0af356fb",
+        "earliest_issue_date": "2013-04-01T09:05:13Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2848,
+        "issue_title": "Uncaught exception in javascript",
+        "issue_body": "When using the JS plugin in 0.20.6, the following request triggers an uncaught exception, which never returns:\n\n```\ncurl -XGET 'http://127.0.0.1:9200/_all/_search?pretty=1'  -d '\n{\n   \"script_fields\" : {\n      \"num\" : {\n         \"script\" : \"1/doc[\\u0027num\\u0027].value\",\n         \"lang\" : \"js\"\n      }\n   }\n}\n'\n\nException in thread \"elasticsearch[Stunner][search][T#4]\" java.lang.AbstractMethodError\n    at org.elasticsearch.search.fetch.script.ScriptFieldsFetchSubPhase.hitExecute(ScriptFieldsFetchSubPhase.java:70)\n    at org.elasticsearch.search.fetch.FetchPhase.execute(FetchPhase.java:250)\n    at org.elasticsearch.search.SearchService.executeFetchPhase(SearchService.java:438)\n    at org.elasticsearch.search.action.SearchServiceTransportAction.sendExecuteFetch(SearchServiceTransportAction.java:345)\n    at org.elasticsearch.action.search.type.TransportSearchQueryThenFetchAction$AsyncAction.executeFetch(TransportSearchQueryThenFetchAction.java:149)\n    at org.elasticsearch.action.search.type.TransportSearchQueryThenFetchAction$AsyncAction$2.run(TransportSearchQueryThenFetchAction.java:136)\n    at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)\n    at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:615)\n    at java.lang.Thread.run(Thread.java:722)\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2848",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v0.90.0.RC2",
+            "v0.20.7"
+        ],
+        "issue_closed_at": "2013-04-03T10:39:38.000Z",
+        "fix_commit_hash": "bbe619a416cd4d4cb10654b487f0f41371c1fd1c",
+        "commit_type": "commit",
+        "commit_message": "Call onFailure for every exception case even in the case of an error / runtime exception\n\nCloses #2848",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/bbe619a416cd4d4cb10654b487f0f41371c1fd1c",
+        "earliest_issue_date": "2013-04-03T10:15:02Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2851,
+        "issue_title": "Can't retrieve a value from an empty GeoPointValues while doing Geo Distance sorting",
+        "issue_body": "```\ncurl -XPOST http://localhost:9200/geo_test\ncurl -XPUT http://localhost:9200/geo_test/points/_mapping -d '{\"points\":{\"properties\":{\"location\":{\"type\":\"geo_point\"},\"title\":{\"type\":\"string\"}}}}'\ncurl -XPOST http://localhost:9200/geo_test/points/1 -d '{\"title\":\"tester\"}'\ncurl -XPOST http://localhost:9200/geo_test/points/2 -d '{\"title\":\"tester\",\"location\":[30.0,30.0]}'\ncurl -XGET http://localhost:9200/geo_test/points/_search -d '{ \"query\": { \"match_all\": {} }, \"sort\": [ { \"_geo_distance\": { \"location\": [ 20, 20], \"order\": \"asc\" } }]}'\n```\n\nThis works for 0.20.4, but not for 0.90RC1.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2851",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ">regression",
+            "v0.90.0.RC2"
+        ],
+        "issue_closed_at": "2013-04-03T15:25:23.000Z",
+        "fix_commit_hash": "0a89c80554b08a7f0777bf2426f2c7b23eaf2fd5",
+        "commit_type": "commit",
+        "commit_message": "Fixed issue where a doc is omitted from the hits if it has no geo point and sorting is based on geo distance.\nCloses #2851",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/0a89c80554b08a7f0777bf2426f2c7b23eaf2fd5",
+        "earliest_issue_date": "2013-04-03T14:41:20Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2861,
+        "issue_title": "Make sure `all_terms` works consistently",
+        "issue_body": "In some cases the `all_terms` option was ignored:\n- Faceting on number based fields.\n- The `execution_type` was set to `map`.\n- In the case the `fields` option was used. \n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2861",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ">regression",
+            "v0.90.0.RC2"
+        ],
+        "issue_closed_at": "2013-04-05T12:28:51.000Z",
+        "fix_commit_hash": "9b5c74d43e652a46deaaa66721de89c606dcbcf7",
+        "commit_type": "commit",
+        "commit_message": "Made sure `all_terms` works consistently. In some cases the `all_terms` option was ignored: * Faceting on number based fields. * The `execution_type` was set to `map`. * In the case the `fields` option was used.\n\nCloses #2861",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/9b5c74d43e652a46deaaa66721de89c606dcbcf7",
+        "earliest_issue_date": "2013-04-05T12:09:41Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2868,
+        "issue_title": "Get template does not seem to return warmers",
+        "issue_body": "Unless of course I am doing something wrong, it seems that registering a warmer using PUT template seems to work but if i then GET the template it does not return the warmers.\n\nSee: https://gist.github.com/Mpdreamz/5330654\n\nFor the raw HTTP calls.\n\nI'm using elasticsearch 0.20.6\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2868",
+        "assignees": [
+            "imotov"
+        ],
+        "labels": [
+            ">bug",
+            "v0.20.7",
+            "v0.90.0"
+        ],
+        "issue_closed_at": "2013-04-08T23:35:30.000Z",
+        "fix_commit_hash": "acc095095760c77f3fd7f8f14127b811c5a25ef9",
+        "commit_type": "commit",
+        "commit_message": "Get template should return warmers\n\nFixes #2868",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/acc095095760c77f3fd7f8f14127b811c5a25ef9",
+        "earliest_issue_date": "2013-04-07T14:27:17Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2869,
+        "issue_title": "index.auto_expand_replicas and shard allocation settings don't play well together",
+        "issue_body": "With an index configured with auto_expand_replicas=\"0-all\" the cluster will try to allocate one primary and ({number nodes} - 1) replicas for each shard, ie a copy of each shard on each node.\n\nHowever, with \"index.routing.allocation.include.zone\"=\"zone1\" the cluster is blocked from allocating a shard (either primary or replica) to any nodes that are not configured with a zone attribute set to \"zone1\", ie \"node.zone=zone1\" in the elasticsearch.yaml config file. So if a cluster has 3 nodes in \"zone1\" and 3 nodes in \"zone2\" it will allocate 3 shards (primary + 2 x replicas) to the \"zone1\" nodes and mark an additional 3 replicas as unassigned. I observed this using the elasticsearch head utility.\n\nSo the allocation behaviour is as desired, ie auto expand replicas to all nodes with a specific zone attribute, but the unassigned shards will make the cluster be in red state\n\nSee https://groups.google.com/forum/#!msg/elasticsearch/95hC-wGu7GE/BPPSWsfj8UkJ\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2869",
+        "assignees": [],
+        "labels": [
+            ">enhancement",
+            "high hanging fruit",
+            ":Distributed/Allocation",
+            "Team:Distributed"
+        ],
+        "issue_closed_at": "2021-02-22T16:53:58.000Z",
+        "fix_commit_hash": "bb3ea99850e16a06d77649712595bcf45964250c",
+        "commit_type": "pr",
+        "commit_message": "Skip zone/host awareness with auto-expand replicas (#69334)\n\nToday if an index is set to `auto_expand_replicas: N-all` then we will\r\ntry and create a shard copy on every node that matches the applicable\r\nallocation filters. This conflits with shard allocation awareness and\r\nthe same-host allocation decider if there is an uneven distribution of\r\nnodes across zones or hosts, since these deciders prevent shard copies\r\nfrom being allocated unevenly and may therefore leave some unassigned\r\nshards.\r\n\r\nThe point of these two deciders is to improve resilience given a limited\r\nnumber of shard copies but there is no need for this behaviour when the\r\nnumber of shard copies is not limited, so this commit supresses them in\r\nthat case.\r\n\r\nCloses #54151\r\nCloses #2869",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/69334",
+        "earliest_issue_date": "2013-04-07T18:10:01Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 2873,
+        "issue_title": "0.90 RC2 can no longer fetch template",
+        "issue_body": "```\ncurl -XPUT http://localhost:9200/_template/test -d '{template: \"session*\", settings: { \"foo.bar\": 1 } }'\n\ncurl 'http://localhost:9200/_template/test?pretty'\n```\n\nreturns\n\n```\n{\n  \"error\" : \"IndexMissingException[[_na] missing]\",\n  \"status\" : 404\n}%\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/2873",
+        "assignees": [
+            "imotov"
+        ],
+        "labels": [
+            ">bug",
+            "v0.90.0"
+        ],
+        "issue_closed_at": "2013-04-08T20:49:48.000Z",
+        "fix_commit_hash": "2a588dc1f109022331ae43959ac8e2e46ee69168",
+        "commit_type": "commit",
+        "commit_message": "Fix IndexMissingException in get template request\n\nFixes #2873",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/2a588dc1f109022331ae43959ac8e2e46ee69168",
+        "earliest_issue_date": "2013-04-08T20:13:57Z",
+        "predicted_class": "bug"
+    }
+]

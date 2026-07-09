@@ -1,0 +1,1034 @@
+[
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 15858,
+        "issue_title": "Minimum_should_match for one word query",
+        "issue_body": "The following is a search query. The term full_name uses a synonym analyzer. \nThe synonym expand file has the synonym: rice,arroz. \nNow if we run the validate query we get the below results:\n\n```\nGET /products_v2/product/_validate/query?explain\n{\n  \"query\": {\n    \"bool\": {\n      \"must\": [\n        {\n          \"match\": {\n            \"full_name\": {\n              \"query\": \"rice\",\n              \"fuzziness\": 1,\n              \"minimum_should_match\": \"3<90%\"\n            }\n          }\n        }\n      ],\n      \"should\": [\n        {\n          \"match_phrase\": {\n            \"name\": {\n              \"query\": \"rice\",\n              \"slop\": 50\n            }\n          }\n        }\n      ]\n    }\n  }\n}\n\n{\n   \"valid\": true,\n   \"_shards\": {\n      \"total\": 1,\n      \"successful\": 1,\n      \"failed\": 0\n   },\n   \"explanations\": [\n      {\n         \"index\": \"products_v2\",\n         \"valid\": true,\n         \"explanation\": \"filtered(+((full_name:arroz~1 full_name:rice~1)~2) (name:arroz name:rice))->cache(_type:product)\"\n      }\n   ]\n}\n```\n\nBoth rice and arroz are position 1. The minimum_should_match doesn't get applied to the position but the number of words in position 1.\n\nLet's say the synonym file has another synonym :  Brown Sugar, brownsugar.\nThe following is the result of the validate query calling brownsugar\n\n```\n{\n   \"valid\": true,\n   \"_shards\": {\n      \"total\": 1,\n      \"successful\": 1,\n      \"failed\": 0\n   },\n   \"explanations\": [\n      {\n         \"index\": \"products_v4\",\n         \"valid\": true,\n         \"explanation\": \"filtered(+(((full_name:brownsugar~1 full_name:brown~1) full_name:sugar~1)~2) name:\\\"(brownsugar brown) sugar\\\"~50)->cache(_type:product)\"\n      }\n   ]\n}\n```\n\nIn this case the minimum to match is applied based on positions. brownsugar and brown are position 1, sugar is position 2. The minimum_should_match gets applied as 2.\n\nIf minimum_should_match gets applied based on the number of positions there are, I believe the above example for rice should have minimum_should_match should be 1 and not 2. This is a problem in the way ES handles minimum_should_match for one word synonyms.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/15858",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "discuss",
+            ":Search/Search DO NOT USE"
+        ],
+        "issue_closed_at": "2016-01-19T14:07:32.000Z",
+        "fix_commit_hash": "547c65e8031d7b3277b7460f7cff8532bd339db9",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Do not apply minimum-should-match on a boolean query if the coords are disabled.\nFixes #15858",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16078",
+        "earliest_issue_date": "2016-01-08T16:05:27Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 15908,
+        "issue_title": "mpercolate does not function properly in elasticsearch 2.1.1",
+        "issue_body": "The mpercolate call appears to be broken in 2.1.1 in clusters with more than one node. The following sequence works perfectly on my laptop but fails in two separate three node clusters (in \"green\" state). Sometimes the call succeeds on one of the three machines but not on the others. I could not find any errors in the logs.\nPUT http://localhost:9200/test\n[mapping.txt](https://github.com/elastic/elasticsearch/files/86558/mapping.txt)\nPOST http://localhost:9200/test/.percolator/Certificate_Expiration_Warning_Medium\n[percolator.txt](https://github.com/elastic/elasticsearch/files/86560/percolator.txt)\nPOST http://localhost:9200/test/_mpercolate\n[mpercolate.txt](https://github.com/elastic/elasticsearch/files/86562/mpercolate.txt)\nExpected Output:\n[output.txt](https://github.com/elastic/elasticsearch/files/86566/output.txt)\nActual Output:\n[actual.txt](https://github.com/elastic/elasticsearch/files/86577/actual.txt)\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/15908",
+        "assignees": [
+            "martijnvg"
+        ],
+        "labels": [
+            ">bug",
+            ":Search Relevance/Percolator",
+            "Team:Search Relevance"
+        ],
+        "issue_closed_at": "2016-01-15T08:25:56.000Z",
+        "fix_commit_hash": "a05ea535ad68de3ffa876c2c7c78d9d203d499be",
+        "commit_type": "commit",
+        "commit_message": "percolator: Make sure that start time is serialized on the mpercolate shard requests\n\nCloses #15908",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/a05ea535ad68de3ffa876c2c7c78d9d203d499be",
+        "earliest_issue_date": "2016-01-11T23:54:29Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 15919,
+        "issue_title": "High disk watermark exceeded on one or more nodes, rerouting shards",
+        "issue_body": "I am running Elasticsearch, and Kibana on Windows and using Synology NAS as storage for Elasticsearch. For few days, Elasticsearch started behaving weird; therefore, I checked elasticsearch.log and found the following errors:\n\n[WARN ][cluster.routing.allocation.decider] [Desmond Pitt] high disk watermark [0b] exceeded on [O2-Ef7fET9S_MJNAL-q_yA][Desmond Pitt] free: -1b[100%], shards will be relocated away from this node\n[WARN ][cluster.routing.allocation.decider] [Desmond Pitt] high disk watermark [0b] exceeded on [O2-Ef7fET9S_MJNAL-q_yA][Desmond Pitt] free: -1b[100%], shards will be relocated away from this node\n\n[INFO ][cluster.routing.allocation.decider] [Desmond Pitt] high disk watermark exceeded on one or more nodes, rerouting shards\nDEBUG][action.bulk ] [Desmond Pitt] observer: timeout notification from cluster service. timeout setting [1m], time since start [1m]\nDEBUG][action.bulk ] [Desmond Pitt] observer: timeout notification from cluster service. timeout setting [1m], time since start [1m]\n\nI have already run this command GET _node/stats and found the following issue:\n\nfs\":{\"timestamp\":1452402078885,\"total\":{},\"data\":[{\"path\":\"\\abc-synology1.xyz.edu\\syslog\\elasticsearch\\nodes\\0\"}]}\n\nWhich I guess, shows the file system fails to report disk usage, which confuses the high water mark check.\n\nIf I am right, how can I resolve it or what else could be the issue?\n\nBy the way, I am referred here by Elastic Search forums: https://discuss.elastic.co/t/high-disk-watermark-exceeded-on-one-or-more-nodes-rerouting-shards/38506/8\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/15919",
+        "assignees": [],
+        "labels": [
+            "discuss",
+            ":Distributed/Allocation"
+        ],
+        "issue_closed_at": "2016-01-17T17:19:05.000Z",
+        "fix_commit_hash": "8384f7375fb8dee9a1354e070e857d77e58e585a",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Skip capturing least/most FS info for an FS with no total\n\nIf an operating system reports -1 for the total bytes of a filesystem\npath, we should ignore it when capturing the least and most available\nstatistics.\n\nRelates to #15919\n\nSquashed commit of the following:\n\ncommit 5d2258ffeff8a0d156295dcc754ab9b6cbb4b02e\nAuthor: Lee Hinman <lee@writequit.org>\nDate:   Thu Jan 14 14:14:27 2016 -0700\n\n    Change test to test positive total with negative 'free' value\n\ncommit 927e61d4b39692fc147220a955b63b291ad80db5\nAuthor: Lee Hinman <lee@writequit.org>\nDate:   Thu Jan 14 13:09:28 2016 -0700\n\n    Skip capturing least/most FS info for an FS with no total\n\n    If an operating system reports -1 for the total bytes of a filesystem\n    path, we should ignore it when capturing the least and most available\n    statistics.\n\n    Relates to #15919",
+        "closer_url": null,
+        "earliest_issue_date": "2016-01-12T05:11:50Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 15941,
+        "issue_title": "Circular reference in Exception when checkpoint writing fails ",
+        "issue_body": "We can end up with a circular reference in an Exception A, which has as suppressed Exception B which has as cause A again if an Exception is thrown in the try block of `Translog.ensureSynced()` (Translog.java#L562).\n\nThis is easy to see if you pick https://github.com/brwe/elasticsearch/commit/bb108994d9b4929481f2f74b3e01bc8c0f756b18 and run the `TranslogTests`.\n\nThe way this happens is so:\n1. We call `Translog.ensureSynced()` but unfortunately when `TranslogWriter.sync()` is called (via `current.syncUpTo()`) the writing of the checkpoint fails (TranslogWriter.java#L151) with Exception A. This causes `TranslogWriter.tragedy` to be set to Exception A before it is thrown (`TranslogWriter.closeWithTragicEvent()`). \n2. Because of Exception A we now get to the catch clause in `Translog.ensureSynced()`  where we call `Translog.closeOnTragicEvent()`  and pass as parameter the Exception A _that we just set as tragic exception_  (`TranslogWriter.tragedy`).\n3. In `Translog.closeOnTragicEvent()` we call `close()` but that will fail too because we closed the translog already before (because of the tragic event A). We will get Exception B which is an `AlreadyClosedException` with cause `TranslogWriter.tragedy` (Exception A). (It is created in `TranslogWriter.ensureOpen()`). \n4. Because of Exception B now we get to the catch clause of `Translog.closeOnTragicEvent()` and have\n   - `inner` Exception B, the `AlreadyClosedException` with cause `TranslogWriter.tragedy` (Exception A)\n   - method parameter Exception (`ex`)  which is  `TranslogWriter.tragedy` (Exception A)\n\nWe the set B as suppressed Exception for the parameter exception A and therefore end up with a circular reference A that has suppressed B that has cause A.\n\nAs a result, when we try to serialize this, we get a stackoverflow.\n\nThis can be seen also in this build failure: http://build-us-00.elastic.co/job/es_core_21_metal/326/\n\nIf this explanation is too confusing let me know. \n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/15941",
+        "assignees": [],
+        "labels": [
+            ">bug"
+        ],
+        "issue_closed_at": "2016-01-13T15:28:04.000Z",
+        "fix_commit_hash": "04286d7d5400501b90c6e866e2d3abb38670e5a0",
+        "commit_type": "commit_ref_pr",
+        "commit_message": "Merge pull request #15952 from brwe/fix-cicular-reference-exception\n\nAvoid circular reference in exception\n\nDon't set the suppressed Exception in Translog.closeOnTragicEvent(Exception ex) if it is an\nAlreadyClosedException. ACE is thrown by the TranslogWriter and as cause might\ncontain the Exception that we add the suppressed ACE to. We then end up with a\ncircular reference where Exception A has a suppressed Exception B that has as cause A.\nThis would cause a stackoverflow when we try to serialize it.\nFor a more detailed description see #15941\n\ncloses #15941",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/15952",
+        "earliest_issue_date": "2016-01-12T21:27:02Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 15959,
+        "issue_title": "[DOCS] Clarify that null_value only modifies the index",
+        "issue_body": "The `null_value` field does not modify `_source`, rather it only sets the indexed value and therefore makes it searchable.\n\nI've found that a lot of people expect to retrieve the \"set\" value even though it's only indexed that way.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/15959",
+        "assignees": [
+            "debadair"
+        ],
+        "labels": [
+            ">enhancement",
+            ">docs",
+            ":Search Foundations/Mapping",
+            "Team:Search Foundations"
+        ],
+        "issue_closed_at": "2018-01-31T14:04:12.000Z",
+        "fix_commit_hash": "3f5716b9b8b8d1a2f784ca3374254b52e8dcb466",
+        "commit_type": "pr",
+        "commit_message": "Clarify that the `null_value` option doesn't modify the `_source` document. (#28374)\n\nCloses #15959",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/28374",
+        "earliest_issue_date": "2016-01-13T15:58:08Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 15965,
+        "issue_title": "Misleading error message for geo_point parse failure",
+        "issue_body": "Even without enabling `geohash` functionality for the `geo_point` type, if it fails to parse a string in the format of `\"<lat>,<lon>\"`, then it throws a misleading error:\n\n```\nCaused by: org.elasticsearch.ElasticsearchIllegalArgumentException: the character '.' is not a valid geohash character\n```\n\nIt would be extremely useful to show the:\n- Name of the malformed field\n- The value of the malformed field (in addition to the reason the field failed to parse)\n\nIn my case, a field was accidentally mapped as a `geo_point` when it was meant to be an IP address, which made it hard to determine which field was the cause.\n\n``` json\n{\n  \"ipv4_src_addr\" : \"127.0.0.1\"\n}\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/15965",
+        "assignees": [
+            "imotov"
+        ],
+        "labels": [
+            ">enhancement",
+            "good first issue",
+            ":Analytics/Geo"
+        ],
+        "issue_closed_at": "2018-12-13T13:32:46.000Z",
+        "fix_commit_hash": "7446f75346576dc816a8147699f1f43122839423",
+        "commit_type": "pr",
+        "commit_message": "Geo: Adds a name of the field to geopoint parsing errors (#36529)\n\nAdds the field name and type to geo_point parsing errors.\r\n\r\nCloses #15965",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/36529",
+        "earliest_issue_date": "2016-01-13T22:06:05Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 15972,
+        "issue_title": "fuzziness=auto doesn't work in query string query",
+        "issue_body": "https://gist.github.com/masaruh/55deca377b6ade5847de\n(on 1.x, it's always `~2`)\n\nProbably because it always uses fixed value https://github.com/elastic/elasticsearch/blob/v2.1.1/core/src/main/java/org/apache/lucene/queryparser/classic/MapperQueryParser.java#L141\n\nProbably it should be something like?\n\n```\n        if (fuzzySlop.image.length() == 1) {\n            return getFuzzyQuery(qfield, termImage, settings.getFuzziness().asDistance(termImage));\n        }\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/15972",
+        "assignees": [],
+        "labels": [
+            "discuss",
+            ":Search/Search DO NOT USE"
+        ],
+        "issue_closed_at": "2016-09-02T14:33:50.000Z",
+        "fix_commit_hash": "3a13f54755f78f425a8cc672b5d879593063be7c",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "query_string_query should take term length into consideration when fuzziness is auto\n\nFixes #15972",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/20299",
+        "earliest_issue_date": "2016-01-14T05:05:10Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 15974,
+        "issue_title": "_recovery api shows negative metrics after translog replay",
+        "issue_body": "Tested on 2.1.1:\n\n```\n      \"translog\" : {\n        \"recovered\" : 13,\n        \"total\" : -1,\n        \"percent\" : \"-1.0%\",\n        \"total_on_start\" : -1,\n        \"total_time_in_millis\" : 340\n      },\n```\n\nI have 13 entries in the translog for a shard, once it is done replaying on startup, if I hit the _recovery api and look at the translog section for the shard, it shows 13 recovered.  But the percent and total metrics are negative which is misleading.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/15974",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "good first issue",
+            "help wanted",
+            ":Core/Infra/Stats"
+        ],
+        "issue_closed_at": "2016-02-08T11:01:06.000Z",
+        "fix_commit_hash": "4decc72da6abc426b97789ad149b31eef9aad583",
+        "commit_type": "commit",
+        "commit_message": "Fix recovery translog stats totals when recovering from store\n\nRecovery from store fails to correctly set the translog recovery stats. This fixes it and tightens up the logic bringing it all to IndexShard (previously it was set by the recovery logic).\n\nCloses #15974\nCloses #16493",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/4decc72da6abc426b97789ad149b31eef9aad583",
+        "earliest_issue_date": "2016-01-14T05:20:00Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 15988,
+        "issue_title": "timeInQueue for pending_tasks growing too fast?",
+        "issue_body": "Hello, on 2.1.1 3 nodes cluster seeing `timeInQueue` growing faster than it should?\n\n1) start three node cluster whose pending_tasks queue grows right after starting\n2) call GET _cat/pending_tasks every second\n\n```\nabonuccelli@w530 ~ $ while true;do date;curl -XGET -u admin:r1ng3r -k 'https://w530:9200/_cat/pending_tasks';sleep 1;done\njue ene 14 15:36:23 CET 2016\ncurl: (7) Failed to connect to w530 port 9200: Connection refused\njue ene 14 15:36:24 CET 2016\ncurl: (7) Failed to connect to w530 port 9200: Connection refused\njue ene 14 15:36:25 CET 2016\ncurl: (7) Failed to connect to w530 port 9200: Connection refused\njue ene 14 15:36:26 CET 2016\ncurl: (7) Failed to connect to w530 port 9200: Connection refused\njue ene 14 15:36:28 CET 2016\ncurl: (7) Failed to connect to w530 port 9200: Connection refused\njue ene 14 15:36:29 CET 2016\ncurl: (7) Failed to connect to w530 port 9200: Connection refused\njue ene 14 15:36:30 CET 2016\ncurl: (7) Failed to connect to w530 port 9200: Connection refused\njue ene 14 15:36:31 CET 2016\ncurl: (7) Failed to connect to w530 port 9200: Connection refused\njue ene 14 15:36:32 CET 2016\ncurl: (7) Failed to connect to w530 port 9200: Connection refused\njue ene 14 15:36:33 CET 2016\ncurl: (7) Failed to connect to w530 port 9200: Connection refused\njue ene 14 15:36:34 CET 2016\ncurl: (7) Failed to connect to w530 port 9200: Connection refused\njue ene 14 15:36:35 CET 2016\ncurl: (7) Failed to connect to w530 port 9200: Connection refused\njue ene 14 15:36:36 CET 2016\n5 11.3m NORMAL local-gateway-elected-state                                                                                          \n7    6m URGENT zen-disco-join(join from node[{node3}{zPm--nb4Q1GyDfUgPRki0w}{192.168.1.105}{w530/192.168.1.105:9302}{master=true}]) \n6 10.7m HIGH   cluster_reroute(async_shard_fetch)                                                                                   \njue ene 14 15:36:37 CET 2016\n8 14.2s HIGH cluster_reroute(async_shard_fetch) \n9  1.4s HIGH cluster_reroute(async_shard_fetch) \njue ene 14 15:36:38 CET 2016\n 9 19.4m HIGH   cluster_reroute(async_shard_fetch) \n10  9.3m URGENT shard-started ([logstash-unparsed-2016.01.14][0], node[IjwKfD1UQMqtdKXPsLR8Cw], [P], v[23], s[INITIALIZING], a[id=6bPUppNYR96GpmRzRA2lVA], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.665Z]]), reason [after recovery from store] \n11  9.1m URGENT shard-started ([logstash-unparsed-2016.01.14][2], node[IjwKfD1UQMqtdKXPsLR8Cw], [P], v[26], s[INITIALIZING], a[id=tKqikFUkTqmHtr4SwQKmzQ], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.665Z]]), reason [after recovery from store] \n12  1.4m URGENT shard-started ([logstash-auth-2016.01.14][2], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[22], s[INITIALIZING], a[id=0uNZSK5bTjav1G5U462xPQ], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store]     \n13  1.1m URGENT shard-started ([logstash-auth-2016.01.14][0], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[21], s[INITIALIZING], a[id=-FSh28JvTw6CzPlT-rKslQ], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store]     \n14    1m URGENT shard-started ([logstash-unparsed-2016.01.14][1], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[26], s[INITIALIZING], a[id=A6yx_FkqRb6BRmNyn4v9dA], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.665Z]]), reason [after recovery from store] \n15   47s URGENT shard-started ([logstash-auth-2016.01.14][1], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[22], s[INITIALIZING], a[id=7LEi3mQMRlOebCBTVITYqQ], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store]     \njue ene 14 15:36:39 CET 2016\n17  5.1m URGENT shard-started ([logstash-auth-2016.01.12][0], node[IjwKfD1UQMqtdKXPsLR8Cw], [P], v[40], s[INITIALIZING], a[id=oRhDl4tWQjyXrHjYtyyFfw], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.665Z]]), reason [after recovery from store]     \n18  3.9m URGENT shard-started ([logstash-auth-2016.01.13][2], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[32], s[INITIALIZING], a[id=WM9zpWx5T4ujXxPdskbuOA], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store]     \n19  3.9m URGENT shard-started ([logstash-unparsed-2016.01.13][1], node[IjwKfD1UQMqtdKXPsLR8Cw], [P], v[36], s[INITIALIZING], a[id=NZmkrLKfTMKT4a4iSfGtBQ], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store] \n20  3.1m URGENT shard-started ([logstash-auth-2016.01.13][1], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[36], s[INITIALIZING], a[id=7_fdmALYRYCE6Hs1Ai0Lfg], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store]     \n22  1.2m URGENT shard-started ([.marvel-es-data][0], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[26], s[INITIALIZING], a[id=2E_4eG24S8m1mUDSg1NLCQ], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.665Z]]), reason [after recovery from store]              \n21  1.2m URGENT shard-started ([.watch_history-2016.01.05][0], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[29], s[INITIALIZING], a[id=tUm4Rt7XQhK7zJTRMqawFg], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.665Z]]), reason [after recovery from store]    \n16 20.8m HIGH   _add_listener_ \njue ene 14 15:36:40 CET 2016\n29 16.5m URGENT shard-started ([logstash-syslog-2016.01.12][1], node[IjwKfD1UQMqtdKXPsLR8Cw], [P], v[38], s[INITIALIZING], a[id=Cz2-XhQJSBCkUtLTU_XoYg], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store] \n30 16.2m URGENT shard-started ([logstash-syslog-2016.01.12][1], node[IjwKfD1UQMqtdKXPsLR8Cw], [P], v[38], s[INITIALIZING], a[id=Cz2-XhQJSBCkUtLTU_XoYg], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [master {node2}{I_iHcd03Q3aX2KXBVsjMhA}{192.168.1.105}{192.168.1.105:9301}{master=true} marked shard as initializing, but shard state is [POST_RECOVERY], mark shard as started] \n31 14.5m URGENT shard-started ([logstash-syslog-2016.01.12][2], node[IjwKfD1UQMqtdKXPsLR8Cw], [P], v[34], s[INITIALIZING], a[id=W3HDLC-nTWm33uJt9mCvyQ], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store] \n33  8.2m URGENT shard-started ([logstash-unparsed-2016.01.12][0], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[37], s[INITIALIZING], a[id=70JqKeAaTgO9HGqX0UYaWg], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store] \n36 47.8s URGENT shard-started ([.watch_history-2016.01.12][0], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[34], s[INITIALIZING], a[id=L9Wpm4MlQtGuhq2Ps7-3Gg], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.665Z]]), reason [after recovery from store] \n32   12m URGENT shard-started ([logstash-auth-2016.01.12][2], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[33], s[INITIALIZING], a[id=jAEM0xJMSFCAw7xAp3Zh5g], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.665Z]]), reason [after recovery from store] \n34    8m URGENT shard-started ([logstash-auth-2016.01.12][1], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[33], s[INITIALIZING], a[id=aQYnVPBWTx24BR5L-H9egQ], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.665Z]]), reason [after recovery from store] \n35    8m URGENT shard-started ([logstash-unparsed-2016.01.12][1], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[36], s[INITIALIZING], a[id=nFYleWmMQumM9tnc-58TrA], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store] \n16 44.9m HIGH   _add_listener_                                                                                                                               \njue ene 14 15:36:42 CET 2016\n46  9.3m URGENT shard-started ([logstash-unparsed-2016.01.10][1], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[36], s[INITIALIZING], a[id=8US-Te0YSQCym42iTKKAjw], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store] \n47  3.9m URGENT shard-started ([logstash-unparsed-2016.01.10][1], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[36], s[INITIALIZING], a[id=8US-Te0YSQCym42iTKKAjw], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [master {node2}{I_iHcd03Q3aX2KXBVsjMhA}{192.168.1.105}{192.168.1.105:9301}{master=true} marked shard as initializing, but shard state is [POST_RECOVERY], mark shard as started] \n49  2.4m URGENT shard-started ([logstash-syslog-2016.01.10][0], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[36], s[INITIALIZING], a[id=3NzmZFu6S8yYVgkir8_Hfg], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.665Z]]), reason [after recovery from store] \n48  2.6m URGENT shard-started ([logstash-syslog-2016.01.10][2], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[36], s[INITIALIZING], a[id=VGbLKgt7RYu0WmSuVg3ZDQ], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.665Z]]), reason [after recovery from store] \n53 25.6s URGENT shard-started ([.watch_history-2016.01.10][0], node[IjwKfD1UQMqtdKXPsLR8Cw], [P], v[34], s[INITIALIZING], a[id=hykDFlrTQnOVJjY6WPSR4g], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [master {node2}{I_iHcd03Q3aX2KXBVsjMhA}{192.168.1.105}{192.168.1.105:9301}{master=true} marked shard as initializing, but shard state is [POST_RECOVERY], mark shard as started]    \n50  1.7m URGENT shard-started ([logstash-unparsed-2016.01.10][2], node[IjwKfD1UQMqtdKXPsLR8Cw], [P], v[34], s[INITIALIZING], a[id=rn21EPXSQbOw2YKx_bTilg], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store] \n51  1.6m URGENT shard-started ([logstash-unparsed-2016.01.10][0], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[34], s[INITIALIZING], a[id=yrciN2zZQPaY0XFWkpwUGQ], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store] \n52  1.3m URGENT shard-started ([.watch_history-2016.01.10][0], node[IjwKfD1UQMqtdKXPsLR8Cw], [P], v[34], s[INITIALIZING], a[id=hykDFlrTQnOVJjY6WPSR4g], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store] \n16    1h HIGH   _add_listener_ \n54 25.6s URGENT shard-started ([logstash-unparsed-2016.01.10][2], node[IjwKfD1UQMqtdKXPsLR8Cw], [P], v[34], s[INITIALIZING], a[id=rn21EPXSQbOw2YKx_bTilg], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [master {node2}{I_iHcd03Q3aX2KXBVsjMhA}{192.168.1.105}{192.168.1.105:9301}{master=true} marked shard as initializing, but shard state is [POST_RECOVERY], mark shard as started] \njue ene 14 15:36:43 CET 2016\n64  8.4m URGENT shard-started ([logstash-syslog-2016.01.09][0], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[36], s[INITIALIZING], a[id=RnkOosAyRpiaOGvX0hBpTQ], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.665Z]]), reason [after recovery from store] \n65    6m URGENT shard-started ([logstash-unparsed-2016.01.08][1], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[40], s[INITIALIZING], a[id=I5Q3OFfpSZ-1inpSGLiwZQ], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store] \n66  5.6m URGENT shard-started ([logstash-unparsed-2016.01.08][0], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[44], s[INITIALIZING], a[id=AyqMhVCHRpeSdGGZblgKig], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store] \n69  1.2m URGENT shard-started ([.watch_history-2016.01.09][0], node[IjwKfD1UQMqtdKXPsLR8Cw], [P], v[34], s[INITIALIZING], a[id=4yoPNJg8RjSSSpcMNwolHA], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store] \n67  5.5m URGENT shard-started ([logstash-syslog-2016.01.09][0], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[36], s[INITIALIZING], a[id=RnkOosAyRpiaOGvX0hBpTQ], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.665Z]]), reason [master {node2}{I_iHcd03Q3aX2KXBVsjMhA}{192.168.1.105}{192.168.1.105:9301}{master=true} marked shard as initializing, but shard state is [POST_RECOVERY], mark shard as started] \n68  5.1m URGENT shard-started ([logstash-syslog-2016.01.08][0], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[34], s[INITIALIZING], a[id=gWL8rqL5RICFBlOPbXXVlg], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store] \n16  1.4h HIGH   _add_listener_                                                                                                                               \n70 44.1s URGENT shard-started ([logstash-syslog-2016.01.09][1], node[IjwKfD1UQMqtdKXPsLR8Cw], [P], v[34], s[INITIALIZING], a[id=z21y4FyJTeGab0hhunzPFg], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.665Z]]), reason [after recovery from store] \njue ene 14 15:36:44 CET 2016\n78 12.7m URGENT shard-started ([.watch_history-2016.01.07][0], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[38], s[INITIALIZING], a[id=HnIbZsKmRw2F811HF42Hbw], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store] \n79 11.7m URGENT shard-started ([.watch_history-2016.01.07][0], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[38], s[INITIALIZING], a[id=HnIbZsKmRw2F811HF42Hbw], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [master {node2}{I_iHcd03Q3aX2KXBVsjMhA}{192.168.1.105}{192.168.1.105:9301}{master=true} marked shard as initializing, but shard state is [POST_RECOVERY], mark shard as started] \n81  8.8m URGENT shard-started ([logstash-syslog-2016.01.07][1], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[36], s[INITIALIZING], a[id=3qO53WStT9CXgbkFnUksiA], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store] \n80  9.3m URGENT shard-started ([logstash-syslog-2016.01.07][0], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[34], s[INITIALIZING], a[id=axCQvobnTLC9PvJPjWAMGw], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store] \n83  6.2m URGENT shard-started ([.watch_history-2016.01.08][0], node[IjwKfD1UQMqtdKXPsLR8Cw], [P], v[34], s[INITIALIZING], a[id=hXmEuKK6Sy2HWm-rHEDAew], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.665Z]]), reason [after recovery from store] \n87   14s URGENT shard-started ([test-geo][1], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[85], s[INITIALIZING], a[id=AGzIixN_RROIhjgaVgQ0GA], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.665Z]]), reason [after recovery from store] \n82  6.3m URGENT shard-started ([logstash-syslog-2016.01.08][2], node[IjwKfD1UQMqtdKXPsLR8Cw], [P], v[34], s[INITIALIZING], a[id=tz9YgDHwT7yvXKEXQOX66A], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store] \n84  2.8m URGENT shard-started ([.watches][0], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[47], s[INITIALIZING], a[id=snXyoQs_QeaA06FhtMKQrg], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store] \n85 40.5s URGENT shard-started ([logstash-unparsed-2016.01.07][0], node[IjwKfD1UQMqtdKXPsLR8Cw], [P], v[35], s[INITIALIZING], a[id=nzKhYoHqSa6v5mjLWQ-kyg], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery from store] \n86 38.6s URGENT shard-started ([.watches][0], node[zPm--nb4Q1GyDfUgPRki0w], [P], v[47], s[INITIALIZING], a[id=snXyoQs_QeaA06FhtMKQrg], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [master {node2}{I_iHcd03Q3aX2KXBVsjMhA}{192.168.1.105}{192.168.1.105:9301}{master=true} marked shard as initializing, but shard state is [POST_RECOVERY], mark shard as started]                  \n16  1.7h HIGH   _add_listener_                                                                                                                              \njue ene 14 15:36:45 CET 2016\n101  2.9m URGENT shard-started ([test-idx][1], node[IjwKfD1UQMqtdKXPsLR8Cw], [P], v[90], s[INITIALIZING], a[id=0BHaiJdMQcSt2NeZJM09pA], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.661Z]]), reason [after recovery from store]                                                                                                                     \n102  1.8m URGENT shard-started ([logstash-unparsed-2016.01.13][1], node[zPm--nb4Q1GyDfUgPRki0w], [R], v[38], s[INITIALIZING], a[id=j9ubCTjyS8qIamqigOblLQ], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.664Z]]), reason [after recovery (replica) from node [{node1}{IjwKfD1UQMqtdKXPsLR8Cw}{192.168.1.105}{w530/192.168.1.105:9300}{master=true}]] \n103 35.3s URGENT shard-started ([logstash-unparsed-2016.01.14][2], node[zPm--nb4Q1GyDfUgPRki0w], [R], v[28], s[INITIALIZING], a[id=12I5tGEJRzC6y65FTq4hdw], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-01-14T14:36:35.665Z]]), reason [after recovery (replica) from node [{node1}{IjwKfD1UQMqtdKXPsLR8Cw}{192.168.1.105}{w530/192.168.1.105:9300}{master=true}]] \n 16  2.1h HIGH   _add_listener_                                                                            \n 97 12.7m HIGH   cluster_reroute(async_shard_fetch)                                                        \njue ene 14 15:36:47 CET 2016\njue ene 14 15:36:48 CET 2016\njue ene 14 15:36:49 CET 2016\njue ene 14 15:36:51 CET 2016\njue ene 14 15:36:52 CET 2016\njue ene 14 15:36:53 CET 2016\njue ene 14 15:36:54 CET 2016\njue ene 14 15:36:55 CET 2016\njue ene 14 15:36:56 CET 2016\njue ene 14 15:36:58 CET 2016\njue ene 14 15:36:59 CET 2016\njue ene 14 15:37:00 CET 2016\njue ene 14 15:37:01 CET 2016\njue ene 14 15:37:02 CET 2016\njue ene 14 15:37:03 CET 2016\njue ene 14 15:37:04 CET 2016\njue ene 14 15:37:06 CET 2016\njue ene 14 15:37:07 CET 2016\njue ene 14 15:37:08 CET 2016\njue ene 14 15:37:09 CET 2016\njue ene 14 15:37:10 CET 2016\njue ene 14 15:37:11 CET 2016\njue ene 14 15:37:12 CET 2016\njue ene 14 15:37:14 CET 2016\njue ene 14 15:37:15 CET 2016\njue ene 14 15:37:16 CET 2016\njue ene 14 15:37:17 CET 2016\njue ene 14 15:37:18 CET 2016\njue ene 14 15:37:19 CET 2016\njue ene 14 15:37:20 CET 2016\njue ene 14 15:37:21 CET 2016\njue ene 14 15:37:22 CET 2016\njue ene 14 15:37:23 CET 2016\njue ene 14 15:37:25 CET 2016\njue ene 14 15:37:26 CET 2016\njue ene 14 15:37:27 CET 2016\njue ene 14 15:37:28 CET 2016\njue ene 14 15:37:29 CET 2016\njue ene 14 15:37:30 CET 2016\njue ene 14 15:37:31 CET 2016\njue ene 14 15:37:32 CET 2016\njue ene 14 15:37:33 CET 2016\njue ene 14 15:37:35 CET 2016\njue ene 14 15:37:36 CET 2016\n108 12.9m URGENT delete-index [.shield_audit_log-2016.01.14] \n109 12.5m HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:37 CET 2016\n108 33.5m URGENT delete-index [.shield_audit_log-2016.01.14] \n109 33.2m HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:38 CET 2016\n108 52.8m URGENT delete-index [.shield_audit_log-2016.01.14] \n109 52.5m HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:39 CET 2016\n108 1.1h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 1.1h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:40 CET 2016\n108 1.4h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 1.4h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:41 CET 2016\n108 1.7h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 1.7h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:42 CET 2016\n108 2.1h URGENT delete-index [.shield_audit_log-2016.01.14] \n109   2h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:44 CET 2016\n108 2.4h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 2.3h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:45 CET 2016\n108 2.7h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 2.7h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:46 CET 2016\n108 3h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 3h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:47 CET 2016\n108 3.3h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 3.3h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:48 CET 2016\n108 3.6h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 3.6h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:49 CET 2016\n108 3.9h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 3.9h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:50 CET 2016\n108 4.2h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 4.2h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:51 CET 2016\n108 4.5h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 4.5h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:52 CET 2016\n108 4.8h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 4.8h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:53 CET 2016\n108 5.1h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 5.1h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:55 CET 2016\n108 5.4h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 5.4h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:56 CET 2016\n108 5.7h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 5.7h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:57 CET 2016\n108 6.1h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 6.1h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:58 CET 2016\n108 6.4h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 6.4h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:37:59 CET 2016\n108 6.7h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 6.7h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:38:00 CET 2016\n108 7h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 7h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:38:01 CET 2016\n108 7.3h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 7.3h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:38:02 CET 2016\n108 7.6h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 7.6h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:38:04 CET 2016\n108 7.9h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 7.9h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:38:05 CET 2016\n108 8.2h URGENT delete-index [.shield_audit_log-2016.01.14] \n109 8.2h HIGH   cluster_reroute(async_shard_fetch)          \njue ene 14 15:38:06 CET 2016\n108  8.5h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 10.6m URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109  8.5h HIGH   cluster_reroute(async_shard_fetch)                                  \njue ene 14 15:38:07 CET 2016\n108  8.8h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 29.7m URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109  8.8h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  7.8m HIGH   _add_listener_                                                      \njue ene 14 15:38:08 CET 2016\n108  9.2h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 48.4m URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109  9.1h HIGH   cluster_reroute(async_shard_fetch)                                  \n111 26.5m HIGH   _add_listener_                                                      \njue ene 14 15:38:09 CET 2016\n108  9.5h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  1.1h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109  9.5h HIGH   cluster_reroute(async_shard_fetch)                                  \n111 44.9m HIGH   _add_listener_                                                      \njue ene 14 15:38:10 CET 2016\n108 9.8h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 1.4h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 9.8h HIGH   cluster_reroute(async_shard_fetch)                                  \n111   1h HIGH   _add_listener_                                                      \njue ene 14 15:38:11 CET 2016\n108 10.1h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  1.7h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 10.1h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  1.3h HIGH   _add_listener_                                                      \njue ene 14 15:38:12 CET 2016\n108 10.4h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110    2h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 10.4h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  1.6h HIGH   _add_listener_                                                      \njue ene 14 15:38:14 CET 2016\n108 10.7h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  2.3h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 10.7h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  1.9h HIGH   _add_listener_                                                      \njue ene 14 15:38:15 CET 2016\n108  11h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 2.6h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109  11h HIGH   cluster_reroute(async_shard_fetch)                                  \n111 2.2h HIGH   _add_listener_                                                      \njue ene 14 15:38:16 CET 2016\n108 11.3h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  2.9h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 11.3h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  2.6h HIGH   _add_listener_                                                      \njue ene 14 15:38:17 CET 2016\n108 11.6h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  3.2h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 11.6h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  2.9h HIGH   _add_listener_                                                      \njue ene 14 15:38:18 CET 2016\n108 11.9h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  3.5h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 11.9h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  3.2h HIGH   _add_listener_                                                      \njue ene 14 15:38:19 CET 2016\n108 12.2h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  3.9h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 12.2h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  3.5h HIGH   _add_listener_                                                      \njue ene 14 15:38:20 CET 2016\n108 12.6h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  4.2h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 12.6h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  3.8h HIGH   _add_listener_                                                      \njue ene 14 15:38:21 CET 2016\n108 12.9h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  4.5h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 12.9h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  4.1h HIGH   _add_listener_                                                      \njue ene 14 15:38:22 CET 2016\n108 13.2h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  4.8h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 13.2h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  4.4h HIGH   _add_listener_                                                      \njue ene 14 15:38:24 CET 2016\n108 13.5h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  5.1h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 13.5h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  4.7h HIGH   _add_listener_                                                      \njue ene 14 15:38:25 CET 2016\n108 13.8h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  5.4h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 13.8h HIGH   cluster_reroute(async_shard_fetch)                                  \n111    5h HIGH   _add_listener_                                                      \njue ene 14 15:38:26 CET 2016\n108 14.1h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  5.7h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 14.1h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  5.4h HIGH   _add_listener_                                                      \njue ene 14 15:38:27 CET 2016\n108 14.4h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110    6h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 14.4h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  5.7h HIGH   _add_listener_                                                      \njue ene 14 15:38:28 CET 2016\n108 14.8h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  6.4h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 14.8h HIGH   cluster_reroute(async_shard_fetch)                                  \n111    6h HIGH   _add_listener_                                                      \njue ene 14 15:38:29 CET 2016\n108 15.1h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  6.7h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 15.1h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  6.3h HIGH   _add_listener_                                                      \njue ene 14 15:38:30 CET 2016\n108 15.4h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110    7h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 15.4h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  6.6h HIGH   _add_listener_                                                      \njue ene 14 15:38:31 CET 2016\n108 15.7h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  7.3h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 15.7h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  6.9h HIGH   _add_listener_                                                      \njue ene 14 15:38:33 CET 2016\n108  16h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 7.6h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109  16h HIGH   cluster_reroute(async_shard_fetch)                                  \n111 7.2h HIGH   _add_listener_                                                      \njue ene 14 15:38:34 CET 2016\n108 16.3h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  7.9h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 16.3h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  7.5h HIGH   _add_listener_                                                      \njue ene 14 15:38:35 CET 2016\n108 16.6h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  8.2h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 16.6h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  7.8h HIGH   _add_listener_                                                      \njue ene 14 15:38:36 CET 2016\n108 16.9h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  8.5h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 16.9h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  8.2h HIGH   _add_listener_                                                      \njue ene 14 15:38:37 CET 2016\n108 17.2h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  8.8h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 17.2h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  8.5h HIGH   _add_listener_                                                      \njue ene 14 15:38:38 CET 2016\n108 17.5h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  9.1h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 17.5h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  8.8h HIGH   _add_listener_                                                      \njue ene 14 15:38:39 CET 2016\n108 17.8h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  9.4h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 17.8h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  9.1h HIGH   _add_listener_                                                      \n112    4m HIGH   _add_listener_                                                      \njue ene 14 15:38:40 CET 2016\n108 18.1h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110  9.7h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 18.1h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  9.4h HIGH   _add_listener_                                                      \n112 22.2m HIGH   _add_listener_                                                      \njue ene 14 15:38:41 CET 2016\n108 18.4h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 10.1h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 18.4h HIGH   cluster_reroute(async_shard_fetch)                                  \n111  9.7h HIGH   _add_listener_                                                      \n112 40.4m HIGH   _add_listener_                                                      \njue ene 14 15:38:43 CET 2016\n108 18.8h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 10.4h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 18.7h HIGH   cluster_reroute(async_shard_fetch)                                  \n111   10h HIGH   _add_listener_                                                      \n112 58.6m HIGH   _add_listener_                                                      \njue ene 14 15:38:44 CET 2016\n108 19.1h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 10.7h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 19.1h HIGH   cluster_reroute(async_shard_fetch)                                  \n111 10.3h HIGH   _add_listener_                                                      \n112  1.2h HIGH   _add_listener_                                                      \njue ene 14 15:38:45 CET 2016\n108 19.4h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110   11h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 19.4h HIGH   cluster_reroute(async_shard_fetch)                                  \n111 10.6h HIGH   _add_listener_                                                      \n112  1.6h HIGH   _add_listener_                                                      \njue ene 14 15:38:46 CET 2016\n108 19.7h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 11.3h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 19.7h HIGH   cluster_reroute(async_shard_fetch)                                  \n111 10.9h HIGH   _add_listener_                                                      \n112  1.9h HIGH   _add_listener_                                                      \njue ene 14 15:38:47 CET 2016\n108   20h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 11.6h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109   20h HIGH   cluster_reroute(async_shard_fetch)                                  \n111 11.3h HIGH   _add_listener_                                                      \n112  2.2h HIGH   _add_listener_                                                      \njue ene 14 15:38:48 CET 2016\n108 20.3h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 11.9h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 20.3h HIGH   cluster_reroute(async_shard_fetch)                                  \n111 11.6h HIGH   _add_listener_                                                      \n112  2.5h HIGH   _add_listener_                                                      \njue ene 14 15:38:49 CET 2016\n108 20.6h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 12.2h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 20.6h HIGH   cluster_reroute(async_shard_fetch)                                  \n111 11.9h HIGH   _add_listener_                                                      \n112  2.8h HIGH   _add_listener_                                                      \njue ene 14 15:38:50 CET 2016\n108 20.9h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 12.5h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 20.9h HIGH   cluster_reroute(async_shard_fetch)                                  \n111 12.2h HIGH   _add_listener_                                                      \n112  3.1h HIGH   _add_listener_                                                      \njue ene 14 15:38:51 CET 2016\n108 21.2h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 12.8h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 21.2h HIGH   cluster_reroute(async_shard_fetch)                                  \n111 12.5h HIGH   _add_listener_                                                      \n112  3.4h HIGH   _add_listener_                                                      \njue ene 14 15:38:53 CET 2016\n108 21.5h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 13.1h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 21.5h HIGH   cluster_reroute(async_shard_fetch)                                  \n111 12.8h HIGH   _add_listener_                                                      \n112  3.7h HIGH   _add_listener_                                                      \njue ene 14 15:38:54 CET 2016\n108 21.8h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 13.4h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 21.8h HIGH   cluster_reroute(async_shard_fetch)                                  \n111 13.1h HIGH   _add_listener_                                                      \n112    4h HIGH   _add_listener_                                                      \njue ene 14 15:38:55 CET 2016\n108 22.1h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 13.7h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 22.1h HIGH   cluster_reroute(async_shard_fetch)                                  \n111 13.4h HIGH   _add_listener_                                                      \n112  4.3h HIGH   _add_listener_                                                      \njue ene 14 15:38:56 CET 2016\n108 22.5h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 14.1h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 22.5h HIGH   cluster_reroute(async_shard_fetch)                                  \n111 13.7h HIGH   _add_listener_                                                      \n112  4.7h HIGH   _add_listener_                                                      \njue ene 14 15:38:57 CET 2016\n108 22.8h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 14.4h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 22.8h HIGH   cluster_reroute(async_shard_fetch)                                  \n111   14h HIGH   _add_listener_                                                      \n112    5h HIGH   _add_listener_                                                      \njue ene 14 15:38:58 CET 2016\n108 23.1h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 14.7h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 23.1h HIGH   cluster_reroute(async_shard_fetch)                                  \n111 14.3h HIGH   _add_listener_                                                      \n112  5.3h HIGH   _add_listener_                                                      \njue ene 14 15:38:59 CET 2016\n108 23.4h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110   15h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 23.4h HIGH   cluster_reroute(async_shard_fetch)                                  \n111 14.6h HIGH   _add_listener_                                                      \n112  5.6h HIGH   _add_listener_                                                      \njue ene 14 15:39:00 CET 2016\n108 23.7h URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 15.3h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109 23.7h HIGH   cluster_reroute(async_shard_fetch)                                  \n111 14.9h HIGH   _add_listener_                                                      \n112  5.9h HIGH   _add_listener_                                                      \njue ene 14 15:39:01 CET 2016\n108    1d URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 15.6h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109    1d HIGH   cluster_reroute(async_shard_fetch)                                  \n111 15.3h HIGH   _add_listener_                                                      \n112  6.2h HIGH   _add_listener_                                                      \njue ene 14 15:39:03 CET 2016\n108    1d URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 15.9h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109    1d HIGH   cluster_reroute(async_shard_fetch)                                  \n111 15.6h HIGH   _add_listener_                                                      \n112  6.5h HIGH   _add_listener_                                                      \njue ene 14 15:39:04 CET 2016\n108    1d URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 16.2h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109    1d HIGH   cluster_reroute(async_shard_fetch)                                  \n111 15.9h HIGH   _add_listener_                                                      \n112  6.8h HIGH   _add_listener_                                                      \njue ene 14 15:39:05 CET 2016\n108    1d URGENT delete-index [.shield_audit_log-2016.01.14]                         \n110 16.5h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109    1d HIGH   cluster_reroute(async_shard_fetch)                                  \n111 16.2h HIGH   _add_listener_                                                      \n112  7.1h HIGH   _add_listener_                                                      \njue ene 14 15:39:06 CET 2016\n108    1d URGENT delete-index [.shield_audit_log-2016.01.14]                         \n113 13.8m URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109    1d HIGH   cluster_reroute(async_shard_fetch)                                  \n111 16.5h HIGH   _add_listener_                                                      \n112  7.4h HIGH   _add_listener_                                                      \njue ene 14 15:39:07 CET 2016\n108    1d URGENT delete-index [.shield_audit_log-2016.01.14]                         \n113 32.6m URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109    1d HIGH   cluster_reroute(async_shard_fetch)                                  \n111 16.8h HIGH   _add_listener_                                                      \n112  7.7h HIGH   _add_listener_                                                      \njue ene 14 15:39:08 CET 2016\n108    1d URGENT delete-index [.shield_audit_log-2016.01.14]                         \n113 50.8m URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109    1d HIGH   cluster_reroute(async_shard_fetch)                                  \n111 17.1h HIGH   _add_listener_                                                      \n112    8h HIGH   _add_listener_                                                      \njue ene 14 15:39:09 CET 2016\n108    1d URGENT delete-index [.shield_audit_log-2016.01.14]                         \n113  1.1h URGENT create-index [.shield_audit_log-2016.01.14], cause [auto(bulk api)] \n109    1d HIGH   cluster_reroute(async_shard_fetch)                                  \n111 17.4h HIGH   _add_listener_                                                      \n112  8.3h HIGH   _add_listener_                                                      \n^C\nabonuccelli@w530 ~ $ \n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/15988",
+        "assignees": [
+            "jasontedor"
+        ],
+        "labels": [
+            ">bug",
+            "good first issue",
+            ":Core/Infra/Stats",
+            "v2.1.0",
+            "v2.0.0",
+            "v2.0.1",
+            "v2.0.2",
+            "v2.1.1"
+        ],
+        "issue_closed_at": "2016-01-15T13:01:50.000Z",
+        "fix_commit_hash": "3d329e3ba06075e0cb5acf39968dde68cee954a8",
+        "commit_type": "commit_ref_pr",
+        "commit_message": "Add real clock test for age of PrioritizedRunnable\n\nThis commit adds a test for calculating the age of PrioritizedRunnable\nthat allows real clock time to elapse. The test ensures that at least\none millisecond has passed, and that the resolution of System#nanoTime\non the underlying system is actually able to detect this.\n\nRelates #15995",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/15995",
+        "earliest_issue_date": "2016-01-14T14:45:02Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 15997,
+        "issue_title": "Disabling _source prevents any further updates to mapping",
+        "issue_body": "It seems that if you disable the `_source` when first creating the index, and subsequent updates to the mapping will fail with `Merge failed with failures {[Cannot update enabled setting for [_source]]}`, even if the update doesn't change `_source` at all.\n\nTested on ES 2.1\n\n``` json\n{\n   \"name\": \"Domo\",\n   \"cluster_name\": \"elasticsearch\",\n   \"version\": {\n      \"number\": \"2.1.0\",\n      \"build_hash\": \"72cd1f1a3eee09505e036106146dc1949dc5dc87\",\n      \"build_timestamp\": \"2015-11-18T22:40:03Z\",\n      \"build_snapshot\": false,\n      \"lucene_version\": \"5.3.1\"\n   },\n   \"tagline\": \"You Know, for Search\"\n}\n```\n### Example\n\n``` js\nDELETE /data\n\nPUT /data\n{\n    \"mappings\": {\n        \"data\": {\n            \"_source\": {\n                \"enabled\": false\n            },\n            \"properties\": {\n                \"float\": {\n                    \"type\": \"float\"\n                },\n                \"double\": {\n                    \"type\": \"double\"\n                }\n            }\n        }\n    }\n}\n\nGET /data/_mapping\n```\n\n``` json\n{\n   \"data\": {\n      \"mappings\": {\n         \"data\": {\n            \"_source\": {\n               \"enabled\": false\n            },\n            \"properties\": {\n               \"double\": {\n                  \"type\": \"double\"\n               },\n               \"float\": {\n                  \"type\": \"float\"\n               }\n            }\n         }\n      }\n   }\n}\n```\n\nAll good, but if we try to update the mapping:\n\n``` js\nPUT /data/_mapping/data\n{\n   \"properties\": {\n      \"long\": {\n         \"type\": \"long\"\n      }\n   }\n}\n```\n\n``` json\n{\n   \"error\": {\n      \"root_cause\": [\n         {\n            \"type\": \"merge_mapping_exception\",\n            \"reason\": \"Merge failed with failures {[Cannot update enabled setting for [_source]]}\"\n         }\n      ],\n      \"type\": \"merge_mapping_exception\",\n      \"reason\": \"Merge failed with failures {[Cannot update enabled setting for [_source]]}\"\n   },\n   \"status\": 400\n}\n```\n\nIf you repeat the process without touching `_source`, everything works as expected:\n\n``` js\nDELETE /data\n\nPUT /data\n{\n    \"mappings\": {\n        \"data\": {\n            \"properties\": {\n                \"float\": {\n                    \"type\": \"float\"\n                },\n                \"double\": {\n                    \"type\": \"double\"\n                }\n            }\n        }\n    }\n}\n\nGET /data/_mapping\n\nPUT /data/_mapping/data\n{\n   \"properties\": {\n      \"long\": {\n         \"type\": \"long\"\n      }\n   }\n}\n\nGET /data/_mapping\n```\n\n``` json\n{\n   \"data\": {\n      \"mappings\": {\n         \"data\": {\n            \"properties\": {\n               \"double\": {\n                  \"type\": \"double\"\n               },\n               \"float\": {\n                  \"type\": \"float\"\n               },\n               \"long\": {\n                  \"type\": \"long\"\n               }\n            }\n         }\n      }\n   }\n}\n```\n\nAnd it doesn't seem to matter if you enable or disable _source, both cases will cause the error.  It seems to be the presence of specifying _source that breaks future updates.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/15997",
+        "assignees": [
+            "jpountz"
+        ],
+        "labels": [
+            ">bug",
+            "help wanted",
+            ":Search Foundations/Mapping",
+            "Team:Search Foundations"
+        ],
+        "issue_closed_at": "2016-01-19T08:28:04.000Z",
+        "fix_commit_hash": "d9ccf5e9ff49bf6640c4f1591fe2ed007230387a",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Reuse metadata mappers for dynamic updates.\n\nWhen a metadata mapper is not specified in a mapping update, it should default\nto the current metadata mapper instead of the general default in order for the\nupdate to not conflict with the current mapping.\n\nCloses #15997",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16023",
+        "earliest_issue_date": "2016-01-14T18:18:22Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16008,
+        "issue_title": "_cat/count docs clarification",
+        "issue_body": "[Here](https://www.elastic.co/guide/en/elasticsearch/reference/2.1/cat-count.html), we should really state that count does/does not include deleted documents (in ES).\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16008",
+        "assignees": [
+            "debadair"
+        ],
+        "labels": [
+            ">docs",
+            "good first issue"
+        ],
+        "issue_closed_at": "2016-03-01T12:41:19.000Z",
+        "fix_commit_hash": "d928352df584da5a622a40bfded6dbd4b411488b",
+        "commit_type": "commit",
+        "commit_message": "Update count.asciidoc\n\nAdded a note clarifying that deleted documents are not returned by `_cat/count`\r\n\r\nCloses https://github.com/elastic/elasticsearch/issues/16008",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/d928352df584da5a622a40bfded6dbd4b411488b",
+        "earliest_issue_date": "2016-01-15T05:20:47Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16034,
+        "issue_title": "Elasticsearch should reject _id longer than the maximum URI length",
+        "issue_body": "If a user indexes a document with an `_id` value longer than the maximum allowed length of an HTTP URI (for instance, with the java api), they will not be able to retrieve the document via id (the get-document API) using the HTTP API without resorting to something like the `ids` query.\n\nElasticsearch should reject ids that are this long, to ensure a document always remains retrievable\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16034",
+        "assignees": [
+            "dakrone"
+        ],
+        "labels": [
+            ">enhancement",
+            "good first issue",
+            ":Core/Infra/REST API"
+        ],
+        "issue_closed_at": "2016-02-22T20:15:39.000Z",
+        "fix_commit_hash": "99052c3fef16d6192af0839558ce3dbf23aa148d",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Limit the accepted length of the _id\n\nElasticsearch should reject ids that are this long, to ensure a document\nalways remains retrievable for clients that impose a maximum URI length\n\nCloses #16034",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16036",
+        "earliest_issue_date": "2016-01-16T18:00:58Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16035,
+        "issue_title": "docs: Bulk API Reference lacking response format and other details",
+        "issue_body": "Correctly processing the _response_ to a Bulk API call is incredibly important to ensuring data integrity, however the Bulk API reference docs [2.x](https://www.elastic.co/guide/en/elasticsearch/reference/2.x/docs-bulk.html) only state:\n\n> The response to a bulk action is a large JSON structure with the individual results of each action that was performed.\n\nThe only description of that \"large JSON structure\" is in an example curl command at the top of the page which only shows what a single action's response might look like:\n\n``` json\n{\"took\":7,\"items\":[{\"create\":{\"_index\":\"test\",\"_type\":\"type1\",\"_id\":\"1\",\"_version\":1}}]}\n```\n\nThere is a ton to infer from that snippet:\n- `items` is an array of the same length and order as the sent actions+documents?\n- The response to `index` actions will indicate how they were applied? So for a new document the response type will be `create` but for an existing doc it would be...?\n- What indicates an error?!\n## Other oddity: non-HTTP API?\n\nSame page and small, so I don't think it's worth a separate issue but:\n\n> If using the HTTP API...\n\nThis is the only hint on the entire page that there's a non-HTTP bulk API. Pretty sure this phrase should just be removed?\n\n_Update:_ Aha! https://www.elastic.co/guide/en/elasticsearch/reference/2.1/breaking_20_removed_features.html#_bulk_udp\n## Final nit pick: Write consistency means...?\n\nThe write consistency docs only say enough shards must be _active_ to satisfy write consistency concerns.\n\nIn other distributed systems I associate write consistency with how many nodes must _commit_ a write before the write is considered successfully applied.\n\nDoes write consistency depend solely on cluster state (the mere availability of active shards), or does it actually block on the writes to remote hosts?\n\n(Also with replicas=1 quorum should really mean the primary+replica both must be available, not just one of them... `one` and `quroum` should not be the same, but thanks for at least documenting that they are!)\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16035",
+        "assignees": [
+            "debadair"
+        ],
+        "labels": [
+            ">docs",
+            ":Distributed/CRUD"
+        ],
+        "issue_closed_at": "2019-10-15T18:27:49.000Z",
+        "fix_commit_hash": "3d5d96da07c461fc6e495f1d864d106707fe5378",
+        "commit_type": "commit",
+        "commit_message": "Added request and response body sections. Closes #16035 (#48032)",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/3d5d96da07c461fc6e495f1d864d106707fe5378",
+        "earliest_issue_date": "2016-01-16T18:07:59Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16037,
+        "issue_title": "Reindex should copy status from any search failures",
+        "issue_body": "Currently it only copies from search failures. Oops.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16037",
+        "assignees": [
+            "nik9000"
+        ],
+        "labels": [
+            "blocker",
+            ":Distributed/CRUD"
+        ],
+        "issue_closed_at": "2016-03-10T18:48:19.000Z",
+        "fix_commit_hash": "7b1d567cd21c7dc3d7f2cd7fad889826125cd627",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "[reindex] Make search failure cause rest failure\n\nIndexing failures have caused the reindex http request to fail for a while\nnow. Both search and indexing failures cause it to abort. But search\nfailures didn't cause a non-200 response code from the http api. This\nfixes that.\n\nAlso slips in a fix to some infrequently failing rest tests.\n\nCloses #16037",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16889",
+        "earliest_issue_date": "2016-01-17T02:08:51Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16075,
+        "issue_title": "Reduce scroll timeout in example",
+        "issue_body": "[Here](https://www.elastic.co/guide/en/elasticsearch/client/java-api/2.1/java-search-scrolling.html) we have `60000ms` as the timeout, but [here](https://www.elastic.co/guide/en/elasticsearch/reference/2.1/search-request-scroll.html#scroll-search-context) we state;\n\n> Its value (e.g. 1m, see the section called \u201cTime unitsedit\u201d) does not need to be long enough to process all data\u2009\u2014\u2009it just needs to be long enough to process the previous batch of results\n\nWhich seems at opposites.\n\nI'd suggest we update the java docs and reduce the figure in the example.\n\n(Reported via twitter - https://twitter.com/xavierfacq/status/689116646124957696)\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16075",
+        "assignees": [
+            "jasontedor"
+        ],
+        "labels": [
+            ">docs"
+        ],
+        "issue_closed_at": "2016-01-19T13:44:17.000Z",
+        "fix_commit_hash": "d2ad2e8eee341c0edea94437b412474ec883251b",
+        "commit_type": "commit",
+        "commit_message": "Fix typo in scroll timeout example\n\nCloses #16075",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/d2ad2e8eee341c0edea94437b412474ec883251b",
+        "earliest_issue_date": "2016-01-19T07:44:15Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16097,
+        "issue_title": "Build on Windows 2012 fails with compilation failure from assigning to final variables",
+        "issue_body": "Compile issue that seems only to happen on Windows jdk as seen here:\n\nhttp://build-us-00.elastic.co/job/es_core_master_window-2012/2315/\n\n```\nCompiling with Java command line compiler 'y:\\jdk8\\8u11\\bin\\javac'.\nStarting process 'command 'y:\\jdk8\\8u11\\bin\\javac''. Working directory: Y:\\jenkins\\workspace\\es_core_master_window-2012\\core Command: y:\\jdk8\\8u11\\bin\\javac -J-Xmx1g @Y:\\jenkins\\workspace\\es_core_master_window-2012\\core\\build\\tmp\\compileJava\\java-compiler-args.txt\nSuccessfully started process 'command 'y:\\jdk8\\8u11\\bin\\javac''\nY:\\jenkins\\workspace\\es_core_master_window-2012\\core\\src\\main\\java\\org\\elasticsearch\\cluster\\metadata\\AutoExpandReplicas.java:44: error: cannot assign a value to final variable min\n            min = Integer.parseInt(sMin);\n            ^\nY:\\jenkins\\workspace\\es_core_master_window-2012\\core\\src\\main\\java\\org\\elasticsearch\\cluster\\metadata\\AutoExpandReplicas.java:50: error: cannot assign a value to final variable max\n            max = Integer.MAX_VALUE;\n            ^\nY:\\jenkins\\workspace\\es_core_master_window-2012\\core\\src\\main\\java\\org\\elasticsearch\\cluster\\metadata\\AutoExpandReplicas.java:53: error: cannot assign a value to final variable max\n                max = Integer.parseInt(sMax);\n                ^\n```\n\nThe same code compiles fine on other systems. I'll go ahead and remove the offending `final` modifier for now, but leave a comment linking to this issue.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16097",
+        "assignees": [],
+        "labels": [
+            ":Delivery/Build",
+            ">test-failure",
+            "Team:Delivery"
+        ],
+        "issue_closed_at": "2016-01-20T19:39:21.000Z",
+        "fix_commit_hash": "bd1eefa5be425b2311c19086a4aa17b6fdc11eca",
+        "commit_type": "commit",
+        "commit_message": "Revert temporary compiler bug workaround\n\nThis reverts commit df5f1b1ee9da7d45e20880e411d7e5280ef5ca59.\n\nCloses #16097",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/bd1eefa5be425b2311c19086a4aa17b6fdc11eca",
+        "earliest_issue_date": "2016-01-19T17:14:07Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16109,
+        "issue_title": "[Ingest] SplitProcessor does not interoperate well",
+        "issue_body": "After a split processor sets a list value, it is of type `Arrays$ArrayList`, and the underlying `add` that is inherited is from `AbstractList` which does not support `add(Object o)`.\n\nhere is a sample pipeline that leads to the processor interoperability issue\n\n``` json\n{\n  \"pipeline\": {\n    \"processors\": [\n      {\n        \"set\": {\n          \"processor_tag\": \"processor_1\",\n          \"field\": \"flags\",\n          \"value\": \"new|hot|super|fun|interesting\"\n        }\n      },\n      {\n        \"split\": {\n          \"processor_tag\": \"processor_2\",\n          \"field\": \"flags\",\n          \"separator\": \"\\\\|\"\n        }\n      },\n      {\n        \"append\": {\n          \"processor_tag\": \"processor_3\",\n          \"field\": \"flags\",\n          \"value\": [\n            \"additional_flag\"\n          ]\n        }\n      }\n    ]\n  },\n  \"docs\": [\n    {\n      \"_source\": {}\n    }\n  ]\n}\n```\n\nhere is a test to help recreate this:\n\n``` java\npublic void testAppend() throws Exception {\n        TemplateService templateService = TestTemplateService.instance();\n\n        Map setConfig = new HashMap<>();\n        setConfig.put(\"field\", \"flags\");\n        setConfig.put(\"value\", \"new|hot|super|fun|interesting\");\n        Processor p1 = (new SetProcessor.Factory(templateService)).create(setConfig);\n\n        Map splitConfig = new HashMap<>();\n        splitConfig.put(\"field\", \"flags\");\n        splitConfig.put(\"separator\", \"\\\\|\");\n        Processor p2 = (new SplitProcessor.Factory()).create(splitConfig);\n\n        Map appendConfig = new HashMap<>();\n        appendConfig.put(\"field\", \"flags\");\n        appendConfig.put(\"value\", Collections.singletonList(\"additional_flag\"));\n        Processor p3 = (new AppendProcessor.Factory(templateService)).create(appendConfig);\n\n        CompoundProcessor compoundProcessor = new CompoundProcessor(p1, p2, p3);\n\n        IngestDocument ingestDocument = new IngestDocument(new HashMap<>(), new HashMap<>());\n        compoundProcessor.execute(ingestDocument);\n}\n```\n\nexception thrown:\n\n```\njava.lang.UnsupportedOperationException\n    at __randomizedtesting.SeedInfo.seed([73BE8BBD9217E836:9B6A3F6987AE9240]:0)\n    at java.util.AbstractList.add(AbstractList.java:148)\n    at java.util.AbstractList.add(AbstractList.java:108)\n    at org.elasticsearch.ingest.core.IngestDocument$$Lambda$1/1854908422.accept(Unknown Source)\n    at java.util.ArrayList$ArrayListSpliterator.forEachRemaining(ArrayList.java:1374)\n    at java.util.stream.ReferencePipeline$Head.forEach(ReferencePipeline.java:580)\n    at org.elasticsearch.ingest.core.IngestDocument.appendValues(IngestDocument.java:415)\n    at org.elasticsearch.ingest.core.IngestDocument.appendValues(IngestDocument.java:407)\n    at org.elasticsearch.ingest.core.IngestDocument.setFieldValue(IngestDocument.java:358)\n    at org.elasticsearch.ingest.core.IngestDocument.appendFieldValue(IngestDocument.java:264)\n    at org.elasticsearch.ingest.core.IngestDocument.appendFieldValue(IngestDocument.java:281)\n    at org.elasticsearch.ingest.processor.AppendProcessor.execute(AppendProcessor.java:60)\n    at org.elasticsearch.ingest.core.CompoundProcessor.execute(CompoundProcessor.java:73)\n```\n\nthanks to @BigFunger for reporting this!\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16109",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ":Distributed/Ingest Node"
+        ],
+        "issue_closed_at": "2016-01-26T12:41:36.000Z",
+        "fix_commit_hash": "2c4e13bf7cb30df24e882d3368e9b4799df8394b",
+        "commit_type": "commit",
+        "commit_message": "split string into ArrayList so it can be appended to\n\nFixes #16109.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/2c4e13bf7cb30df24e882d3368e9b4799df8394b",
+        "earliest_issue_date": "2016-01-20T04:52:36Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16111,
+        "issue_title": "EC2 discovery docs point to old repo",
+        "issue_body": "[Here](https://www.elastic.co/guide/en/elasticsearch/reference/2.1/modules-discovery-ec2.html) we point to https://github.com/elastic/elasticsearch-cloud-aws, instead of https://www.elastic.co/guide/en/elasticsearch/plugins/current/cloud-aws.html\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16111",
+        "assignees": [
+            "dadoonet"
+        ],
+        "labels": [
+            ">docs",
+            "v2.2.0",
+            "v2.1.2",
+            "v2.0.3",
+            "v2.3.0"
+        ],
+        "issue_closed_at": "2016-01-20T10:16:57.000Z",
+        "fix_commit_hash": "7efbb26f74fe024b90175fd7c8ecb33530c95a19",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Fix EC2, GCE and Azure discovery links\n\nCloses #16111.",
+        "closer_url": null,
+        "earliest_issue_date": "2016-01-20T05:21:27Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16135,
+        "issue_title": "Aggs with fielddata disabled fails inconsistently",
+        "issue_body": "> Reported by @jimmyjones2 in https://github.com/elastic/kibana/issues/3335#issuecomment-168061914\n\nWhile indexing a small amount of data to test https://github.com/elastic/kibana/issues/3335 we discovered a strange inconsistency with how elasticsearch validated aggregations. What we observed:\n\nAfter creating a fresh index (two shards and a `nofielddata` field) any aggregation using the `nofielddata` field can be sent to the index and responses will come back as \"successful\". As shards start to get documents these shards will start to fail with `\"java.lang.IllegalStateException: Field data loading is forbidden on nofielddata\"`, but responses will still be formatted as partial successes. Once the final shard has a document requests will start to actually fail (response with a top level \"error\" property).\n\nThis feels like a serious edge-case, but I figured there isn't any harm in reporting it. \n\n---\n\nHere is a sense script to replicate this:\n\n``` sh\nDELETE /test?ignore_unavailable=true\n\nPOST /test\n{\n  \"settings\": {\n    \"number_of_shards\": 2\n  },\n  \"mappings\": {\n    \"test\" : {\n      \"properties\": {\n        \"nofielddata\" : {\n          \"type\": \"string\",\n          \"fielddata\" : { \"format\" : \"disabled\" }\n        }\n      }\n    }\n  }\n}\n\nPOST /test/test\n{ \"noindex\" : \"foo\", \"nofielddata\" : \"foo\" }\n\nGET /test/test/_search\n{\n  \"query\": {\n    \"match\": {\n      \"_id\": \"AVJhGARbdsS1hY8oBX1Z\"\n    }\n  },\n  \"aggs\" : {\n    \"test\" : {\n      \"terms\" : { \"field\" : \"nofielddata\" }\n    }\n  }\n}\n\nPOST /test/test\n{ \"noindex\" : \"bar\", \"nofielddata\" : \"bar\" }\n\nGET /test/test/_search\n{\n  \"query\": {\n    \"match\": {\n      \"_id\": \"AVJhGARbdsS1hY8oBX1Z\"\n    }\n  },\n  \"aggs\" : {\n    \"test\" : {\n      \"terms\" : { \"field\" : \"nofielddata\" }\n    }\n  }\n}\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16135",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "help wanted",
+            ":Search/Search DO NOT USE"
+        ],
+        "issue_closed_at": "2016-01-27T08:13:30.000Z",
+        "fix_commit_hash": "fbf74e0e474e0698d5bf06ef063e00b09df5d97a",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Make disabled fielddata loading fail earlier.\n\nCurrently this fails when loading data from a segment, which means that it will\nnever fail on an empty index since it does not have segments.\n\nCloses #16135",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16179",
+        "earliest_issue_date": "2016-01-20T22:39:49Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16206,
+        "issue_title": "Translog replay is very slow because indexing buffer is stuck at 500 KB (inactive)",
+        "issue_body": "#13918 caused this issue, by having a shard start up in \"inactive\" state and only activating once it receives indexing operations.\n\nHowever, translog replay happens at a lower level (directly, by the `InternalEngine`) and bypasses the `active` boolean on the shard, meaning when a translog is replaying, Lucene is only using a tiny (`500 KB`) indexing buffer the whole time, making translog replay take far too long!\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16206",
+        "assignees": [
+            "mikemccand"
+        ],
+        "labels": [
+            ">bug",
+            "blocker",
+            ":Distributed/Engine"
+        ],
+        "issue_closed_at": "2016-01-26T20:53:42.000Z",
+        "fix_commit_hash": "8e6395b5f7df489548727ae56eee65d2fffe3c7d",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Make sure IndexShard is active during recovery so that it gets its fair share of the indexing buffer.\n\nCloses #16209\n\nCloses #16206\n\nConflicts:\n\tcore/src/main/java/org/elasticsearch/index/shard/IndexShard.java",
+        "closer_url": null,
+        "earliest_issue_date": "2016-01-25T10:07:11Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16218,
+        "issue_title": "Top level inner hits override query level inner hits",
+        "issue_body": "In the presence of top level inner hits query level inner hits are missing from the result, even if there are no name collisions. This necessitates rewriting query level inner hits as top level inner hits with a duplicate of the main query, which I assume is suboptimal.\n\nES 2.1.1.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16218",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ":Search/Search DO NOT USE"
+        ],
+        "issue_closed_at": "2016-01-29T09:52:47.000Z",
+        "fix_commit_hash": "6c34452409d2cc468daced1811db60cd81c6fe95",
+        "commit_type": "commit",
+        "commit_message": "inner hits: Query and top level inner hit definitions shouldn't overwrite each other.\n\nCloses #16218",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/6c34452409d2cc468daced1811db60cd81c6fe95",
+        "earliest_issue_date": "2016-01-26T07:20:34Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16239,
+        "issue_title": "PUT mapping with with search_analyzer and `update_all_types` does not actually update all types ",
+        "issue_body": "Or `toXContent` is broken.\n\nReproduce:\n\n```\nDELETE test_index\n\nPUT test_index\n{\n  \"mappings\": {\n    \"type1\": {\n      \"properties\": {\n        \"field\": {\n          \"type\": \"string\"\n        }\n      }\n    },\n    \"type2\": {\n      \"properties\": {\n        \"field\": {\n          \"type\": \"string\"\n        }\n      }\n    }\n  }\n}\n\nGET test_index/_mapping/field/field?include_defaults\n\nPUT test_index/type1/_mapping?update_all_types\n{\n  \"properties\": {\n    \"field\": {\n      \"type\": \"string\",\n      \"search_analyzer\": \"keyword\",\n      \"analyzer\": \"default\"\n    }\n  }\n}\n\n```\n\nIn the mapping I retrieve with the GET _mapping API in the mapping only type1 is updated, although with the GET field mapping API I get the correct mapping.\n\n```\nGET test_index/_mapping\n\n{\n  \"test_index\": {\n    \"mappings\": {\n      \"type1\": {\n        \"properties\": {\n          \"field\": {\n            \"type\": \"string\",\n            \"analyzer\": \"default\",\n            \"search_analyzer\": \"keyword\"\n          }\n        }\n      },\n      \"type2\": {\n        \"properties\": {\n          \"field\": {\n            \"type\": \"string\"\n          }\n        }\n      }\n    }\n  }\n}\n\nGET test_index/_mapping/field/field\n\n\n{\n  \"test_index\": {\n    \"mappings\": {\n      \"type2\": {\n        \"field\": {\n          \"full_name\": \"field\",\n          \"mapping\": {\n            \"field\": {\n              \"type\": \"string\",\n              \"analyzer\": \"default\",\n              \"search_analyzer\": \"keyword\"\n            }\n          }\n        }\n      },\n      \"type1\": {\n        \"field\": {\n          \"full_name\": \"field\",\n          \"mapping\": {\n            \"field\": {\n              \"type\": \"string\",\n              \"analyzer\": \"default\",\n              \"search_analyzer\": \"keyword\"\n            }\n          }\n        }\n      }\n    }\n  }\n}\n\n```\n\nWhen I restart the node the change has vanished from the field mapping result but still is in the get mapping result.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16239",
+        "assignees": [
+            "jpountz"
+        ],
+        "labels": [
+            ">bug",
+            ":Search Foundations/Mapping",
+            "Team:Search Foundations"
+        ],
+        "issue_closed_at": "2016-02-10T09:41:02.000Z",
+        "fix_commit_hash": "bb530377d0b38e42552329fc3ae4f21b05b09502",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Put mapping operations must update metadata of all types.\n\nToday put mapping operations only update metadata of the type that is being\nmodified, which is not enough since some modifications may have side-effects\non other types.\n\nCloses #16239",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16264",
+        "earliest_issue_date": "2016-01-26T16:14:49Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16246,
+        "issue_title": "node ingest - simulate - uppercase processor affecting output of previous processors",
+        "issue_body": "Processors appear to be firing out of sequence. \n\nIn example 1, when the geoip processor is the only processor in the pipeline, the resulting object has a continent_name property with the value of  \"North America\". Note that is it not all uppercase.\n\nIn example 2, the same geoip processor and input doc is used, but there is an additional uppercase processor after the geoip processor. Note that the output of BOTH processors in the pipeline have a continent_name property that is all uppercase.\n## Example 1\n### Request Body\n\n```\n{\n  \"pipeline\": {\n    \"processors\": [\n      {\n        \"geoip\": {\n          \"processor_id\": \"processor_1\",\n          \"source_field\": \"_raw\",\n          \"target_field\": \"geoip\"\n        }\n      }\n    ]\n  },\n  \"docs\": [\n    {\n      \"_source\": {\n        \"_raw\": \"64.242.88.10\"\n      }\n    }\n  ]\n}\n```\n### Response Body\n\n```\n{\n  \"docs\": [\n    {\n      \"processor_results\": [\n        {\n          \"processor_id\": \"processor_1\",\n          \"doc\": {\n            \"_type\": \"_type\",\n            \"_routing\": null,\n            \"_ttl\": null,\n            \"_index\": \"_index\",\n            \"_timestamp\": null,\n            \"_parent\": null,\n            \"_id\": \"_id\",\n            \"_source\": {\n              \"geoip\": {\n                \"continent_name\": \"North America\",\n                \"city_name\": \"Chesterfield\",\n                \"country_iso_code\": \"US\",\n                \"region_name\": \"Missouri\",\n                \"location\": [\n                  -90.5771,\n                  38.6631\n                ]\n              },\n              \"_raw\": \"64.242.88.10\"\n            },\n            \"_ingest\": {\n              \"timestamp\": \"2016-01-26T20:41:59.806+0000\"\n            }\n          }\n        }\n      ]\n    }\n  ]\n}\n```\n## Example 2\n### Request Body\n\n```\n{\n  \"pipeline\": {\n    \"processors\": [\n      {\n        \"geoip\": {\n          \"processor_id\": \"processor_1\",\n          \"source_field\": \"_raw\",\n          \"target_field\": \"geoip\"\n        }\n      },\n      {\n        \"uppercase\": {\n          \"processor_id\": \"processor_2\",\n          \"field\": \"geoip.continent_name\"\n        }\n      }\n    ]\n  },\n  \"docs\": [\n    {\n      \"_source\": {\n        \"_raw\": \"64.242.88.10\"\n      }\n    }\n  ]\n}\n```\n### Response Body\n\n```\n{\n  \"docs\": [\n    {\n      \"processor_results\": [\n        {\n          \"processor_id\": \"processor_1\",\n          \"doc\": {\n            \"_type\": \"_type\",\n            \"_routing\": null,\n            \"_ttl\": null,\n            \"_index\": \"_index\",\n            \"_timestamp\": null,\n            \"_parent\": null,\n            \"_id\": \"_id\",\n            \"_source\": {\n              \"geoip\": {\n                \"continent_name\": \"NORTH AMERICA\",\n                \"city_name\": \"Chesterfield\",\n                \"country_iso_code\": \"US\",\n                \"region_name\": \"Missouri\",\n                \"location\": [\n                  -90.5771,\n                  38.6631\n                ]\n              },\n              \"_raw\": \"64.242.88.10\"\n            },\n            \"_ingest\": {\n              \"timestamp\": \"2016-01-26T20:39:10.407+0000\"\n            }\n          }\n        },\n        {\n          \"processor_id\": \"processor_2\",\n          \"doc\": {\n            \"_type\": \"_type\",\n            \"_routing\": null,\n            \"_ttl\": null,\n            \"_index\": \"_index\",\n            \"_timestamp\": null,\n            \"_parent\": null,\n            \"_id\": \"_id\",\n            \"_source\": {\n              \"geoip\": {\n                \"continent_name\": \"NORTH AMERICA\",\n                \"city_name\": \"Chesterfield\",\n                \"country_iso_code\": \"US\",\n                \"region_name\": \"Missouri\",\n                \"location\": [\n                  -90.5771,\n                  38.6631\n                ]\n              },\n              \"_raw\": \"64.242.88.10\"\n            },\n            \"_ingest\": {\n              \"timestamp\": \"2016-01-26T20:39:10.407+0000\"\n            }\n          }\n        }\n      ]\n    }\n  ]\n}\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16246",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ":Distributed/Ingest Node"
+        ],
+        "issue_closed_at": "2016-01-26T21:49:30.000Z",
+        "fix_commit_hash": "15567506b28cbd4d16cea8cc5d57b4d1cdfb59d8",
+        "commit_type": "commit",
+        "commit_message": "ingest: The IngestDocument copy constructor should make a deep copy instead of shallow copy\n\nCloses #16246",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/15567506b28cbd4d16cea8cc5d57b4d1cdfb59d8",
+        "earliest_issue_date": "2016-01-26T20:47:00Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16253,
+        "issue_title": "Tribe node clients using wrong config path",
+        "issue_body": "This is a duplicate of https://github.com/elastic/elasticsearch/issues/15880\n\nTo replicate, copy the config directory to a new location and add a simple tribe config, eg:\n\n```\ncp -a elasticsearch-2.2.0/config tribe\necho \"tribe.t1.cluster.name: foo\" >> tribe/elasticsearch.yml\n```\n\nStart the tribe node as follows:\n\n```\n./elasticsearch-2.2.0/bin/elasticsearch --path.conf tribe\n```\n\nThe process dies with:\n\n```\nException in thread \"main\" java.security.AccessControlException: access denied (\"java.io.FilePermission\" \"/Users/clinton/workspace/servers/elasticsearch-2.2.0/config/hunspell\" \"read\")\nat java.security.AccessControlContext.checkPermission(AccessControlContext.java:472)\nat java.security.AccessController.checkPermission(AccessController.java:884)\nat java.lang.SecurityManager.checkPermission(SecurityManager.java:549)\nat java.lang.SecurityManager.checkRead(SecurityManager.java:888)\nat sun.nio.fs.UnixPath.checkRead(UnixPath.java:795)\nat sun.nio.fs.UnixFileAttributeViews$Basic.readAttributes(UnixFileAttributeViews.java:49)\nat sun.nio.fs.UnixFileSystemProvider.readAttributes(UnixFileSystemProvider.java:144)\nat java.nio.file.Files.readAttributes(Files.java:1737)\nat java.nio.file.Files.isDirectory(Files.java:2192)\nat org.elasticsearch.indices.analysis.HunspellService.scanAndLoadDictionaries(HunspellService.java:127)\nat org.elasticsearch.indices.analysis.HunspellService.<init>(HunspellService.java:102)\nat sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)\nat sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:62)\nat sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)\nat java.lang.reflect.Constructor.newInstance(Constructor.java:422)\nat <<<guice>>>\nat org.elasticsearch.node.Node.<init>(Node.java:200)\nat org.elasticsearch.tribe.TribeClientNode.<init>(TribeClientNode.java:35)\nat org.elasticsearch.tribe.TribeService.<init>(TribeService.java:141)\nat sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)\nat sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:62)\nat sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)\nat java.lang.reflect.Constructor.newInstance(Constructor.java:422)\nat <<<guice>>>\nat org.elasticsearch.node.Node.<init>(Node.java:200)\nat org.elasticsearch.node.Node.<init>(Node.java:128)\nat org.elasticsearch.node.NodeBuilder.build(NodeBuilder.java:145)\nat org.elasticsearch.bootstrap.Bootstrap.setup(Bootstrap.java:178)\nat org.elasticsearch.bootstrap.Bootstrap.init(Bootstrap.java:285)\nat org.elasticsearch.bootstrap.Elasticsearch.main(Elasticsearch.java:35)\n```\n\nThe reason for this is that, when the tribe node tries to create a client to connect to the cluster, it doesn't pass on the `path.conf` setting to the client, so that when HunspellService tries to [resolve the hunspell directory](https://github.com/elastic/elasticsearch/blob/master/core/src/main/java/org/elasticsearch/indices/analysis/HunspellService.java#L114) it uses `path.home` instead of the custom `path.conf`.\n\nAdding the absolute config path to the tribe node configuration works around this:\n\n```\necho \"tribe.t1.path.conf: /Users/clinton/workspace/servers/tribe/\" >> tribe/elasticsearch.yml\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16253",
+        "assignees": [
+            "javanna"
+        ],
+        "labels": [
+            ">bug"
+        ],
+        "issue_closed_at": "2016-01-27T12:48:20.000Z",
+        "fix_commit_hash": "8ff36d139e16f8720f2947ef62c8167a888992fe",
+        "commit_type": "commit_ref_pr",
+        "commit_message": "Tribe node: pass path.conf to inner tribe clients\n\nIf we don't do this, and some path.conf is set when starting the tribe node, that path.conf will be ignored and the inner tribe clients will try to read elsewhere, where they most likely don't have permissions to read from.\n\nCloses #16253\nCloses #16258",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16258",
+        "earliest_issue_date": "2016-01-27T09:23:23Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16260,
+        "issue_title": "ScriptSortBuilder:toXContent uses wrong parameter object when writing nested filters",
+        "issue_body": "This was discovered on master and fixed there (see #16153) but already existed in 2.2:\n\nhttps://github.com/elastic/elasticsearch/blob/2.2/core/src/main/java/org/elasticsearch/search/sort/ScriptSortBuilder.java#L192 ... here we are passing the parameters that actually belong to the script itself when writing out the nested query filter. Instead this should use the method's parameter \"builderParams\".\n\nI tried modifying the [SimpleSortTests](https://github.com/elastic/elasticsearch/blob/209860854ddc87ff71a49d9ced1186a8e2c8e3b8/modules/lang-groovy/src/test/java/org/elasticsearch/messy/tests/SimpleSortTests.java#L575), one of our messy tests, to demonstrate the issue - except apparently the additional json that's being generated doesn't bother [SortParseElement's](https://github.com/elastic/elasticsearch/blob/76fa9023b6378681de34672d2e94227e8b464cfd/core/src/main/java/org/elasticsearch/search/sort/SortParseElement.java) parsing method so the test above remained green. So not sure if this should be considered a bug and fixed for 2.x.\n\nWill post a test as PR showing the difference in json generated depending on whether script params are set or not shortly.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16260",
+        "assignees": [
+            "MaineC"
+        ],
+        "labels": [
+            ":Search/Search DO NOT USE",
+            ":Core/Infra/Scripting",
+            "v2.3.0"
+        ],
+        "issue_closed_at": "2016-01-27T13:22:10.000Z",
+        "fix_commit_hash": "d7b54895a7776e663a605833dbf7b72e125c03dd",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Fixes json generation for scriptsort w/ deprecated params\n\nFixes #16260",
+        "closer_url": null,
+        "earliest_issue_date": "2016-01-27T12:13:00Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16299,
+        "issue_title": "TribeIT.testOnConflictDrop still failing",
+        "issue_body": "Failed a few times yesterday and today (after Simon's fix):\nhttp://build-us-00.elastic.co/job/es_core_master_regression/4416/testReport/junit/org.elasticsearch.tribe/TribeIT/testOnConflictDrop/\n\nI was unable to reproduce it with: \n\n```\ngradle :core:integTest -Dtests.seed=2B576DFA8D61DCF9 -Dtests.class=org.elasticsearch.tribe.TribeIT -Dtests.method=\"testOnConflictDrop\" -Des.logger.level=WARN -Dtests.security.manager=true -Dtests.locale=de-GR -Dtests.timezone=Africa/Lubumbashi\n```\n\nThe error message is:\n\n```\nError Message\n\n Expected: <false>      but: was <true>\nStacktrace\n\njava.lang.AssertionError: \nExpected: <false>\n     but: was <true>\n    at __randomizedtesting.SeedInfo.seed([2B576DFA8D61DCF9:15024283C5329C8C]:0)\n    at org.hamcrest.MatcherAssert.assertThat(MatcherAssert.java:20)\n    at org.junit.Assert.assertThat(Assert.java:865)\n    at org.junit.Assert.assertThat(Assert.java:832)\n    at org.elasticsearch.tribe.TribeIT.testOnConflictDrop(TribeIT.java:248)\n    at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n    at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)\n    at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\n    at java.lang.reflect.Method.invoke(Method.java:497)\n    at com.carrotsearch.randomizedtesting.RandomizedRunner.invoke(RandomizedRunner.java:1764)\n    at com.carrotsearch.randomizedtesting.RandomizedRunner$8.evaluate(RandomizedRunner.java:871)\n    at com.carrotsearch.randomizedtesting.RandomizedRunner$9.evaluate(RandomizedRunner.java:907)\n    at com.carrotsearch.randomizedtesting.RandomizedRunner$10.evaluate(RandomizedRunner.java:921)\n    at com.carrotsearch.randomizedtesting.rules.StatementAdapter.evaluate(StatementAdapter.java:36)\n    at org.apache.lucene.util.TestRuleSetupTeardownChained$1.evaluate(TestRuleSetupTeardownChained.java:50)\n    at org.apache.lucene.util.AbstractBeforeAfterRule$1.evaluate(AbstractBeforeAfterRule.java:46)\n    at org.apache.lucene.util.TestRuleThreadAndTestName$1.evaluate(TestRuleThreadAndTestName.java:49)\n    at org.apache.lucene.util.TestRuleIgnoreAfterMaxFailures$1.evaluate(TestRuleIgnoreAfterMaxFailures.java:65)\n    at org.apache.lucene.util.TestRuleMarkFailure$1.evaluate(TestRuleMarkFailure.java:48)\n    at com.carrotsearch.randomizedtesting.rules.StatementAdapter.evaluate(StatementAdapter.java:36)\n    at com.carrotsearch.randomizedtesting.ThreadLeakControl$StatementRunner.run(ThreadLeakControl.java:367)\n    at com.carrotsearch.randomizedtesting.ThreadLeakControl.forkTimeoutingTask(ThreadLeakControl.java:809)\n    at com.carrotsearch.randomizedtesting.ThreadLeakControl$3.evaluate(ThreadLeakControl.java:460)\n    at com.carrotsearch.randomizedtesting.RandomizedRunner.runSingleTest(RandomizedRunner.java:880)\n    at com.carrotsearch.randomizedtesting.RandomizedRunner$5.evaluate(RandomizedRunner.java:781)\n    at com.carrotsearch.randomizedtesting.RandomizedRunner$6.evaluate(RandomizedRunner.java:816)\n    at com.carrotsearch.randomizedtesting.RandomizedRunner$7.evaluate(RandomizedRunner.java:827)\n    at org.apache.lucene.util.AbstractBeforeAfterRule$1.evaluate(AbstractBeforeAfterRule.java:46)\n    at com.carrotsearch.randomizedtesting.rules.StatementAdapter.evaluate(StatementAdapter.java:36)\n    at org.apache.lucene.util.TestRuleStoreClassName$1.evaluate(TestRuleStoreClassName.java:42)\n    at com.carrotsearch.randomizedtesting.rules.NoShadowingOrOverridesOnMethodsRule$1.evaluate(NoShadowingOrOverridesOnMethodsRule.java:40)\n    at com.carrotsearch.randomizedtesting.rules.NoShadowingOrOverridesOnMethodsRule$1.evaluate(NoShadowingOrOverridesOnMethodsRule.java:40)\n    at com.carrotsearch.randomizedtesting.rules.StatementAdapter.evaluate(StatementAdapter.java:36)\n    at com.carrotsearch.randomizedtesting.rules.StatementAdapter.evaluate(StatementAdapter.java:36)\n    at com.carrotsearch.randomizedtesting.rules.StatementAdapter.evaluate(StatementAdapter.java:36)\n    at org.apache.lucene.util.TestRuleAssertionsRequired$1.evaluate(TestRuleAssertionsRequired.java:54)\n    at org.apache.lucene.util.TestRuleMarkFailure$1.evaluate(TestRuleMarkFailure.java:48)\n    at org.apache.lucene.util.TestRuleIgnoreAfterMaxFailures$1.evaluate(TestRuleIgnoreAfterMaxFailures.java:65)\n    at org.apache.lucene.util.TestRuleIgnoreTestSuites$1.evaluate(TestRuleIgnoreTestSuites.java:55)\n    at com.carrotsearch.randomizedtesting.rules.StatementAdapter.evaluate(StatementAdapter.java:36)\n    at com.carrotsearch.randomizedtesting.ThreadLeakControl$StatementRunner.run(ThreadLeakControl.java:367)\n    at java.lang.Thread.run(Thread.java:745)\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16299",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">test"
+        ],
+        "issue_closed_at": "2016-01-29T14:19:43.000Z",
+        "fix_commit_hash": "838edab168c2999af7ba16f000c1180814e98570",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Use index name rather than the index object to check against existence in the set\n\nThis is an issue due to some refactoring we did along the lines of Index.java etc.\nWe pass the index object to Set#contains which should actually be only it's name.\n\nCloses #16299",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16315",
+        "earliest_issue_date": "2016-01-28T22:07:20Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16301,
+        "issue_title": "Lucene version check prevents people updating Lucene to get bugfixes",
+        "issue_body": "Lucene 5.3.2 came out, so we updated it to get the fix.\n\nElasticsearch then stopped working, because there is this check in `Version.java`:\n\n```\n        assert CURRENT.luceneVersion.equals(Lucene.VERSION) : \"Version must be upgraded to [\" + Lucene.VERSION + \"] is still set to [\" + CURRENT.luceneVersion + \"]\";\n```\n\nThis basically prevents us updating Lucene to get any bugfixes at all unless we turn off assertions to work around it, which is probably the better option, but still irritates me somehow.\n\nIf Elasticsearch does depend on 5.3.1 specifically then it should probably be using Version.LUCENE_5_3_1 and not checking Version.LATEST and then complaining if it happens to be newer.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16301",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">enhancement",
+            "good first issue",
+            ":Core/Infra/Core"
+        ],
+        "issue_closed_at": "2016-01-29T11:17:36.000Z",
+        "fix_commit_hash": "fa17a84a89feb402318daa12e3059c48e99c4d57",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Add a hard check to ensure we are running with the expected lucene version\n\nCloses #16301",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16305",
+        "earliest_issue_date": "2016-01-28T23:30:43Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16321,
+        "issue_title": "Prevent index closing while snapshot is restoring the indices",
+        "issue_body": "On 1.7.1.  This may be related to https://github.com/elastic/elasticsearch/issues/15432 , but it is unclear in #15432 what the cause was.   So I am filing a separate ticket on this.\n\nIn short, it looks like when snapshot restore is running, if the indices are closed while it is operating on a shard, it will leave the snapshot restore request in a STARTED state.\n\n```\n    \"restore\" : {\n      \"snapshots\" : [ {\n        \"snapshot\" : \"snapshot_name\",\n        \"repository\" : \"repository_name\",\n        \"state\" : \"STARTED\",\n```\n\nAnd shards that are in INIT state as reported by the restore request:\n\n```\n{\n          \"index\" : \"pricing_2015121502\",\n          \"shard\" : 1,\n          \"state\" : \"INIT\"\n}\n```\n\nSo that when the end user tries to kick off another restore, it will fail:\n\n```\nfailed to restore snapshot\norg.elasticsearch.snapshots.ConcurrentSnapshotExecutionException: [repository_name:snapshot_name] Restore process is already running in this cluster\n    at org.elasticsearch.snapshots.RestoreService$1.execute(RestoreService.java:174)\n    at org.elasticsearch.cluster.service.InternalClusterService$UpdateTask.run(InternalClusterService.java:374)\n    at org.elasticsearch.common.util.concurrent.PrioritizedEsThreadPoolExecutor$TieBreakingPrioritizedRunnable.runAndClean(PrioritizedEsThreadPoolExecutor.java:196)\n    at org.elasticsearch.common.util.concurrent.PrioritizedEsThreadPoolExecutor$TieBreakingPrioritizedRunnable.run(PrioritizedEsThreadPoolExecutor.java:162)\n    at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)\n    at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:615)\n    at java.lang.Thread.run(Thread.java:745)\n```\n\nBecause only 1 snapshot restore request can be run at any point in time.  \n\nIt will be a good idea for us to implement a check to prevent users from closing indices while the restore operation is working on those shards which will help prevent this type of issue.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16321",
+        "assignees": [
+            "ywelsch"
+        ],
+        "labels": [
+            ">bug",
+            ":Distributed/Snapshot/Restore"
+        ],
+        "issue_closed_at": "2016-03-10T17:51:04.000Z",
+        "fix_commit_hash": "266394c3ab5837ed0d2e30a4808a6d01e3e52193",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Fail closing or deleting indices during a full snapshot\n\nCloses #16321",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/17021",
+        "earliest_issue_date": "2016-01-29T21:12:33Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16357,
+        "issue_title": "Don't cancel allocation when a new sync id is found on shared filesystems",
+        "issue_body": "In `ReplicaShardAllocator.processExistingRecoveries`, if we find a \"better\" match, we cancel allocation of a replica:\n\n``` java\n// we found a better match that has a full sync id match, the existing allocation is not fully synced\n// so we found a better one, cancel this one\nit.moveToUnassigned(new UnassignedInfo(UnassignedInfo.Reason.REALLOCATED_REPLICA,\n        \"existing allocation of replica to [\" + currentNode + \"] cancelled, sync id match found on node [\" + nodeWithHighestMatch + \"]\"));\n```\n\nHowever, when on a shared filesystem, all data nodes have the same data, so we should not cancel allocation if a new node pops up.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16357",
+        "assignees": [
+            "dakrone"
+        ],
+        "labels": [
+            ">enhancement",
+            ":Distributed/Allocation"
+        ],
+        "issue_closed_at": "2017-05-26T18:53:34.000Z",
+        "fix_commit_hash": "fa450c44be5cb954328c6afd2ba2c9e665a28d07",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Log when cancelling allocation of a replica because a new syncid was found\n\nCurrently the message stays in the `UnassignedInfo` for the shard,\nhowever, it would be very useful to know the exact point (time-wise)\nthat the cancellation happened when diagnosing an issue.\n\nRelates to debugging #16357",
+        "closer_url": null,
+        "earliest_issue_date": "2016-02-01T22:38:16Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16364,
+        "issue_title": "IndexShardTests.testStressRelocated fails",
+        "issue_body": "The test IndexShardTests.testStressRelocated fails on master: timeout while trying to acquire a primary relocation lock on shard:\n\nhttp://build-us-00.elastic.co/job/es_core_master_oracle_6/4540/\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16364",
+        "assignees": [],
+        "labels": [
+            ">test",
+            "v5.0.0-alpha1",
+            ":Distributed/Allocation"
+        ],
+        "issue_closed_at": "2016-02-02T11:59:29.000Z",
+        "fix_commit_hash": "51862ce5aec97ba1e7bfd8f765129ce395a976b6",
+        "commit_type": "commit",
+        "commit_message": "Fix IndexShardTests.testStressRelocated\n\nCloses #16364",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/51862ce5aec97ba1e7bfd8f765129ce395a976b6",
+        "earliest_issue_date": "2016-02-02T10:11:57Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16369,
+        "issue_title": "JvmGcMonitorServiceSettingsTests.testMissingSetting fails",
+        "issue_body": "Failed on my CI. It is fortunately reproducible:\n\n```\ngradle :core:test -Dtests.seed=D405DF76E636C6C8 -Dtests.class=org.elasticsearch.monitor.jvm.JvmGcMonitorServiceSettingsTests -Dtests.method=\"testMissingSetting\" -Des.logger.level=WARN -Dtests.security.manager=true -Dtests.jvms=10 -Dtests.locale=de-DE -Dtests.timezone=Asia/Yerevan\n```\n\nError message:\n\n```\nExpected: a string containing \"missing gc_threshold for [monitor.jvm.gc.collector.LaaXU.\"\n   >      but: was \"invalid gc_threshold [0s] for [monitor.jvm.gc.collector.LaaXU.warn]\"\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16369",
+        "assignees": [
+            "jasontedor"
+        ],
+        "labels": [
+            ">test",
+            "v5.0.0-alpha1"
+        ],
+        "issue_closed_at": "2016-02-02T13:50:23.000Z",
+        "fix_commit_hash": "1e6b2d4f1d21442b176bff81279231316ec1ad23",
+        "commit_type": "commit",
+        "commit_message": "Fix JVM GC monitor missing settings test\n\nThis commit fixes a test bug in\nJvmGcMonitorServiceSettingsTests#testMissingSetting. The purpose of the\ntest is to test that if settings are provided for a collector for at\nleast one of warn, info, and debug then it is provided for all of warn,\ninfo, and debug. However, for a collector setting to be valid it must be\na positive time value but the randomization in the test construction\ncould produce zero time values.\n\nCloses #16369",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/1e6b2d4f1d21442b176bff81279231316ec1ad23",
+        "earliest_issue_date": "2016-02-02T12:47:08Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16373,
+        "issue_title": "Elasticsearch master and 2.x require Lucene snapshot upgrades",
+        "issue_body": "The backwards compatibility test `OldIndexBackwardsCompatibilityIT#testOldIndexes` is failing because Elasticsearch 2.2.0 is built against version 5.4.1 of Lucene. However, Elasticsearch master and 2.x are currently built against Lucene snapshots that do not contain the Lucene version 5.4.1 field.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16373",
+        "assignees": [],
+        "labels": [
+            "blocker",
+            ":Delivery/Build",
+            "Team:Delivery"
+        ],
+        "issue_closed_at": "2016-02-03T12:12:20.000Z",
+        "fix_commit_hash": "b1f5016ca8c95b80e3fe690c583d1ee2ccd47186",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Test awaits Lucene snapshot upgrade\n\nThis commit backports commit e6a5e79ede39b7a9c1ba4d372b63438a18aea113\nfrom master to 2.x.\n\nRelates #16373",
+        "closer_url": null,
+        "earliest_issue_date": "2016-02-02T14:58:35Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16376,
+        "issue_title": "Integration tests for plugins fail on Windows platforms",
+        "issue_body": "Integration tests for plugins are failing on Windows platforms because:\n- it tries to print message using a wrong format (see #16367)\n- when installing the plugin using a file, it mixes up the file path (ex: `file://C:\\whatever`) and thinks it refers to a plugin to download on Maven Central (ex: `org.elasticsearch:mapper-attachments:3.0.0`) because of the number of `:` in the name\n\n```\n....\nbin\\plugin install file:/Y:/jenkins/workspace/es_core_master_window-2012/plugins/analysis-icu/build/cluster/integTest%20node0/plugins%20tmp/analysis-icu-3.0.0-SNAPSHOT.zip\nSuccessfully started process 'command 'cmd''\nPlugins directory [Y:\\jenkins\\workspace\\es_core_master_window-2012\\plugins\\analysis-icu\\build\\cluster\\integTest node0\\elasticsearch-3.0.0-SNAPSHOT\\plugins] does not exist. Creating...\nException in thread \"main\" java.util.IllegalFormatWidthException: 20\n    at java.util.Formatter$FormatSpecifier.checkText(Formatter.java:3044)\n    at java.util.Formatter$FormatSpecifier.<init>(Formatter.java:2733)\n    at java.util.Formatter.parse(Formatter.java:2560)\n    at java.util.Formatter.format(Formatter.java:2501)\n    at java.util.Formatter.format(Formatter.java:2455)\n    at java.lang.String.format(String.java:2981)\n    at org.elasticsearch.common.cli.Terminal$SystemTerminal.doPrint(Terminal.java:161)\n    at org.elasticsearch.common.cli.Terminal.print(Terminal.java:110)\n    at org.elasticsearch.common.cli.Terminal.println(Terminal.java:105)\n    at org.elasticsearch.common.cli.Terminal.println(Terminal.java:93)\n    at org.elasticsearch.plugins.InstallPluginCommand.download(InstallPluginCommand.java:168)\n    at org.elasticsearch.plugins.InstallPluginCommand.execute(InstallPluginCommand.java:140)\n    at org.elasticsearch.common.cli.CliTool.execute(CliTool.java:145)\n    at org.elasticsearch.plugins.PluginCli.main(PluginCli.java:74)\n:plugins:analysis-icu:integTest#installAnalysisIcuPlugin FAILED\n:plugins:analysis-icu:integTest#installAnalysisIcuPlugin (Thread[main,5,main]) completed. Took 1.304 secs.\n\nFAILURE: Build failed with an exception.\n\n* What went wrong:\nExecution failed for task ':plugins:analysis-icu:integTest#installAnalysisIcuPlugin'.\n> Process 'command 'cmd'' finished with non-zero exit value 1\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16376",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ":Delivery/Build",
+            ":Core/Infra/Plugins",
+            "v5.0.0-alpha1",
+            "Team:Delivery"
+        ],
+        "issue_closed_at": "2016-02-02T20:27:54.000Z",
+        "fix_commit_hash": "9f47b376dadebf63807a6d7b0d2bfe3341c042e7",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Plugin cli: Improve maven coordinates detection\n\nIdentifying when a plugin id is maven coordinates is currently done by\nchecking if the plugin id contains 2 colons. However, a valid url could\nhave 2 colons, for example when a port is specified. This change adds\nanother check, ensuring the plugin id with maven coordinates does not\ncontain a slash, which only a url would have.\n\ncloses #16376",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16384",
+        "earliest_issue_date": "2016-02-02T15:28:57Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16378,
+        "issue_title": "Field name missing from invalid mapping error",
+        "issue_body": "When trying to create a mapping for master I got the error:\n\n```\nFailed to parse mapping [_default_]: Can't parse [index] value [not_analyzed], expected [true] or [false]\n```\n\nIt took a while to track down that this was being caused by numeric fields with the `index: not_analyzed` setting. It would have been much easier to debug if the error message contained the field name.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16378",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">enhancement",
+            ":Core/Infra/Core"
+        ],
+        "issue_closed_at": "2016-02-09T15:17:33.000Z",
+        "fix_commit_hash": "7cb4baebf5e6e5314fe7544b29234b4369509042",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Add field names to several mapping errors\n\nCloses #16378",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16508",
+        "earliest_issue_date": "2016-02-02T16:11:31Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16387,
+        "issue_title": "Fix Imports Automatically in Painless",
+        "issue_body": "The ANTLR generated files currently have star imports in them when the files are regenerated.  Need to make it part of the ANT task to replace these imports automatically with non-star imports.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16387",
+        "assignees": [
+            "nik9000"
+        ],
+        "labels": [
+            ">non-issue",
+            ":Core/Infra/Scripting",
+            "v5.0.0-alpha1"
+        ],
+        "issue_closed_at": "2016-02-03T03:03:43.000Z",
+        "fix_commit_hash": "900133f1b303df1148c84a9c49debd3b28e60785",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Suppress checkstyle on generated files in painless\n\nCloses #16387",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16394",
+        "earliest_issue_date": "2016-02-02T20:33:21Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16392,
+        "issue_title": "tribe node fails to start with non default port settings",
+        "issue_body": "I'm trying to run tribe node using elasticsearch 2.2.0. I have cluster of 2 machines with the following config:\n\n<pre>\nnetwork.host: 0.0.0.0\npath.data: /var/lib/elasticsearch/\npath.logs: /var/log/elasticsearch/\ncluster.name: logstash-data\ndiscovery.zen.ping.multicast.enabled: false\ndiscovery.zen.ping.unicast.hosts: [\"10.16.1.32\", \"10.16.1.75\"]\n</pre>\n\nOn another machine I run 2 elasticsearch instances with following configs:\n\n<pre>\ntransport.tcp.port: 9310\nhttp.port: 9210\nnetwork.host: 0.0.0.0\npath.data: /var/lib/elasticsearch/\npath.logs: /var/log/elasticsearch/\ncluster.name: logstash-kibana\n</pre>\n\nand\n\n<pre>\n#transport.tcp.port: 9301\n#http.port: 9201\nnetwork.host: 0.0.0.0\npath.data: /var/lib/elasticsearch/\npath.logs: /var/log/elasticsearch/\n\ntribe:\n    data:\n        cluster.name: logstash-data\n        discovery.zen.ping.multicast.enabled: false\n        discovery.zen.ping.unicast.hosts: [\"10.16.1.32\", \"10.16.1.75\"]\n        network.host: 0.0.0.0\n    kibana:\n        cluster.name: logstash-kibana\n        discovery.zen.ping.multicast.enabled: false\n        discovery.zen.ping.unicast.hosts: [\"127.0.0.1:9310\"]\n        network.host: 0.0.0.0\n</pre>\n\nThis config works ok. But if I'll uncomment custom port settings I'm getting following exception:\n\n<pre>\nlog4j:WARN No appenders could be found for logger (bootstrap).\nlog4j:WARN Please initialize the log4j system properly.\nlog4j:WARN See http://logging.apache.org/log4j/1.2/faq.html#noconfig for more info.\nException in thread \"main\" BindTransportException[Failed to bind to [9300-9400]]; nested: ChannelException[Failed to bind to: /0.0.0.0:9400]; nested: AccessControlException[access denied (\"java.net.SocketPermission\" \"localhost:9400\" \"listen,resolve\")];\nLikely root cause: java.security.AccessControlException: access denied (\"java.net.SocketPermission\" \"localhost:9400\" \"listen,resolve\")\n        at java.security.AccessControlContext.checkPermission(AccessControlContext.java:457)\n        at java.security.AccessController.checkPermission(AccessController.java:884)\n        at java.lang.SecurityManager.checkPermission(SecurityManager.java:549)\n        at java.lang.SecurityManager.checkListen(SecurityManager.java:1131)\n        at sun.nio.ch.ServerSocketChannelImpl.bind(ServerSocketChannelImpl.java:221)\n        at sun.nio.ch.ServerSocketAdaptor.bind(ServerSocketAdaptor.java:74)\n        at org.jboss.netty.channel.socket.nio.NioServerBoss$RegisterTask.run(NioServerBoss.java:193)\n        at org.jboss.netty.channel.socket.nio.AbstractNioSelector.processTaskQueue(AbstractNioSelector.java:391)\n        at org.jboss.netty.channel.socket.nio.AbstractNioSelector.run(AbstractNioSelector.java:315)\n        at org.jboss.netty.channel.socket.nio.NioServerBoss.run(NioServerBoss.java:42)\n        at org.jboss.netty.util.ThreadRenamingRunnable.run(ThreadRenamingRunnable.java:108)\n        at org.jboss.netty.util.internal.DeadLockProofWorker$1.run(DeadLockProofWorker.java:42)\n        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1142)\n        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:617)\n        at java.lang.Thread.run(Thread.java:745)\nRefer to the log for complete error details.\n</pre>\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16392",
+        "assignees": [],
+        "labels": [
+            ">bug"
+        ],
+        "issue_closed_at": "2016-11-14T20:09:45.000Z",
+        "fix_commit_hash": "e27c9eef7942ac614ebabc90934dd3def2aaf4af",
+        "commit_type": "commit_ref_pr",
+        "commit_message": "Add socket permissions for tribe nodes\n\nToday when a node starts, we create dynamic socket permissions based on\nthe configured HTTP ports and transport ports. If no ports are\nconfigured, we use the default port ranges. When a tribe node starts, a\ntribe node creates an internal node client for connecting to each remote\ncluster. If neither an explicit HTTP port nor transport ports were\nspecified, the default port ranges are large enough for the tribe node\nand its internal node clients. If an explicit HTTP port or transport\nport was specified for the tribe node, then socket permissions for those\nports will be created, but not for the internal node clients. Whether\nthe internal node clients have explicit ports specified, or attempt to\nbind within the default range, socket permissions for these will not\nhave been created and the internal node clients will hit a permissions\nissue when attempting to bind. This commit addresses this issue by also\naccounting for tribe nodes when creating the dynamic socket\npermissions. Additionally, we add our first real integration test for\ntribe nodes.\n\nRelates #21546",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/21546",
+        "earliest_issue_date": "2016-02-02T23:05:41Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16408,
+        "issue_title": "\"fields\" is missing in hit if script field returns a null value",
+        "issue_body": "I use Elasticsearch 2.2 & 1.7.\n\nWith this query:\n\n``` json\n{\n  \"script_fields\": {\n    \"test\": {\n      \"script\": \"return null\"\n    }\n  }\n}\n```\n\nElasticsearch 1.7 returns:\n\n``` json\n{  \n  \"_index\":\"xxx\",\n  \"_type\":\"yyy\",\n  \"_id\":\"51a79adcb5d07a18fc522160\",\n  \"_score\":1,\n  \"fields\":{  \n    \"test\":[  \n      null\n    ]\n  }\n}\n```\n\nElasticsearch 2.2 returns:\n\n``` json\n\n{  \n  \"_index\":\"xxx\",\n  \"_type\":\"yyy\",\n  \"_id\":\"51a79adcb5d07a18fc522160\",\n  \"_score\":1\n}\n```\n\nIs it a bug or a feature?\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16408",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "good first issue",
+            ":Core/Infra/Scripting"
+        ],
+        "issue_closed_at": "2016-06-17T20:41:25.000Z",
+        "fix_commit_hash": "e9f2548ee04f75c60b7e6d663a4c5d686aa7dddd",
+        "commit_type": "pr",
+        "commit_message": "Include script field even if it value is null\n\nInclude script field even if it value is null.\r\n\r\nCloses #16408.",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/18384",
+        "earliest_issue_date": "2016-02-03T10:44:06Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16419,
+        "issue_title": "Indices cat API doesn't list closed indices when filtered",
+        "issue_body": "Hi,\n\nWith the `indices` cat API, I can list my indices, either _open_ or _close_.\n\n```\n\u2192 curl http://127.0.0.1:9200/_cat/indices\n       close partner_results-20150930\nyellow open  partner_requests-20150929     1 1     17     0 230.3kb 230.3kb\nyellow open  partner_results-20151102      5 1   4311     0   1.5mb   1.5mb\nyellow open  search_requests-20150902      5 1     10     0  51.3kb  51.3kb\n```\n\nIf I filter my results, I no longer see _close_ indices : \n\n```\n\u2192 curl http://127.0.0.1:9200/_cat/indices/\\*_results-\\*\nyellow open  partner_results-20151102      5 1   4311     0   1.5mb   1.5mb\n```\n\nI didn't find the documentation about that so I don't know if it a bug or an undocumented behavior.\n\nI thought there might be an argument for `/_cat/indices` to show `all/open/close` indices, but I haven't found anything.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16419",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "good first issue",
+            ":Core/Infra/CAT APIs"
+        ],
+        "issue_closed_at": "2016-05-25T08:02:15.000Z",
+        "fix_commit_hash": "dee34c916ca6b281df2b70b15052500dfa6710bf",
+        "commit_type": "pr",
+        "commit_message": "Expand wildcards to closed indices in /_cat/indices (#18545)\n\nClosed indices are already displayed when no indices are explicitly selected. This commit ensures that closed indices are also shown when wildcard filtering is used. It also addresses another issue that is caused by the fact that the cat action is based internally on 3 different cluster states (one when we query the cluster state to get all indices, one when we query cluster health, and one when we query indices stats). We currently fail the cat request when the user specifies a concrete index as parameter that does not exist. The implementation works as intended in that regard. It checks this not only for the first cluster state request, but also the subsequent indices stats one. This means that if the index is deleted before the cat action has queried the indices stats, it rightfully fails. In case the user provides wildcards (or no parameter at all), however, we fail the indices stats as we pass the resolved concrete indices to the indices stats request and fail to distinguish whether these indices have been resolved by wildcards or explicitly requested by the user. This means that if an index has been deleted before the indices stats request gets to execute, we fail the overall cat request. The fix is to let the indices stats request do the resolving again and not pass the concrete indices.\r\n\r\nCloses #16419\r\nCloses #17395",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/18545",
+        "earliest_issue_date": "2016-02-03T15:32:29Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16484,
+        "issue_title": "Pipeline aggregations do not return metadata",
+        "issue_body": "https://www.elastic.co/guide/en/elasticsearch/reference/2.2/agg-metadata.html\n\nThis works fine for bucket and metrics aggregations, but for pipeline aggregations the supplied metadata isn't returned with the result.\n\nThis is a blocker for the .NET client as we're trying to leverage aggregation metadata for deserialization.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16484",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ":Analytics/Aggregations",
+            "v5.0.0-alpha1",
+            "v2.0.3",
+            "v2.2.1",
+            "v2.1.3"
+        ],
+        "issue_closed_at": "2016-02-11T17:27:47.000Z",
+        "fix_commit_hash": "2051817780a32c23bc7f15c8f10ef20c560e51ad",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Set meta data for pipeline aggregations\n\nCloses #16484",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16516",
+        "earliest_issue_date": "2016-02-05T19:19:22Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16495,
+        "issue_title": "Broken translog on most indexes like NoSuchFileException elasticsearch/data/dev-cluster/nodes/0/indices/logstash-2016.01.04/2/translog/translog-226.ckp",
+        "issue_body": "### Act 1 - Preface\n\nHow I run into that issue\n- I had elastic 2.0.0 + Kibana 4 + Logstash used as ELK stack.\n- Everything was ok until 05 Feb when I logged into server through SSH to check something related to my project task.\n- I've spotted that elastic utilize 3-4 cores of my server up to 100% each\n- I've shut down elastic, and reviewed it logs\n- There was said that\n\n```\n[2016-02-05 17:56:05,596][WARN ][indices.cluster          ] [dev-node] [[logstash-2015.11.20][1]] marking and sending shard failed due to [failed recovery]\n[logstash-2015.11.20][[logstash-2015.11.20][1]] IndexShardRecoveryException[failed to recovery from gateway]; nested: EngineCreationFailureException[failed to create engine]; nested: FileSystemException[/usr/share/elasticsearch/data/dev-cluster/nodes/0/indices/logstash-2015.11.20/1/translog/translog-42.ckp: Too many open files];\n```\n- I've asked admin to raise available opened-files limit. And then after elastic was started again I begin to see another errors in elastic logs\n\n```\n[2016-02-08 12:00:30,905][WARN ][cluster.action.shard     ] [dev-node] [logstash-2016.01.04][2] received shard failed for [logstash-2016.01.04][2], node[Qg_JBfpNRfa3iApw8BDVsA], [P], v[15], s[INITIALIZING], a[id=mCviKgbnTomx3HaqKYFZ5w], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-02-08T12:00:29.932Z]], indexUUID [50id1z4pS8SsVmFe7kdsvA], message [failed recovery], failure [IndexShardRecoveryException[failed to recovery from gateway]; nested: EngineCreationFailureException[failed to create engine]; nested: NoSuchFileException[/usr/share/elasticsearch/data/dev-cluster/nodes/0/indices/logstash-2016.01.04/2/translog/translog-226.ckp]; ]\n```\n- I've updated elastic to latest version 2.2.0, nothing has changed\n- I assume that I've terminated elastic with SIGKILL that time\n\nIt is functioning, Kibana works **but** one (or more) of my shards can't be initialized and elastic tries to start them in infinite loop. Because of that I have negative impact to server:\n- Some threads of elastic instance consumes from 300 to 450% of CPU (I'm on 8 core server)\n- elastic writes a lot of messages in logs with very high frequency. That leads to increasing of /var/log/elasticsearch/dev-cluster.log for 500 MB each hour or so.\n\nSo I may suggest that it does not work as it should .\n### Act 2 - Pathetic Attempts to fix that thing by my own\n\nI've read related bug reports and articles, like\nhttps://github.com/elastic/elasticsearch/issues/14989, https://github.com/elastic/elasticsearch/issues/15021, https://github.com/elastic/elasticsearch/issues/9699\n\nhave tried several things:\n- Removed all ckp files from data folder with\n  `find . -type f -name '*.ckp' -delete`\n  didn't help\n- Removed all .tlog files from data folder with\n  `find . -type f -name '*.tlog' -delete`\n  didn't help\n- changed config in elastic to force it don't create replicas or many shards with updating config/elasticsearch.yml\n\n```\nindex.number_of_shards: 1\nindex.number_of_replicas: 0\n```\n\ndidn't help\n\nAlso read articles about `_cluster/reroute` like\nhttps://t37.net/how-to-fix-your-elasticsearch-cluster-stuck-in-initializing-shards-mode.html\ndidn't help\n\nhttp://www.jillesvangurp.com/2015/02/18/elasticsearch-failed-shard-recovery/\nI didn't try to use \"org.apache.lucene.index.CheckIndex\" approach because there might be another workaround\n\nExample of logs I'm getting\n\n**Normal start**\n\n```\n[2016-02-08 11:46:28,635][WARN ][bootstrap                ] unable to load JNA native support library, native methods will be disabled.\njava.lang.UnsatisfiedLinkError: /tmp/jna--1666338091/jna407580579145636854.tmp: /tmp/jna--1666338091/jna407580579145636854.tmp: failed to map segment from shared object: Operation not permitted\n    at java.lang.ClassLoader$NativeLibrary.load(Native Method)\n    at java.lang.ClassLoader.loadLibrary0(ClassLoader.java:1938)\n    at java.lang.ClassLoader.loadLibrary(ClassLoader.java:1821)\n    at java.lang.Runtime.load0(Runtime.java:809)\n    at java.lang.System.load(System.java:1086)\n    at com.sun.jna.Native.loadNativeDispatchLibraryFromClasspath(Native.java:761)\n    at com.sun.jna.Native.loadNativeDispatchLibrary(Native.java:736)\n    at com.sun.jna.Native.<clinit>(Native.java:131)\n    at java.lang.Class.forName0(Native Method)\n    at java.lang.Class.forName(Class.java:264)\n    at org.elasticsearch.bootstrap.Natives.<clinit>(Natives.java:45)\n    at org.elasticsearch.bootstrap.Bootstrap.initializeNatives(Bootstrap.java:89)\n    at org.elasticsearch.bootstrap.Bootstrap.setup(Bootstrap.java:144)\n    at org.elasticsearch.bootstrap.Bootstrap.init(Bootstrap.java:285)\n    at org.elasticsearch.bootstrap.Elasticsearch.main(Elasticsearch.java:35)\n[2016-02-08 11:46:28,637][WARN ][bootstrap                ] cannot check if running as root because JNA is not available\n[2016-02-08 11:46:28,637][WARN ][bootstrap                ] cannot install syscall filters because JNA is not available\n[2016-02-08 11:46:28,637][WARN ][bootstrap                ] cannot register console handler because JNA is not available\n[2016-02-08 11:46:28,768][INFO ][node                     ] [dev-node] version[2.2.0], pid[22950], build[8ff36d1/2016-01-27T13:32:39Z]\n[2016-02-08 11:46:28,768][INFO ][node                     ] [dev-node] initializing ...\n[2016-02-08 11:46:29,165][INFO ][plugins                  ] [dev-node] modules [lang-expression, lang-groovy], plugins [], sites []\n[2016-02-08 11:46:29,182][INFO ][env                      ] [dev-node] using [1] data paths, mounts [[/usr (/dev/md122)]], net usable_space [167.4gb], net total_space [196.6gb], spins? [possibly], types [ext4]\n[2016-02-08 11:46:29,182][INFO ][env                      ] [dev-node] heap size [989.8mb], compressed ordinary object pointers [true]\n[2016-02-08 11:46:30,905][INFO ][node                     ] [dev-node] initialized\n[2016-02-08 11:46:30,905][INFO ][node                     ] [dev-node] starting ...\n[2016-02-08 11:46:30,975][INFO ][transport                ] [dev-node] publish_address {127.0.0.1:9300}, bound_addresses {127.0.0.1:9300}\n[2016-02-08 11:46:30,983][INFO ][discovery                ] [dev-node] dev-cluster/ARHJZZXRQnOl36kgJQxyUw\n[2016-02-08 11:46:34,010][INFO ][cluster.service          ] [dev-node] new_master {dev-node}{ARHJZZXRQnOl36kgJQxyUw}{127.0.0.1}{127.0.0.1:9300}, reason: zen-disco-join(elected_as_master, [0] joins received)\n[2016-02-08 11:46:34,020][INFO ][http                     ] [dev-node] publish_address {127.0.0.1:9200}, bound_addresses {127.0.0.1:9200}\n[2016-02-08 11:46:34,021][INFO ][node                     ] [dev-node] started\n[2016-02-08 11:46:37,463][INFO ][cluster.routing.allocation] [dev-node] Cluster health status changed from [RED] to [GREEN] (reason: [shards started [[.kibana][0]] ...]).\n[2016-02-08 11:47:31,731][INFO ][cluster.metadata         ] [dev-node] [logstash-2016.02.08] update_mapping [logs]\n[2016-02-08 11:47:35,048][INFO ][cluster.metadata         ] [dev-node] [logstash-2016.02.08] update_mapping [logs]\n```\n\n**Failed start**\n\n```\n[2016-02-08 12:00:24,717][WARN ][bootstrap                ] unable to load JNA native support library, native methods will be disabled.\njava.lang.UnsatisfiedLinkError: /tmp/jna--1666338091/jna7690950639376952187.tmp: /tmp/jna--1666338091/jna7690950639376952187.tmp: failed to map segment from shared object: Operation not permitted\n    at java.lang.ClassLoader$NativeLibrary.load(Native Method)\n    at java.lang.ClassLoader.loadLibrary0(ClassLoader.java:1938)\n    at java.lang.ClassLoader.loadLibrary(ClassLoader.java:1821)\n    at java.lang.Runtime.load0(Runtime.java:809)\n    at java.lang.System.load(System.java:1086)\n    at com.sun.jna.Native.loadNativeDispatchLibraryFromClasspath(Native.java:761)\n    at com.sun.jna.Native.loadNativeDispatchLibrary(Native.java:736)\n    at com.sun.jna.Native.<clinit>(Native.java:131)\n    at java.lang.Class.forName0(Native Method)\n    at java.lang.Class.forName(Class.java:264)\n    at org.elasticsearch.bootstrap.Natives.<clinit>(Natives.java:45)\n    at org.elasticsearch.bootstrap.Bootstrap.initializeNatives(Bootstrap.java:89)\n    at org.elasticsearch.bootstrap.Bootstrap.setup(Bootstrap.java:144)\n    at org.elasticsearch.bootstrap.Bootstrap.init(Bootstrap.java:285)\n    at org.elasticsearch.bootstrap.Elasticsearch.main(Elasticsearch.java:35)\n[2016-02-08 12:00:24,719][WARN ][bootstrap                ] cannot check if running as root because JNA is not available\n[2016-02-08 12:00:24,719][WARN ][bootstrap                ] cannot install syscall filters because JNA is not available\n[2016-02-08 12:00:24,720][WARN ][bootstrap                ] cannot register console handler because JNA is not available\n[2016-02-08 12:00:24,853][INFO ][node                     ] [dev-node] version[2.2.0], pid[24746], build[8ff36d1/2016-01-27T13:32:39Z]\n[2016-02-08 12:00:24,853][INFO ][node                     ] [dev-node] initializing ...\n[2016-02-08 12:00:25,266][INFO ][plugins                  ] [dev-node] modules [lang-expression, lang-groovy], plugins [], sites []\n[2016-02-08 12:00:25,283][INFO ][env                      ] [dev-node] using [1] data paths, mounts [[/usr (/dev/md122)]], net usable_space [167.4gb], net total_space [196.6gb], spins? [possibly], types [ext4]\n[2016-02-08 12:00:25,283][INFO ][env                      ] [dev-node] heap size [989.8mb], compressed ordinary object pointers [true]\n[2016-02-08 12:00:26,787][INFO ][node                     ] [dev-node] initialized\n[2016-02-08 12:00:26,787][INFO ][node                     ] [dev-node] starting ...\n[2016-02-08 12:00:26,866][INFO ][transport                ] [dev-node] publish_address {127.0.0.1:9300}, bound_addresses {127.0.0.1:9300}\n[2016-02-08 12:00:26,875][INFO ][discovery                ] [dev-node] dev-cluster/Qg_JBfpNRfa3iApw8BDVsA\n[2016-02-08 12:00:29,905][INFO ][cluster.service          ] [dev-node] new_master {dev-node}{Qg_JBfpNRfa3iApw8BDVsA}{127.0.0.1}{127.0.0.1:9300}, reason: zen-disco-join(elected_as_master, [0] joins received)\n[2016-02-08 12:00:29,918][INFO ][http                     ] [dev-node] publish_address {127.0.0.1:9200}, bound_addresses {127.0.0.1:9200}\n[2016-02-08 12:00:29,918][INFO ][node                     ] [dev-node] started\n[2016-02-08 12:00:30,903][WARN ][indices.cluster          ] [dev-node] [[logstash-2016.01.04][2]] marking and sending shard failed due to [failed recovery]\n[logstash-2016.01.04][[logstash-2016.01.04][2]] IndexShardRecoveryException[failed to recovery from gateway]; nested: EngineCreationFailureException[failed to create engine]; nested: NoSuchFileException[/usr/share/elasticsearch/data/dev-cluster/nodes/0/indices/logstash-2016.01.04/2/translog/translog-226.ckp];\n    at org.elasticsearch.index.shard.StoreRecoveryService.recoverFromStore(StoreRecoveryService.java:254)\n    at org.elasticsearch.index.shard.StoreRecoveryService.access$100(StoreRecoveryService.java:56)\n    at org.elasticsearch.index.shard.StoreRecoveryService$1.run(StoreRecoveryService.java:129)\n    at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1142)\n    at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:617)\n    at java.lang.Thread.run(Thread.java:745)\nCaused by: [logstash-2016.01.04][[logstash-2016.01.04][2]] EngineCreationFailureException[failed to create engine]; nested: NoSuchFileException[/usr/share/elasticsearch/data/dev-cluster/nodes/0/indices/logstash-2016.01.04/2/translog/translog-226.ckp];\n    at org.elasticsearch.index.engine.InternalEngine.<init>(InternalEngine.java:156)\n    at org.elasticsearch.index.engine.InternalEngineFactory.newReadWriteEngine(InternalEngineFactory.java:25)\n    at org.elasticsearch.index.shard.IndexShard.newEngine(IndexShard.java:1450)\n    at org.elasticsearch.index.shard.IndexShard.createNewEngine(IndexShard.java:1434)\n    at org.elasticsearch.index.shard.IndexShard.internalPerformTranslogRecovery(IndexShard.java:925)\n    at org.elasticsearch.index.shard.IndexShard.performTranslogRecovery(IndexShard.java:897)\n    at org.elasticsearch.index.shard.StoreRecoveryService.recoverFromStore(StoreRecoveryService.java:245)\n    ... 5 more\nCaused by: java.nio.file.NoSuchFileException: /usr/share/elasticsearch/data/dev-cluster/nodes/0/indices/logstash-2016.01.04/2/translog/translog-226.ckp\n    at sun.nio.fs.UnixException.translateToIOException(UnixException.java:86)\n    at sun.nio.fs.UnixException.rethrowAsIOException(UnixException.java:102)\n    at sun.nio.fs.UnixException.rethrowAsIOException(UnixException.java:107)\n    at sun.nio.fs.UnixFileSystemProvider.newByteChannel(UnixFileSystemProvider.java:214)\n    at java.nio.file.Files.newByteChannel(Files.java:361)\n    at java.nio.file.Files.newByteChannel(Files.java:407)\n    at java.nio.file.spi.FileSystemProvider.newInputStream(FileSystemProvider.java:384)\n    at java.nio.file.Files.newInputStream(Files.java:152)\n    at org.elasticsearch.index.translog.Checkpoint.read(Checkpoint.java:82)\n    at org.elasticsearch.index.translog.Translog.recoverFromFiles(Translog.java:330)\n    at org.elasticsearch.index.translog.Translog.<init>(Translog.java:179)\n    at org.elasticsearch.index.engine.InternalEngine.openTranslog(InternalEngine.java:209)\n    at org.elasticsearch.index.engine.InternalEngine.<init>(InternalEngine.java:152)\n    ... 11 more\n```\n\n```\n[2016-02-08 12:00:30,905][WARN ][cluster.action.shard     ] [dev-node] [logstash-2016.01.04][2] received shard failed for [logstash-2016.01.04][2], node[Qg_JBfpNRfa3iApw8BDVsA], [P], v[15], s[INITIALIZING], a[id=mCviKgbnTomx3HaqKYFZ5w], unassigned_info[[reason=CLUSTER_RECOVERED], at[2016-02-08T12:00:29.932Z]], indexUUID [50id1z4pS8SsVmFe7kdsvA], message [failed recovery], failure [IndexShardRecoveryException[failed to recovery from gateway]; nested: EngineCreationFailureException[failed to create engine]; nested: NoSuchFileException[/usr/share/elasticsearch/data/dev-cluster/nodes/0/indices/logstash-2016.01.04/2/translog/translog-226.ckp]; ]\n[logstash-2016.01.04][[logstash-2016.01.04][2]] IndexShardRecoveryException[failed to recovery from gateway]; nested: EngineCreationFailureException[failed to create engine]; nested: NoSuchFileException[/usr/share/elasticsearch/data/dev-cluster/nodes/0/indices/logstash-2016.01.04/2/translog/translog-226.ckp];\n\n...\n\n[2016-02-08 12:00:31,608][WARN ][indices.cluster          ] [dev-node] [[logstash-2016.01.04][2]] marking and sending shard failed due to [failed recovery]\n[logstash-2016.01.04][[logstash-2016.01.04][2]] IndexShardRecoveryException[failed to recovery from gateway]; nested: EngineCreationFailureException[failed to create engine]; nested: NoSuchFileException[/usr/share/elasticsearch/data/dev-cluster/nodes/0/indices/logstash-2016.01.04/2/translog/translog-226.ckp];\n...\n\n[2016-02-08 12:00:31,609][WARN ][cluster.action.shard     ] [dev-node] [logstash-2016.01.04][2] received shard failed for [logstash-2016.01.04][2], node[Qg_JBfpNRfa3iApw8BDVsA], [P], v[15], s[INITIALIZING], a[id=X3x681vYTHK_ue0wNCimGg], unassigned_info[[reason=ALLOCATION_FAILED], at[2016-02-08T12:00:30.906Z], details[failed recovery, failure IndexShardRecoveryException[failed to recovery from gateway]; nested: EngineCreationFailureException[failed to create engine]; nested: NoSuchFileException[/usr/share/elasticsearch/data/dev-cluster/nodes/0/indices/logstash-2016.01.04/2/translog/translog-226.ckp]; ]], indexUUID [50id1z4pS8SsVmFe7kdsvA], message [failed recovery], failure [IndexShardRecoveryException[failed to recovery from gateway]; nested: EngineCreationFailureException[failed to create engine]; nested: NoSuchFileException[/usr/share/elasticsearch/data/dev-cluster/nodes/0/indices/logstash-2016.01.04/2/translog/translog-226.ckp]; ]\n[logstash-2016.01.04][[logstash-2016.01.04][2]] IndexShardRecoveryException[failed to recovery from gateway]; nested: EngineCreationFailureException[failed to create engine]; nested: NoSuchFileException[/usr/share/elasticsearch/data/dev-cluster/nodes/0/indices/logstash-2016.01.04/2/translog/translog-226.ckp];\n...\n\n[2016-02-08 12:00:31,613][WARN ][cluster.action.shard     ] [dev-node] [logstash-2016.01.04][2] received shard failed for [logstash-2016.01.04][2], node[Qg_JBfpNRfa3iApw8BDVsA], [P], v[15], s[INITIALIZING], a[id=X3x681vYTHK_ue0wNCimGg], unassigned_info[[reason=ALLOCATION_FAILED], at[2016-02-08T12:00:30.906Z], details[failed recovery, failure IndexShardRecoveryException[failed to recovery from gateway]; nested: EngineCreationFailureException[failed to create engine]; nested: NoSuchFileException[/usr/share/elasticsearch/data/dev-cluster/nodes/0/indices/logstash-2016.01.04/2/translog/translog-226.ckp]; ]], indexUUID [50id1z4pS8SsVmFe7kdsvA], message [master {dev-node}{Qg_JBfpNRfa3iApw8BDVsA}{127.0.0.1}{127.0.0.1:9300} marked shard as initializing, but shard is marked as failed, resend shard failure], failure [Unknown]\n[2016-02-08 12:00:32,284][WARN ][indices.cluster          ] [dev-node] [[logstash-2016.01.04][2]] marking and sending shard failed due to [failed recovery]\n[logstash-2016.01.04][[logstash-2016.01.04][2]] IndexShardRecoveryException[failed to recovery from gateway]; nested: EngineCreationFailureException[failed to create engine]; nested: NoSuchFileException[/usr/share/elasticsearch/data/dev-cluster/nodes/0/indices/logstash-2016.01.04/2/translog/translog-226.ckp];\n```\n\n`GET /_cat/shards`\noutputs\n\n```\nlogstash-2016.01.04 3 p STARTED    11634  7.9mb 127.0.0.1 dev-node \nlogstash-2016.01.04 1 p STARTED    11894    8mb 127.0.0.1 dev-node \nlogstash-2016.01.04 2 p UNASSIGNED                                 \nlogstash-2016.01.04 4 p STARTED    11859  7.9mb 127.0.0.1 dev-node \nlogstash-2016.01.04 0 p STARTED    11779  7.9mb 127.0.0.1 dev-node \nlogstash-2016.01.02 3 p STARTED    10617  6.1mb 127.0.0.1 dev-node \nlogstash-2016.01.02 1 p STARTED    10593  6.1mb 127.0.0.1 dev-node \nlogstash-2016.01.02 2 p STARTED    10797  6.2mb 127.0.0.1 dev-node \nlogstash-2016.01.02 4 p STARTED    10509    6mb 127.0.0.1 dev-node \nlogstash-2016.01.02 0 p STARTED    10716  6.2mb 127.0.0.1 dev-node \nlogstash-2016.01.03 3 p STARTED    11204  6.4mb 127.0.0.1 dev-node \nlogstash-2016.01.03 2 p STARTED    11237  6.4mb 127.0.0.1 dev-node \nlogstash-2016.01.03 1 p STARTED    11417  6.6mb 127.0.0.1 dev-node \nlogstash-2016.01.03 4 p STARTED    11260  6.6mb 127.0.0.1 dev-node \nlogstash-2016.01.03 0 p STARTED    11218  6.4mb 127.0.0.1 dev-node \n.kibana             0 p STARTED        6 86.8kb 127.0.0.1 dev-node \nlogstash-2016.02.08 0 p STARTED     2769  1.8mb 127.0.0.1 dev-node \nlogstash-2016.01.01 3 p STARTED    10450  6.4mb 127.0.0.1 dev-node \nlogstash-2016.01.01 2 p STARTED    10201  6.3mb 127.0.0.1 dev-node \nlogstash-2016.01.01 1 p STARTED    10474  6.5mb 127.0.0.1 dev-node \nlogstash-2016.01.01 4 p STARTED    10436  6.5mb 127.0.0.1 dev-node \nlogstash-2016.01.01 0 p STARTED    10585  6.5mb 127.0.0.1 dev-node \n```\n\nOther failed indexes were temporately moved out of `data` folder to backup folder\n### Act 3: What's next?\n\nThis issue is reproduced all across logstash indexes I have. Some have that errors, some no. So its not about single index issue.\n\nHow I suggest to solve that issue\nI need some API like\n\n```\ncurl -XPOST localhost:9200/stop_infinite_recovery -d '{\n \"stop_that_creepy_recovery_and_ignore_all_errors\": true\n}\n```\n\nthat gonna stop elastic infinite reports of broken/missed translog files, ignore all previous translog errors and run without errors even if it gonna require to loose/drop/delete **some** data but not **all** my ELK indexes.\nOtherwise - I can't use my logs for last 1.5 months because getting many errors about almost every logstash index.\nI've already deleted all logs older than 1.5 months, when tried to solve that issue. But that didn't help either.\n### Worst case scenario\n\nI've already tried to run elastic with clean `data` directory, and then ELK stack runs as usual, no CPU overhead, no tonns of logs, everything clean and smooth.\nI can drop my existed ELK logs for this time. BUT! I won't be able to do so each time I getting translog errors or smth like that.\n\nSo guys - any advice on how to force elasticsearch to ignore that damn translog errors? :)\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16495",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2016-02-08T13:18:17.000Z",
+        "fix_commit_hash": "fb54eac749d6bb0b183c6eba04cbbe1c6309f294",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Translog can delete valid .ckp file when views are closed after the translog (#19035)\n\nThere is simply a coding bug that only happens if translog views are closed\r\nafter the translog itself is closed. this can happen for instance if we hit\r\na disk full exception and try to repeatedly recover the translog. This will\r\ncause a translog-N.ckp file to be deleted since the wrong generation is used\r\nto generate the path to delete. This seems like a copy/past problem.\r\n\r\nThis bug doesn't affect 5.0\r\n\r\nRelates to #16495",
+        "closer_url": null,
+        "earliest_issue_date": "2016-02-08T12:53:19Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16519,
+        "issue_title": "Newer snapshot shards may be allocated on older nodes",
+        "issue_body": "In a mixed cluster with a newer master node and a mixture of older and newer data nodes, shards from a snapshot compatible with newer data nodes might be randomly assigned to older data nodes where they cannot be restored.\n\nThe problem is reproducible using SnapshotBackwardsCompatibilityIT.testBasicWorkflow with the following command line in 2.x branch\n\n```\nmvn verify -Pdev -Dskip.unit.tests -pl org.elasticsearch.qa.backwards:2.1 -Dtests.seed=A8C99BB8980117DF -Dtests.class=org.elasticsearch.bwcompat.SnapshotBackwardsCompatibilityIT -Dtests.method=\"testBasicWorkflow\" -Des.logger.level=DEBUG -Dtests.assertion.disabled=false -Dtests.security.manager=true -Dtests.nightly=false -Dtests.heap.size=512m -Des.node.mode=local -Dtests.locale=fr-BE -Dtests.timezone=Asia/Thimphu\n```\n\nThis test fails because it tries to allocated shards from the snapshot created on 2.x to nodes that are running 2.1.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16519",
+        "assignees": [
+            "imotov"
+        ],
+        "labels": [
+            ">bug",
+            ":Distributed/Snapshot/Restore"
+        ],
+        "issue_closed_at": "2016-02-23T05:00:46.000Z",
+        "fix_commit_hash": "a384be61a8bded3550ad99c8f996b9c265c98064",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Add node version check to shard allocation during restore\n\nVerifies that the version of a node is compatible with the version of a shard that's being restored on this node.\n\nFixes #16519",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16520",
+        "earliest_issue_date": "2016-02-08T22:46:10Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16536,
+        "issue_title": "Groovy: Reflection causes exceptions after several runs",
+        "issue_body": "A user in the [watcher forum](https://discuss.elastic.co/t/failed-to-execute-watch-transform-noclassdeffounderror/41257/5) hit a `ClassNotFoundError`, after a watch ran successful several times.\n\nTurns out this is a groovy issue and can be reproduced using this test:\n\n``` java\npackage org.elasticsearch.script.groovy;\n\nimport org.elasticsearch.common.settings.Settings;\nimport org.elasticsearch.script.CompiledScript;\nimport org.elasticsearch.script.ExecutableScript;\nimport org.elasticsearch.script.ScriptService;\nimport org.elasticsearch.test.ESTestCase;\n\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\npublic class GroovyCompilationTests extends ESTestCase {\n\n    private GroovyScriptEngineService se;\n\n    @Override\n    public void setUp() throws Exception {\n        super.setUp();\n        se = new GroovyScriptEngineService(Settings.EMPTY);\n        // otherwise will exit your VM and other bad stuff\n        assumeTrue(\"test requires security manager to be enabled\", System.getSecurityManager() != null);\n    }\n\n    @Override\n    public void tearDown() throws Exception {\n        se.close();\n        super.tearDown();\n    }\n\n    public void testThatPotentialBugWithSeveralExecutions() throws Exception {\n        String script = \"return hits.collect({\\\"${it.message}\\\"})\";\n\n        Map<String, Object> data = new HashMap<>();\n        data.put(\"message\", \"The big lebowski\");\n\n        List<Object> hitsArray = new ArrayList<>();\n        hitsArray.add(data);\n\n        Map<String, Object> hits = new HashMap<>();\n        hits.put(\"hits\", hitsArray);\n\n        Object compiledObject = se.compile(script, Collections.emptyMap());\n        CompiledScript compiledScript = new CompiledScript(ScriptService.ScriptType.INLINE, \"test\", \"groovy\", compiledObject);\n        ExecutableScript executable = se.executable(compiledScript, hits);\n\n        // 100 runs will fail, 10 runs work..\n        for (int i = 0; i < 100; i++) {\n            executable.run();\n        }\n    }\n\n}\n```\n\n@ywelsch already found out, that one can trigger this immediately by setting the `-Dsun.reflect.noInflation=true` property.\n\nFor more info about that, check out https://blogs.oracle.com/buck/entry/inflation_system_properties\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16536",
+        "assignees": [
+            "ywelsch"
+        ],
+        "labels": [
+            ">bug",
+            ":Core/Infra/Scripting",
+            "v5.0.0-alpha1",
+            "v2.3.0",
+            "v2.2.1"
+        ],
+        "issue_closed_at": "2016-02-09T16:39:57.000Z",
+        "fix_commit_hash": "e63c87c14a201522a5b2290f6ac435c2fb791817",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Add permission to access sun.reflect.MethodAccessorImpl from Groovy scripts\n\nGroovy uses reflection to invoke closures. These reflective calls are optimized by the JVM after \"sun.reflect.inflationThreshold\" number of invocations.\nAfter inflation, access to sun.reflect.MethodAccessorImpl is required from the security manager.\n\nCloses #16536",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16540",
+        "earliest_issue_date": "2016-02-09T14:16:49Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16547,
+        "issue_title": "Filtered Aliases don't work",
+        "issue_body": "This started to occur in ES v2.2.0. Easy steps to repro:\n1. Crete and index\n2. Put an alias\n3. Display the alias\n4. Check that the filter is not presented\n\n```\n\nPUT test_index\n{\n  \"mappings\": {\n    \"document_type\": {\n      \"properties\": {\n        \"tags\": {\n          \"type\": \"string\",\n          \"index\": \"not_analyzed\",\n          \"fields\": {\n            \"analyzed\": {\n              \"type\": \"string\"\n            }\n          },\n          \"ignore_above\": 256\n        }\n      }\n    }\n  }\n}\n\nPOST /_aliases\n{\n  \"actions\": [\n    {\n      \"add\": {\n        \"index\": \"test_in*\", <----- with wildcards\n        \"alias\": \"test_index_filter\",\n        \"filter\": {\n          \"term\": {\n            \"tags\": \"customerconsent\"\n          }\n        }\n      }\n    }\n  ]\n}\n\nOR\n\nPOST /_aliases\n{\n  \"actions\": [\n    {\n      \"add\": {\n        \"index\": \"test_index\",     <------ without wildcards \n        \"alias\": \"test_index_filter\",\n        \"filter\": {\n          \"term\": {\n            \"tags\": \"customerconsent\"\n          }\n        }\n      }\n    }\n  ]\n}\n\nGET _aliases\n```\n\nResult\n\n```\n{\n  \"test_index\": {\n    \"aliases\": {\n      \"test_index_filter\": {}\n    }\n  }\n}\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16547",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v5.0.0-alpha1",
+            "v2.3.0",
+            "v2.2.1"
+        ],
+        "issue_closed_at": "2016-02-09T20:46:20.000Z",
+        "fix_commit_hash": "6c575df929da54d68268b692126b5dd155d8efd7",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Fix filters and null parameters in _aliases command\n\nCloses #16549\nCloses #16547",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16553",
+        "earliest_issue_date": "2016-02-09T17:26:31Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16549,
+        "issue_title": "NullPointerException when ALIAS is missing",
+        "issue_body": "The issue is: https://github.com/ywelsch/elasticsearch/blob/bef0bedba9e4d3417205eee7a0601eaf9763a831/core/src/main/java/org/elasticsearch/action/admin/indices/alias/IndicesAliasesRequest.java#L289\n\nWhich should be `aliasAction.aliases == null || aliasAction.aliases.length == 0`. \n\nNow for the following request:\n\n```\nPOST /_aliases\n{\n  \"actions\": [\n    {\n      \"add\": {\n        \"index\": \"test_index\",\n        \"alias\": null,\n        \"fdasdilter\": {\n          \"termssse\": {\n            \"tagss\": \"customerconsent\"\n          }\n        }\n      }\n    }\n  ]\n}\n```\n\nWe get the following errors:\n\n```\n{\n   \"error\": {\n      \"root_cause\": [\n         {\n            \"type\": \"null_pointer_exception\",\n            \"reason\": null\n         }\n      ],\n      \"type\": \"null_pointer_exception\",\n      \"reason\": null\n   },\n   \"status\": 500\n}\n```\n\n```\n[2016-02-09 15:56:02,492][INFO ][rest.suppressed          ] /_aliases Params: {}\njava.lang.NullPointerException\n    at org.elasticsearch.action.admin.indices.alias.IndicesAliasesRequest.validate(IndicesAliasesRequest.java:289)\n    at org.elasticsearch.action.support.TransportAction.execute(TransportAction.java:62)\n    at org.elasticsearch.client.node.\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16549",
+        "assignees": [],
+        "labels": [
+            ">bug"
+        ],
+        "issue_closed_at": "2016-02-09T20:46:20.000Z",
+        "fix_commit_hash": "6c575df929da54d68268b692126b5dd155d8efd7",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Fix filters and null parameters in _aliases command\n\nCloses #16549\nCloses #16547",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16553",
+        "earliest_issue_date": "2016-02-09T18:03:01Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16550,
+        "issue_title": "Has child query forces default similarity",
+        "issue_body": "D\u00e9j\u00e0 vu of #4977 on 2.2.0. The `has_child` query seems to only use the default similarity when scoring child documents. Even the built-in non-default similarities don't seem to be picked up. See the curl statements below for reproducing. I reached out to @imotov who confirmed this issue on `master`.\n\nNo promises on a PR this time but we'll start looking into it and see how far we can get.\n\n`curl` statements for reproducing:\n\n```\n# delete index\ncurl -XDELETE 'http://localhost:9200/has_child_similarity_test/?pretty=true'\n\n# create index with proper parent/child mappings\ncurl -XPUT 'http://localhost:9200/has_child_similarity_test/?pretty=true' -d '{\n  \"settings\" : {\n    \"index\" : {\n      \"number_of_shards\" : 1,\n      \"number_of_replicas\" : 0\n    }\n  },\n  \"mappings\": {\n    \"author\": {\n      \"properties\": {\n        \"name\": { \"type\": \"string\" }\n      }\n    },\n    \"post\": {\n      \"_parent\": { \"type\": \"author\" },\n      \"properties\": {\n        \"content\": { \"type\": \"string\" }\n      }\n    }\n  }\n}'\n\n# add data\ncurl -XPUT 'http://localhost:9200/has_child_similarity_test/author/1?pretty=true' -d '{\n   \"name\": \"George P. Stathis\"\n}'\ncurl -XPUT 'http://localhost:9200/has_child_similarity_test/post/1?parent=1&pretty=true' -d '{\n  \"content\": \"Lorem ipsum dolor sit amet.\"\n}'\ncurl -XPUT 'http://localhost:9200/has_child_similarity_test/post/2?parent=1&pretty=true' -d '{\n  \"content\": \"Lorem ipsum dolor sit amet again!\"\n}'\n\necho \" \"\necho \"Sleep for two secs to allow for indexing\"\nsleep 2\n\n# Search posts directly\necho \" \"\necho \"Run query against child docs\"\ncurl 'http://localhost:9200/has_child_similarity_test/post/_search?pretty=1' -d '{\n  \"query\" : {\n    \"query_string\" : {\n      \"default_field\": \"content\",\n      \"query\" : \"Lorem ipsum\"\n    }\n  }\n}' | grep '_score'\n\necho \" \"\necho \"Two docs should have matched with scores 0.61871845 and 0.53033006\"\n\n# Search with has_child\necho \" \"\necho \"Run same query as has_child query in 'sum' mode\"\ncurl 'http://localhost:9200/has_child_similarity_test/_search?pretty=1' -d '{\n  \"query\": {\n    \"has_child\": {\n      \"type\": \"post\",\n      \"query\": {\n        \"query_string\": {\n          \"query\": \"Lorem ipsum\"\n        }\n      },\n      \"score_mode\": \"total\"\n    }\n  }\n}' | grep '_score'\n\necho \" \"\necho \"One parent doc should have matched with score 1.1490486 (i.e. 0.61871845 + 0.53033006)\"\nsleep 5\n\n# delete index\necho \" \"\necho \"Start over and re-index posts using BM25 similarity\"\ncurl -XDELETE 'http://localhost:9200/has_child_similarity_test/?pretty=true'\n\n# create index with proper parent/child mappings\ncurl -XPUT 'http://localhost:9200/has_child_similarity_test/?pretty=true' -d '{\n  \"settings\" : {\n    \"index\" : {\n      \"number_of_shards\" : 1,\n      \"number_of_replicas\" : 0\n    }\n  },\n  \"mappings\": {\n    \"author\": {\n      \"properties\": {\n        \"name\": { \"type\": \"string\" }\n      }\n    },\n    \"post\": {\n      \"_parent\": { \"type\": \"author\" },\n      \"properties\": {\n        \"content\": { \"type\": \"string\", \"similarity\" : \"BM25\" }\n      }\n    }\n  }\n}'\n\n# add data\ncurl -XPUT 'http://localhost:9200/has_child_similarity_test/author/1?pretty=true' -d '{\n   \"name\": \"George P. Stathis\"\n}'\ncurl -XPUT 'http://localhost:9200/has_child_similarity_test/post/1?parent=1&pretty=true' -d '{\n  \"content\": \"Lorem ipsum dolor sit amet.\"\n}'\ncurl -XPUT 'http://localhost:9200/has_child_similarity_test/post/2?parent=1&pretty=true' -d '{\n  \"content\": \"Lorem ipsum dolor sit amet again!\"\n}'\n\necho \" \"\necho \"Sleep for another two secs to allow for indexing\"\nsleep 2\n\n# Search posts directly\necho \" \"\necho \"Run query against child docs\"\ncurl 'http://localhost:9200/has_child_similarity_test/post/_search?pretty=1' -d '{\n  \"query\" : {\n    \"query_string\" : {\n      \"default_field\": \"content\",\n      \"query\" : \"Lorem ipsum\"\n    }\n  }\n}' | grep '_score'\n\necho \" \"\necho \"NOTE!!! Two docs should now have matched with scores 0.80081946 and 0.67905 because we are using BM25\"\n\n# Search with has_child\necho \" \"\necho \"Run same query as has_child query in 'sum' mode\"\ncurl 'http://localhost:9200/has_child_similarity_test/_search?pretty=1' -d '{\n  \"query\": {\n    \"has_child\": {\n      \"type\": \"post\",\n      \"query\": {\n        \"query_string\": {\n          \"query\": \"Lorem ipsum\"\n        }\n      },\n      \"score_mode\": \"total\"\n    }\n  }\n}' | grep '_score'\n\necho \" \"\necho \"NOTE!!! One parent doc matched but with with score 1.1490486 which is the sum of the child doc scores as computed by the default similarity (i.e. 0.61871845 + 0.53033006) not BM25. With BM25, the expected parent doc score should have been 0.80081946 + 0.67905 = 1.47986946\"\n\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16550",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ":Search/Search DO NOT USE"
+        ],
+        "issue_closed_at": "2016-02-15T21:17:36.000Z",
+        "fix_commit_hash": "b17a92c9110259fa0f3049374908f9d6b9150f1e",
+        "commit_type": "commit",
+        "commit_message": "Fixes #16550 (thanks for the pointers @martijnvg!)",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/b17a92c9110259fa0f3049374908f9d6b9150f1e",
+        "earliest_issue_date": "2016-02-09T18:11:59Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16554,
+        "issue_title": "Incorrect default value documented for cluster.routing.allocation.allow_rebalance in 2.1 documentation",
+        "issue_body": "The documentation located here: [Cluster Level Shard Allocation](https://www.elastic.co/guide/en/elasticsearch/reference/2.1/shards-allocation.html)\n\nStates that the default setting for `cluster.routing.allocation.allow_rebalance`is \"`always\"`\nIt actually appears to be `\"indices_all_active\"`\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16554",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2016-02-13T14:17:14.000Z",
+        "fix_commit_hash": "d5f8f9255955a69ff2c564c89e0f6424d1f0fc46",
+        "commit_type": "commit",
+        "commit_message": "Update shards_allocation.asciidoc\n\nCloses https://github.com/elastic/elasticsearch/issues/16554",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/d5f8f9255955a69ff2c564c89e0f6424d1f0fc46",
+        "earliest_issue_date": "2016-02-09T19:55:28Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16555,
+        "issue_title": "Varrying numbers of results from scan and scroll",
+        "issue_body": "Right off the bat, here's a little info:\n\n```\n$ uname -a\nLinux jj-big-box 3.19.0-49-generic #55~14.04.1-Ubuntu SMP Fri Jan 22 11:24:31 UTC 2016 x86_64 x86_64 x86_64 GNU/Linux\n\n$ curl -XGET 'localhost:9200'\n{\n  \"status\" : 200,\n  \"name\" : \"Bast\",\n  \"cluster_name\" : \"elasticsearch\",\n  \"version\" : {\n    \"number\" : \"1.7.4\",\n    \"build_hash\" : \"0d3159b9fc8bc8e367c5c40c09c2a57c0032b32e\",\n    \"build_timestamp\" : \"2015-12-15T11:25:18Z\",\n    \"build_snapshot\" : false,\n    \"lucene_version\" : \"4.10.4\"\n  },\n  \"tagline\" : \"You Know, for Search\"\n}\n```\n\nI've seen some similar posts, but I've had trouble squaring their results with mine. I've noticed that I have do not receive consistent numbers of documents when running scan and scroll in elastic search. Here is python code exhibiting the behavior (hopefully the use of sockets is not too confusing...at first I was trying to make sure the problem had nothing to do with elasticsearch-py and that's why I went the route of raw code):\n\n``` python\nimport socket\nimport httplib\nimport json\nimport re\n\nHOST = 'localhost'\nPORT = 9200\n\nCRLF = \"\\r\\n\\r\\n\"\n\ninit_msg = \"\"\"\nGET /index/document/_search?search_type=scan&scroll=15m&timeout=30&size=10 HTTP/1.1\nHost: localhost:9200\nAccept-Encoding: identity\nContent-Length: 94\nconnection: keep-alive\n\n{\"query\": {\"regexp\": {\"date_publ\": \"2001.*\"}}, \"_source\": [\"doc_id\", \"date_publ\", \"abstract\"]}\n\"\"\"\n\nscroll_msg = \"\"\"\nGET /_search/scroll?scroll=15m HTTP/1.1\nHost: localhost:9200\nAccept-Encoding: identity\nContent-Length: {sid_length}\nconnection: keep-alive\n\n{sid}\n\"\"\"\n\ndef get_stream(host, port, verbose=True):\n    # Set up the socket.\n    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n    s.connect((HOST, PORT))\n    s.send(init_msg)\n\n    # Fetch scroll_id and total number of hits.\n    data = s.recv(4096)\n    payload = json.loads(data.split(CRLF)[-1])\n    sid = payload['_scroll_id']\n    total_hits = payload['hits']['total']\n\n    if verbose:\n        print \"Total hits: {}\".format(total_hits)\n\n    # Iterate through results.\n    while True:\n        # Send data request.\n        msg = scroll_msg.format(sid=sid, sid_length=len(sid))\n        s.send(msg)\n\n        # Fetch the response body.\n        data = s.recv(1024)\n        header, body = data.split(CRLF)\n        content_length = int(re.findall('Content-Length: (\\d*)', header)[0])\n        while len(body) < content_length:\n            body += s.recv(1024)\n\n        # Extract results from response body.\n        payload = json.loads(body)\n        sid = payload['_scroll_id']\n        hits = payload['hits']['hits']\n\n        #print payload['_shards']\n\n        if not hits:\n            break\n\n        for hit in hits:\n            yield hit\n\n\nfor count, _ in enumerate(get_stream(HOST, PORT), 1): pass\n\nprint count\n```\n\nWhen I run that a few times, I get the following:\n\n```\n$ python new_test.py \nTotal hits: 56366\n11650\n$ python new_test.py \nTotal hits: 56366\n24550\n$ python new_test.py \nTotal hits: 56366\n8550\n```\n\nNow if I un-comment the line `#print payload['_shards']`, the ended up being the following during one run:\n\n```\nTotal hits: 56366\n{u'successful': 5, u'failed': 0, u'total': 5}\n{u'successful': 5, u'failed': 0, u'total': 5}\n{u'successful': 5, u'failed': 0, u'total': 5}\n{u'successful': 5, u'failed': 0, u'total': 5}\n{u'successful': 5, u'failed': 0, u'total': 5}\n\n...\n\n{u'successful': 4, u'failed': 0, u'total': 4}\n{u'successful': 4, u'failed': 0, u'total': 4}\n{u'successful': 4, u'failed': 0, u'total': 4}\n{u'successful': 4, u'failed': 0, u'total': 4}\n{u'successful': 4, u'failed': 0, u'total': 4}\n{u'successful': 4, u'failed': 0, u'total': 4}\n28110\n```\n\nand ended up as the following the next run:\n\n```\nTotal hits: 56366\n{u'successful': 5, u'failed': 0, u'total': 5}\n{u'successful': 5, u'failed': 0, u'total': 5}\n{u'successful': 5, u'failed': 0, u'total': 5}\n{u'successful': 5, u'failed': 0, u'total': 5}\n{u'successful': 5, u'failed': 0, u'total': 5}\n{u'successful': 5, u'failed': 0, u'total': 5}\n{u'successful': 5, u'failed': 0, u'total': 5}\n\n...\n\n{u'successful': 5, u'failed': 0, u'total': 5}\n{u'successful': 5, u'failed': 0, u'total': 5}\n{u'successful': 5, u'failed': 0, u'total': 5}\n{u'successful': 5, u'failed': 0, u'total': 5}\n{u'successful': 5, u'failed': 0, u'total': 5}\n{u'successful': 5, u'failed': 0, u'total': 5}\n{u'successful': 3, u'failed': 0, u'total': 3}\n{u'successful': 1, u'failed': 0, u'total': 1}\n{u'successful': 0, u'failed': 0, u'total': 0}\n56366\n```\n\n_Note_: The last run apparently returned _all_ documents. This is the first time I've seen this during this experimentation.\n\nDoes anyone have any idea what's going on here? As far as I can tell, I never run into these issues when not doing the regular expression as part of the search, but other than that I'm at a loss.\n\nThanks for any help!\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16555",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "discuss",
+            ":Search/Search DO NOT USE"
+        ],
+        "issue_closed_at": "2018-07-27T13:18:32.000Z",
+        "fix_commit_hash": "9ff0b4f6ea5c51f8130680f3cd5fc0c35a1b2171",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Extract a common base class for scroll executions (#24979)\n\nToday there is a lot of code duplication and different handling of errors\nin the two different scroll modes. Yet, it's not clear if we keep both of\nthem but this simplification will help to further refactor this code to also\nadd cross cluster search capabilities.\n\nThis refactoring also fixes bugs when shards failed due to the node dropped out of the cluster in between scroll requests and failures during the fetch phase of the scroll. Both places where simply ignoring the failure and logging to debug. This can cause issues like #16555",
+        "closer_url": null,
+        "earliest_issue_date": "2016-02-09T20:07:45Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16565,
+        "issue_title": "Node not marked as client unless node.client: true",
+        "issue_body": "From a cluster running ES 2.1.1 (or ES 1.x) with 8 nodes, two of which were client nodes:\n\n``` http\nGET _cluster/stats\n```\n\nproduces:\n\n``` json\n\"nodes\": {\n  \"count\": {\n    \"total\": 8,\n    \"master_only\": 2,\n    \"data_only\": 4,\n    \"master_data\": 0,\n    \"client\": 0\n  }\n  ...\n}\n```\n\nThese nodes were set to being client nodes implicitly by using\n\n``` yaml\nnode.master: false\nnode.data: false\n```\n\nIt appears that the node.client count is only tripped when using `node.client: true`, but it should be `node.client || (node.master || node.data || node.ingest) == false`. This should be done at the source where ever we do that check initially. The annoying thing is that it kind of prevents other types of nodes from being dynamically added without \"lying\" if we change that check.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16565",
+        "assignees": [
+            "javanna"
+        ],
+        "labels": [
+            ">enhancement",
+            ":Distributed/Distributed"
+        ],
+        "issue_closed_at": "2016-03-29T19:55:57.000Z",
+        "fix_commit_hash": "eb941d8005c45af402950cc37df3527abbe71d6b",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Remove node.client setting\n\nAs discussed in #16565, the node.client setting is an unnecessary shortcut to node.data: false and node.master: false. We have places where we treat nodes with node.client set to true differently compared to master false and data false, which is not correct. Also, with the addition of node.ingest or potentially new roles, it becomes confusing to figure out if a node client should support ingestion or not.\n\nThis commit removes the node.client setting in favour being explicit using node.master, node.data and node.ingest instead.",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16963",
+        "earliest_issue_date": "2016-02-09T23:51:27Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16568,
+        "issue_title": "Upgrade instructions for Disabling allocation are wrong for 0.90.x",
+        "issue_body": "https://www.elastic.co/guide/en/elasticsearch/reference/current/restart-upgrade.html#_step_1_disable_shard_allocation_2\n\nhttps://github.com/elastic/elasticsearch/edit/2.2/docs/reference/setup/cluster_restart.asciidoc\n\nFor 0.90.x to 1.x says to do  \"cluster.routing.allocation.disable_allocation\": false to disable allocation. I believe this is wrong. To disable allocation 'disable_allocation' should be set to true. And to enable allocation, 'disable_allocation' should be set to false.\n\nI only mention this because its on the 2.2 and other upgrade instructions.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16568",
+        "assignees": [],
+        "labels": [
+            ">docs"
+        ],
+        "issue_closed_at": "2016-02-13T18:03:54.000Z",
+        "fix_commit_hash": "a7aae4a78a9831765fd77386101bcc297a57c601",
+        "commit_type": "commit",
+        "commit_message": "Update cluster_restart.asciidoc\n\nCloses #16568",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/a7aae4a78a9831765fd77386101bcc297a57c601",
+        "earliest_issue_date": "2016-02-10T01:29:33Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 16577,
+        "issue_title": "simple_query_string gives java.lang.IllegalArgumentException: Illegal shift value, must be 0..63; got shift=2147483647",
+        "issue_body": "Hi Team,\n\nI have got the following error when using simple_query_string with multiple fields containing numeric field.\nVersion: 2.2.0\nOS: Windows\n\n**Sample data:**\n`curl -XPUT http://localhost:9200/blog/post/1 -d '{\"foo\":123, \"bar\":\"xyzzy\"}'`\n`curl -XPUT http://localhost:9200/blog/post/2 -d '{\"foo\":456, \"bar\":\"xyzzy\"}'`\n\n**Use simple_query_string with multiple fields**\n`curl -XGET http://localhost:9200/blog/post/_search?pretty=1 -d '{\"query\":{\"simple_query_string\":{\"query\":\"123\",\"fields\":[\"foo\",\"bar\"]}}}'`\n\n**Error**\n`{\n    \"error\": {\n        \"root_cause\": [\n            {\n                \"type\": \"illegal_argument_exception\",\n                \"reason\": \"Illegal shift value, must be 0..63; got shift=2147483647\"\n            }\n        ],\n        \"type\": \"search_phase_execution_exception\",\n        \"reason\": \"all shards failed\",\n        \"phase\": \"query\",\n        \"grouped\": true,\n        \"failed_shards\": [\n            {\n                \"shard\": 0,\n                \"index\": \"blog\",\n                \"node\": \"6jVhZCw3Tau3cP5VtEg8Tw\",\n                \"reason\": {\n                    \"type\": \"illegal_argument_exception\",\n                    \"reason\": \"Illegal shift value, must be 0..63; got shift=2147483647\"\n                }\n            }\n        ]\n    },\n    \"status\": 400\n}`\n\n**multi_match query works with the same fields**\n`curl -XGET http://localhost:9200/blog/post/_search?pretty=1 -d '{\"query\":{\"bool\":{\"must\":[{\"multi_match\":{\"query\":\"123\",\"type\":\"cross_fields\",\"fields\":[\"foo\",\"bar\"],\"operator\":\"and\"}}]}}}'` \n\nIssue similar to #15860\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/16577",
+        "assignees": [
+            "dakrone"
+        ],
+        "labels": [
+            ">bug",
+            ":Search/Search DO NOT USE"
+        ],
+        "issue_closed_at": "2016-02-18T23:27:53.000Z",
+        "fix_commit_hash": "bc50ad7a22d66b9cd86f63f948c0eb2fc789402a",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Use MappedFieldType.termQuery to generate simple_query_string queries\n\nFor Numeric types, if the query's text is passed to create a boolean\nquery, the 'Long' analyzer can return an exception similar to:\n\n```\nIllegalArgumentException: Illegal shift value, must be 0..63; got shift=2147483647\n```\n\nThis change looks up the `MappedFieldType` for the specified fields (if\navailable) and uses the `.termQuery` function to create the query from\nthe string, instead of analyzing it by creating a new boolean query by\ndefault.\n\nResolves #16577\n\nThis is fixed in 2.3+ by Lucene 5.5",
+        "closer_url": null,
+        "earliest_issue_date": "2016-02-10T12:58:00Z",
+        "predicted_class": "bug"
+    }
+]

@@ -1,0 +1,1019 @@
+[
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14406,
+        "issue_title": "Forwardport BWC test fixes to gradle branches",
+        "issue_body": "Once gradle has stabilized on master we'll need to forward port https://github.com/elastic/elasticsearch/pull/13477 to those branches. Normally forwardporting/backporting doesn't merit its own issue but in this case we'll be committing to the maven branches long before we'll be able to commit to the gradle branches.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14406",
+        "assignees": [],
+        "labels": [
+            ">test",
+            ":Core/Infra/Core"
+        ],
+        "issue_closed_at": "2018-05-20T19:52:51.000Z",
+        "fix_commit_hash": "121e7c8ca4f7bb1cd3fd887d63d900503307647a",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Add infrastructure to run REST tests on a multi-version cluster\n\nThis change adds the infrastructure to run the rest tests on a multi-node\ncluster that users 2 different minor versions of elasticsearch. It doesn't implement\nany dedicated BWC tests but rather leverages the existing REST tests.\n\nSince we don't have a real version to test against, the tests uses the current version\nuntil the first minor / RC is released to ensure the infrastructure works.\n\nRelates to #14406\nCloses #17072",
+        "closer_url": null,
+        "earliest_issue_date": "2015-10-30T21:32:11Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14441,
+        "issue_title": "Unicast hostname failing to resolve blocks cluster from starting",
+        "issue_body": "Hi folks,\n\nthere seems to be a regression from **1.7.3** to **2.0.0** regarding the `gateway.recover_after_time` setting.\n\n``` bash\ndocker run --name=\"elasticsearch\" -p 9200:9200 -p 9300:9300 -e \"SERVICE_ID=$hostname\" -e \"SERVICE_NAME=elasticsearch\" elasticsearch:2.0.0 -Des.index.number_of_shards=3 -Des.index.number_of_replicas=2 -Des.gateway.recover_after_nodes=2 -Des.gateway.expected_nodes=3 -Des.gateway.recover_after_time=5m -Des.discovery.zen.ping.multicast.enabled=false -Des.discovery.zen.ping.unicast.hosts=\"01.elasticsearch,02.elasticsearch,03.elasticsearch\" -Des.cluster.name=\"logging-test\" -Des.network.publish_host=\"${PUBLIC_IP}\"\n```\n\nI run Elasticsearch on three nodes (Docker hosts). The DNS names are not immediatly available. In **1.7.3** the cluster stabilizes after a couple of minutes. In **2.0.0** the container crashes directly.\n\n``` java\nException in thread \"main\" java.lang.IllegalArgumentException: Failed to resolve address for [02.elasticsearch]\nLikely root cause: java.net.UnknownHostException: 02.elasticsearch: unknown error\nat java.net.Inet6AddressImpl.lookupAllHostAddr(Native Method)\nat java.net.InetAddress$2.lookupAllHostAddr(InetAddress.java:928)\nat java.net.InetAddress.getAddressesFromNameService(InetAddress.java:1323)\nat java.net.InetAddress.getAllByName0(InetAddress.java:1276)\nat java.net.InetAddress.getAllByName(InetAddress.java:1192)\nat java.net.InetAddress.getAllByName(InetAddress.java:1126)\nat org.elasticsearch.transport.netty.NettyTransport.parse(NettyTransport.java:668)\nat org.elasticsearch.transport.netty.NettyTransport.addressesFromString(NettyTransport.java:620)\nat org.elasticsearch.transport.TransportService.addressesFromString(TransportService.java:398)\nat org.elasticsearch.discovery.zen.ping.unicast.UnicastZenPing.<init>(UnicastZenPing.java:141)\nat sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)\nat sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:62)\nat sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)\nat java.lang.reflect.Constructor.newInstance(Constructor.java:422)\nat <<<guice>>>\nat org.elasticsearch.node.Node.<init>(Node.java:198)\nat org.elasticsearch.node.NodeBuilder.build(NodeBuilder.java:145)\nat org.elasticsearch.bootstrap.Bootstrap.setup(Bootstrap.java:170)\nat org.elasticsearch.bootstrap.Bootstrap.init(Bootstrap.java:270)\nat org.elasticsearch.bootstrap.Elasticsearch.main(Elasticsearch.java:35)\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14441",
+        "assignees": [
+            "jasontedor"
+        ],
+        "labels": [
+            ">bug",
+            "blocker",
+            "discuss",
+            ":Distributed/Network",
+            "v5.1.1"
+        ],
+        "issue_closed_at": "2016-11-22T19:17:04.000Z",
+        "fix_commit_hash": "9dc65037bc5fec117c77633635986ff881d0c6af",
+        "commit_type": "pr",
+        "commit_message": "Lazy resolve unicast hosts\n\nToday we eagerly resolve unicast hosts. This means that if DNS changes,\r\nwe will never find the host at the new address. Moreover, a single host\r\nfailng to resolve causes startup to abort. This commit introduces lazy\r\nresolution of unicast hosts. If a DNS entry changes, there is an\r\nopportunity for the host to be discovered. Note that under the Java\r\nsecurity manager, there is a default positive cache of infinity for\r\nresolved hosts; this means that if a user does want to operate in an\r\nenvironment where DNS can change, they must adjust\r\nnetworkaddress.cache.ttl in their security policy. And if a host fails\r\nto resolve, we warn log the hostname but continue pinging other\r\nconfigured hosts.\r\n\r\nWhen doing DNS resolutions for unicast hostnames, we wait until the DNS\r\nlookups timeout. This appears to be forty-five seconds on modern JVMs,\r\nand it is not configurable. If we do these serially, the cluster can be\r\nblocked during ping for a lengthy period of time. This commit introduces\r\ndoing the DNS lookups in parallel, and adds a user-configurable timeout\r\nfor these lookups.\r\n\r\nRelates #21630",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/21630",
+        "earliest_issue_date": "2015-11-02T16:04:17Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14442,
+        "issue_title": "Elasticsearch _bulk endpoint fails if data contains UTF-8 Byte Order Mark",
+        "issue_body": "This looks like a regression because it worked on 1.x\n\nperl -e 'print \"\\xEF\\xBB\\xBF\"' > test.dat\necho '{ \"index\" : { \"_index\" : \"test\", \"_type\" : \"type1\", \"_id\" : \"1\" } }' >> test.dat\necho '{ \"field1\" : \"value1\" }' >> test.dat\n\nhexdump -C test.dat \n\n```\n00000000  ef bb bf 7b 20 22 69 6e  64 65 78 22 20 3a 20 7b  |...{ \"index\" : {|\n00000010  20 22 5f 69 6e 64 65 78  22 20 3a 20 22 74 65 73  | \"_index\" : \"tes|\n00000020  74 22 2c 20 22 5f 74 79  70 65 22 20 3a 20 22 74  |t\", \"_type\" : \"t|\n00000030  79 70 65 31 22 2c 20 22  5f 69 64 22 20 3a 20 22  |ype1\", \"_id\" : \"|\n00000040  31 22 20 7d 20 7d 0a 7b  20 22 66 69 65 6c 64 31  |1\" } }.{ \"field1|\n00000050  22 20 3a 20 22 76 61 6c  75 65 31 22 20 7d 0a     |\" : \"value1\" }.|\n0000005f\n```\n\nElasticsearch 2.0.0\n\n```\n[2015-11-02 17:20:49,328][INFO ][node                     ] [Earthquake] version[2.0.0], pid[77392], build[de54438/2015-10-22T08:09:48Z]\n```\n\ncurl -XPOST '0:9200/_bulk' --data-binary @test.dat\n\nfails with \n\n```\n{\"error\":{\"root_cause\":[{\"type\":\"parse_exception\",\"reason\":\"Failed to derive xcontent\"}],\"type\":\"parse_exception\",\"reason\":\"Failed to derive xcontent\"},\"status\":400}\n```\n\nServer log\n\n```\n[2015-11-02 17:21:58,254][INFO ][rest.suppressed          ] /_bulk Params: {}\nElasticsearchParseException[Failed to derive xcontent]\n    at org.elasticsearch.common.xcontent.XContentFactory.xContent(XContentFactory.java:293)\n    at org.elasticsearch.action.bulk.BulkRequest.add(BulkRequest.java:251)\n    at org.elasticsearch.rest.action.bulk.RestBulkAction.handleRequest(RestBulkAction.java:88)\n    at org.elasticsearch.rest.BaseRestHandler.handleRequest(BaseRestHandler.java:54)\n    at org.elasticsearch.rest.RestController.executeHandler(RestController.java:207)\n    at org.elasticsearch.rest.RestController.dispatchRequest(RestController.java:166)\n    at org.elasticsearch.http.HttpServer.internalDispatchRequest(HttpServer.java:128)\n    at org.elasticsearch.http.HttpServer$Dispatcher.dispatchRequest(HttpServer.java:86)\n    at org.elasticsearch.http.netty.NettyHttpServerTransport.dispatchRequest(NettyHttpServerTransport.java:348)\n    at org.elasticsearch.http.netty.HttpRequestHandler.messageReceived(HttpRequestHandler.java:63)\n    at org.jboss.netty.channel.SimpleChannelUpstreamHandler.handleUpstream(SimpleChannelUpstreamHandler.java:70)\n    at org.jboss.netty.channel.DefaultChannelPipeline.sendUpstream(DefaultChannelPipeline.java:564)\n    at org.jboss.netty.channel.DefaultChannelPipeline$DefaultChannelHandlerContext.sendUpstream(DefaultChannelPipeline.java:791)\n    at org.elasticsearch.http.netty.pipelining.HttpPipeliningHandler.messageReceived(HttpPipeliningHandler.java:60)\n    at org.jboss.netty.channel.SimpleChannelHandler.handleUpstream(SimpleChannelHandler.java:88)\n    at org.jboss.netty.channel.DefaultChannelPipeline.sendUpstream(DefaultChannelPipeline.java:564)\n    at org.jboss.netty.channel.DefaultChannelPipeline$DefaultChannelHandlerContext.sendUpstream(DefaultChannelPipeline.java:791)\n    at org.jboss.netty.handler.codec.http.HttpChunkAggregator.messageReceived(HttpChunkAggregator.java:145)\n    at org.jboss.netty.channel.SimpleChannelUpstreamHandler.handleUpstream(SimpleChannelUpstreamHandler.java:70)\n    at org.jboss.netty.channel.DefaultChannelPipeline.sendUpstream(DefaultChannelPipeline.java:564)\n    at org.jboss.netty.channel.DefaultChannelPipeline$DefaultChannelHandlerContext.sendUpstream(DefaultChannelPipeline.java:791)\n    at org.jboss.netty.handler.codec.http.HttpContentDecoder.messageReceived(HttpContentDecoder.java:108)\n    at org.jboss.netty.channel.SimpleChannelUpstreamHandler.handleUpstream(SimpleChannelUpstreamHandler.java:70)\n    at org.jboss.netty.channel.DefaultChannelPipeline.sendUpstream(DefaultChannelPipeline.java:564)\n    at org.jboss.netty.channel.DefaultChannelPipeline$DefaultChannelHandlerContext.sendUpstream(DefaultChannelPipeline.java:791)\n    at org.jboss.netty.channel.Channels.fireMessageReceived(Channels.java:296)\n    at org.jboss.netty.handler.codec.frame.FrameDecoder.unfoldAndFireMessageReceived(FrameDecoder.java:459)\n    at org.jboss.netty.handler.codec.replay.ReplayingDecoder.callDecode(ReplayingDecoder.java:536)\n    at org.jboss.netty.handler.codec.replay.ReplayingDecoder.messageReceived(ReplayingDecoder.java:435)\n    at org.jboss.netty.channel.SimpleChannelUpstreamHandler.handleUpstream(SimpleChannelUpstreamHandler.java:70)\n    at org.jboss.netty.channel.DefaultChannelPipeline.sendUpstream(DefaultChannelPipeline.java:564)\n    at org.jboss.netty.channel.DefaultChannelPipeline$DefaultChannelHandlerContext.sendUpstream(DefaultChannelPipeline.java:791)\n    at org.elasticsearch.common.netty.OpenChannelsHandler.handleUpstream(OpenChannelsHandler.java:75)\n    at org.jboss.netty.channel.DefaultChannelPipeline.sendUpstream(DefaultChannelPipeline.java:564)\n    at org.jboss.netty.channel.DefaultChannelPipeline.sendUpstream(DefaultChannelPipeline.java:559)\n    at org.jboss.netty.channel.Channels.fireMessageReceived(Channels.java:268)\n    at org.jboss.netty.channel.Channels.fireMessageReceived(Channels.java:255)\n    at org.jboss.netty.channel.socket.nio.NioWorker.read(NioWorker.java:88)\n    at org.jboss.netty.channel.socket.nio.AbstractNioWorker.process(AbstractNioWorker.java:108)\n    at org.jboss.netty.channel.socket.nio.AbstractNioSelector.run(AbstractNioSelector.java:337)\n    at org.jboss.netty.channel.socket.nio.AbstractNioWorker.run(AbstractNioWorker.java:89)\n    at org.jboss.netty.channel.socket.nio.NioWorker.run(NioWorker.java:178)\n    at org.jboss.netty.util.ThreadRenamingRunnable.run(ThreadRenamingRunnable.java:108)\n    at org.jboss.netty.util.internal.DeadLockProofWorker$1.run(DeadLockProofWorker.java:42)\n    at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1142)\n    at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:617)\n    at java.lang.Thread.run(Thread.java:745)\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14442",
+        "assignees": [],
+        "labels": [
+            "good first issue",
+            ":Core/Infra/REST API",
+            "v2.1.0",
+            "v5.0.0-alpha1",
+            "v2.2.0"
+        ],
+        "issue_closed_at": "2015-11-09T11:09:28.000Z",
+        "fix_commit_hash": "d795ce3b6ea577db9a7450ffea635f86e9624634",
+        "commit_type": "commit",
+        "commit_message": "XContentFactory.xContentType: allow for possible UTF-8 BOM for JSON XContentType\n\nFixes #14442",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/d795ce3b6ea577db9a7450ffea635f86e9624634",
+        "earliest_issue_date": "2015-11-02T16:32:28Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14445,
+        "issue_title": "Delayed allocation can miss a reroute",
+        "issue_body": "The issue I focus on is described in #14010, #14011. Reproduced it using an integration test and I think I found a program flow leading to this issue.\n\nAssume cluster where setting for delayed allocation is 1 minute. Now a node goes down. Shard becomes unassigned. In `RoutingService.clusterChanged()` (master node), `nextDelaySetting` is 1 minute (= smallest delayed allocation setting). The variable `registeredNextDelaySetting` is initially set to `Long.Max_VALUE`, hence we schedule a new reroute in a minute. The variable `registeredNextDelaySetting` is set to a minute. After half a minute, a second node goes down. A shard of the second node becomes unassigned. In this case, `registeredNextDelaySetting` is still 1 minute, and `nextDelaySetting` is also 1 minute. So nothing happens in `RoutingService.clusterChanged()`. The previous scheduled reroute gets executed at some point. This goes as follows: First, the variable `registeredNextDelaySetting` is again set to `Long.MAX_VALUE` and then we submit a cluster update task to do the reroute. Lets assume that routingResult.changed() yields true (but only because it is set to true in ReplicaShardAllocator due to the second shard still being delayed). Now, after the reroute is successfully applied, `InternalClusterService` calls back to `RoutingService.clusterChanged()`. Here we check if we were the reason for the cluster change event. If yes (and that's the case), we do not schedule a delayed allocation until the next cluster change event. This means that if no new cluster change event happens, the check never gets reevaluated for the remaining delayed shards.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14445",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ":Distributed/Allocation"
+        ],
+        "issue_closed_at": "2015-11-12T16:58:08.000Z",
+        "fix_commit_hash": "d342200df9bf3cf96795df5609f669e9356e7058",
+        "commit_type": "commit_ref_pr",
+        "commit_message": "Fix missing reroute in case of multiple delayed shards\n\nAfter a delayed reroute of a shard, RoutingService misses to schedule a new delayed reroute of other delayed shards.\n\nCloses #14494\nCloses #14010\nCloses #14445",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/14494",
+        "earliest_issue_date": "2015-11-02T17:17:18Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14453,
+        "issue_title": "ES 2.0 rpm does not create /home/elasticsearch",
+        "issue_body": "Causes issue if you try to run a cron job as the ES user. Issue on centos 6, package from the repo. \n\n```\n[centos@ip-10-233-237-10 ~]$ sudo su - elasticsearch -s /bin/bash\nsu: warning: cannot change directory to /home/elasticsearch: No such file or directory\n\n-bash-4.1$ grep elastic /etc/passwd\nelasticsearch:x:498:498:elasticsearch user:/home/elasticsearch:/sbin/nologin\n\n-bash-4.1$ ls -l /home/\ntotal 4\ndrwx------. 3 centos centos 4096 Nov  2 20:23 centos\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14453",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ":Delivery/Packaging",
+            "Team:Delivery"
+        ],
+        "issue_closed_at": "2018-05-02T21:33:35.000Z",
+        "fix_commit_hash": "3aec8c772585254695e7caf4f0f2fff083ad7f0e",
+        "commit_type": "pr",
+        "commit_message": "Packaging: Set elasticsearch user to have non-existent homedir (#29007)\n\nThis commit adds setting the homedir for the elasticsearch user to the\r\nadduser command in the packaging preinstall script. While the\r\nelasticsearch user is a system user, it is sometimes conventient to have\r\nan existing homedir (even if it is not writeable). For example, running\r\ncron as the elasticsearch user will try to change dir to the homedir.\r\n\r\ncloses #14453",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/29007",
+        "earliest_issue_date": "2015-11-02T20:30:57Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14464,
+        "issue_title": "Maven to gradle Integ test parity",
+        "issue_body": "A few small nice features of the ant/maven integ tests were lost with the move to gradle, noted here:\nhttps://github.com/elastic/elasticsearch/pull/14460#issuecomment-153227207\n\nThis issue is to add these back:\n- random tmpdir for cwd\n- space in ES home path\n- space in plugin files source path\n- jps check for already running ES\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14464",
+        "assignees": [],
+        "labels": [
+            ":Delivery/Build",
+            "v5.0.0-alpha1",
+            "Team:Delivery"
+        ],
+        "issue_closed_at": "2015-11-07T21:09:04.000Z",
+        "fix_commit_hash": "9ee315a9c840e2189404edfb2a33b9e352e6f098",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Build: Improve integ test to match ant behavior\n\nMany other improvements:\n* Use spaces in ES path\n* Use space in path for plugin file installation\n* Use a different cwd than ES home\n* Use jps to ensure process being stopped is actually elasticsearch\n* Stop ES if pid file already exists\n* Delete pid file when successfully killed\n\nAlso, refactored the cluster formation code to be a little more organized.\n\ncloses #14464",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/14598",
+        "earliest_issue_date": "2015-11-03T06:34:50Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14469,
+        "issue_title": "Using binary type and doc_values=true makes doc() lookups completely unusable",
+        "issue_body": "(ES 2.0 ) \nIn the documentation it states that you can fetch binary doc_values by using \"doc_values\": true, for that type: https://www.elastic.co/guide/en/elasticsearch/reference/current/binary.html.\nWhen trying to fetch this in a java plugin I always get unsupported_operation_exception, thrown by UnsupportedOperationException, BytesBinaryDVAtomicFieldData line 104:\nyou can reproduce it by creating a simple index and adding some documents with binary data\n\n``` bash\ncurl -s -XPUT \"http://localhost:9200/testindex/\" -d '{\n    \"settings\": {\n        \"index.number_of_shards\": 1,\n        \"index.number_of_replicas\": 0\n    },\n    \"mappings\": {\n    \"test\":{\"_all\":{\"enabled\":false},\n    \"properties\":{\n        \"qa_data\":{\"type\":\"binary\", \"doc_values\": true}\n        }\n       }\n    }\n}'\n\ncurl -s -XPUT 'http://localhost:9200/testindex/test/3'  -d '{\n            \"qa_data\" : \"AB4BNINAgBoQgAQAABQAJIAAEAAAAAAAAAAAACBAAAgAAAAAAIAAABAAgAACIAAQAAAICAAAAAAAgAAgAgAAAAAAAAAAAJAAAHACAAAAAQAAAAAAAAAAQAAAAAAAAAAIEEAAAAAACAAAAAAAAAAAAgIAIAgwICBAAAAAAAAAAAAAAAAAAAAAQAQAAAAgAAAAAAAAIAAAAAAAACAACAAAAAAAAAACAAEAAAEAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAQAAAAAACAAAAAAAAAAAAAAAAAgAAAAAAEAAAAAAAAAAAAHgAAPEgAAAAAAAAAIAAAAAAKAAEABAAAABcAAgAEAAAAHAADAAQAAAAhAAEABAAAACMAAQAEAAAAJAABAAQAAAAvAAIACQADADYAAgAEAAAAOAAEAAQAAAA5AAQADgACAD8AAQABAAIATAACAAQAAABfAAEABAAAAGIAAgAJAAMAZQABAAQAAAByAAEAAQACAHQAAgAJAAIA4wACAAQAAAD2AAEABAAAAP0AAgAEAAABDwACAAQAAAEcAAEAAQACATcAAgAEAAABQwACAAkAAgFLAAEAAwADAWQAAwANAAEBdQADAAQAAAF5AAEABAAAAYUAAQAEAAABlwABAAQAAAH5AAEAAgACAgkAAgADAAICFAABAAEAAgIVAAEAAgACAhYAAgAEAAACLAACAAQAAAIvAAIABAAAAmgAAgAEAAACpgACAAIAAQLWAAQADwACAtwAAwAHAAIC4wACAAMAAgMrAAMAAwACA0MAAQAEAAADTQADAAQAAANZAAMABAAAA2EAAwAEAAADpgADAAMAAQOtAAEAAQABA7UAAgAJAAIDvAABAAIAAwO9AAIABAAABBoAAgAEAAAEJgACAAMAAgRFAAIABAAABH0AAgADAAIEjQACAAMAAgT7AAMABAAABRAABAAPAAIFKAACAAQAAAU5AAQADwACBYcAAQABAAMFzAACAAQAAAYfAAIACQACBooAAgADAAIGtwABAAEAAgcbAAEABAAABx4AAgAEAAAHIgACAAQAAAcjAAMABAAAByQAAQAEAAAHJQADAAQAAAc5AAEABAAABzoAAQAEAAAHOwABAAQAAAc8AAEAAQACB10AAwADAAI=\"\n}'\ncurl -s -XPUT 'http://localhost:9200/testindex/test/4'  -d '{\n             \"qa_data\" : \"AB4CtINAgxqQmBw2ABQAJKFCGAAwkAAAAAEAICBAAIgQAABAAKAAhBAQgCASIAAYAIAKKgAAAgAAgGQgAoAAAABAAAAAAgAAAHACAACAESAAAAQAAAAAQAAAAAgAAAAIEEBAABECCQAAAARAQAEAAgIEIAg0ISDAAAAAABSAAAAAAAQAAAAIQRQAAAIhAAAAAAABoAAAAAAIACAACIAAAAAAgUAiAAEAAAGAgCAAAAAAAAAAAAAAAAAAAIAAAAAABgEQAAgAgACEAgAAAFAAAAgBAIAAgAAAAAAAAAQAAAAAAAAAXgCAPGgAAAAAAAAAADAQAAABAAIACQABAAIAAgAJAAIABAABAAkAAgAFAAIACQABAAoAAgAEAAAACwABAAQAAAAMAAIABAAAABMAAwAKAAIAFAADAA0AAgAXAAIABAAAABwABAAOAAIAHwABAAEAAgAhAAEAAgABACMAAgAEAAAAJAACAAQAAAAoAAIACQACACkAAQAEAAAALwACAAkAAwA2AAIACwADADgABAAOAAIAOQAEAA4AAwA/AAEAAQACAEsAAQACAAIATAACAAIAAQBRAAMABAAAAFYAAQABAAIAWAABAAQAAABdAAEAAgACAF8AAQAEAAAAYgACAAkAAgBlAAEABAAAAHIAAQAEAAAAdAACAAkAAwCFAAIABAAAAJAAAQAJAAEAtAABAAQAAAC3AAMADQACALwAAQAEAAAAvQACAAkAAgDGAAEABAAAANwAAgAJAAEA4wABAAQAAADnAAEACQABAPYAAgAJAAEA/QACAAkAAgEFAAEADQADAQ8AAgACAAIBFAABAAkAAQEcAAIABAAAASIAAgAEAAABJwABAAQAAAE1AAIACQABATcAAQACAAIBQQACAAoAAgFDAAEACQACAUUAAwADAAEBSQADAAoAAQFLAAMAAwACAVcABAADAAEBYwACAAsAAwFkAAMABAAAAXUAAwANAAIBeQABAAQAAAF8AAEACQACAYUAAQAEAAABigABAAIAAgGNAAIABAAAAY4AAQAEAAABlwABAAkAAQGpAAIABAAAAdYAAwAOAAIB9wADAAQAAAH5AAEACQABAgkAAgANAAICFAABAAkAAgIVAAEAAgADAhYAAQAEAAACMQABAAQAAAJKAAEABQADAmUAAQAEAAACaAACAAEAAgJsAAIACgABAncAAgAEAAACgwADAA0AAwKmAAIABAAAAs4AAQACAAIC1gAEAA8AAgLcAAEABwACAuMAAgADAAIDBgACAAoAAQMKAAIABAAAAygAAQAEAAADKwADAAQAAAMxAAEABAAAAzgAAgACAAIDPAABAAEAAgNDAAMAAwABA00AAwADAAADUgADAAQAAANZAAMABAAAA2EAAgAKAAIDcAABAAEAAQN+AAMACwABA6YAAwAJAAEDpwABAAkAAgOtAAIACQABA7AAAwAEAAADtQACAAkAAwO6AAEAAgACA7wAAgACAAIDvQABAAMAAQPKAAIACQABA/cAAQACAAID+gABAAIAAAP8AAEAAQABBAEAAgAEAAAEGgACAAQAAAQcAAIABAAABCAABAAEAAAEJgACAAkAAgQrAAEAAgACBEUAAgAKAAIERwADAAsAAgRIAAEAAgACBHgAAgAJAAIEfQACAAMAAgSNAAIAAwACBJsABAAIAAEExgAEAA8AAQTIAAEAAQABBM8AAwAKAAEE9wACAAIAAQT7AAIABAAABQcAAgADAAIFDwABAAIAAgUQAAQADAACBSgAAgACAAIFOQAEAA8AAgU9AAEABAAABX0AAgAJAAIFhwABAAYAAgXMAAEAAgABBdAAAwAKAAEF2QABAAEAAgXaAAMABAAABhEAAQAEAAAGGgABAAQAAAYfAAIACQACBi8AAwAKAAIGOwAEAA4AAgZHAAEACQACBlAAAgAJAAEGWwACAAIAAQZ0AAEAAgACBnYAAgADAAEGtwABAAQAAAb6AAEABQACBxsAAQAEAAAHHQABAAQAAAceAAIACQACByIAAQACAAEHIwACAAMAAgckAAEABAAAByUAAgAEAAAHLwACAAQAAAc5AAEABAAABzoAAgAJAAMHOwACAAQAAAc8AAEAAgACBz4AAQAEAAAHTAABAAIAAQdUAAMABAAAB1UAAgAEAAA=\"\n```\n\nWriting a simple plugin that just calls doc() or calls doc().get('qa_data') will throw exceptions immediately. \n\n``` java\n  @Override\n    public float runAsFloat() {\n        float finalScore = 0;\n        LeafDocLookup doc = doc(); //=> will throw java.lang.UnupportedOperationException \n    }\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14469",
+        "assignees": [],
+        "labels": [
+            "discuss",
+            ":Search/Search DO NOT USE"
+        ],
+        "issue_closed_at": "2016-11-22T21:23:23.000Z",
+        "fix_commit_hash": "f37db2fe17e73c1772ecb9e263ae9f5535c917bc",
+        "commit_type": "pr",
+        "commit_message": "Support binary field type in script values (#21484)\n\nAdd ScriptDocValues.BytesRefs for reading binary fieldtype",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/21484",
+        "earliest_issue_date": "2015-11-03T07:43:50Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14470,
+        "issue_title": "Wildcard search for field does not return all fields if store:false",
+        "issue_body": "If fields are not stored (`\"store\":false` in mapping), it is still possible to query fields using the `\"fields\":[ \"foo\", \"bar\" ]` query syntax as the fields are taken from the `_source`.\nIf however you use a wildcard : `\"fields\": [ \"*\" ]` then no fields are returned.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14470",
+        "assignees": [],
+        "labels": [
+            ">docs"
+        ],
+        "issue_closed_at": "2015-11-09T10:52:58.000Z",
+        "fix_commit_hash": "4870aafe817366e6e9c770d701c4431974f6fac4",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Docs: Add a warning about fields vs. source filtering.\n\nClose #14470",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/14474",
+        "earliest_issue_date": "2015-11-03T08:43:16Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14476,
+        "issue_title": "Test with @SuppressLocalMode and discovery.type=local diverges",
+        "issue_body": "Currently there is a test (`ClusterServiceIt.testMasterAwareExecution`) on Jenkins that does not terminate. \n\nhttp://build-us-00.elastic.co/job/es_core_master_medium/2568\n(reported by @nik9000)\n\nIt seems to be not related to cluster state, but more related to test setup, namely interplay of @SuppressLocalMode and put(\"discovery.type\", \"local\u201d). This means that we have combination of node.mode = network and discovery.type = local. Only the tests in ClusterServiceIT are configured like that. Should probably be changed? I reproduced the issue on my machine (but not deterministic even if providing seed...)\n\nSmall test case producing the issue sometimes (always on fresh JVM)\n\n```\npackage org.elasticsearch.action.support.master;\n\nimport org.elasticsearch.common.settings.Settings;\nimport org.elasticsearch.common.unit.TimeValue;\nimport org.elasticsearch.test.ESIntegTestCase;\nimport org.elasticsearch.test.InternalTestCluster;\n\nimport java.util.concurrent.ExecutionException;\n\nimport static org.elasticsearch.common.settings.Settings.settingsBuilder;\n\n@ESIntegTestCase.ClusterScope(scope = ESIntegTestCase.Scope.TEST, numDataNodes = 0)\n@ESIntegTestCase.SuppressLocalMode\npublic class BlaTest extends ESIntegTestCase {\n    public void testFail() throws ExecutionException, InterruptedException {\n        Settings settings = settingsBuilder()\n                .put(\"discovery.type\", \"local\")\n                .build();\n\n        InternalTestCluster.Async<String> master = internalCluster().startNodeAsync(settings);\n        InternalTestCluster.Async<String> nonMaster = internalCluster().startNodeAsync(settingsBuilder().put(settings).put(\"node.master\", false).build());\n        master.get();\n        nonMaster.get();\n        ensureStableCluster(2, TimeValue.timeValueMinutes(2));\n    }\n}\n```\n\nJstack interesting part:\n\n```\n\"TEST-BlaTest.testFail-seed#[5531179544489649]\" #12 prio=5 os_prio=31 tid=0x00007f83fbafa000 nid=0x5103 waiting on condition [0x0000700001\n34d000]\n   java.lang.Thread.State: WAITING (parking)\n        at sun.misc.Unsafe.park(Native Method)\n        - parking to wait for  <0x00000006c09db8c0> (a org.elasticsearch.common.util.concurrent.BaseFuture$Sync)\n        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:175)\n        at java.util.concurrent.locks.AbstractQueuedSynchronizer.parkAndCheckInterrupt(AbstractQueuedSynchronizer.java:836)\n        at java.util.concurrent.locks.AbstractQueuedSynchronizer.doAcquireSharedInterruptibly(AbstractQueuedSynchronizer.java:997)\n        at java.util.concurrent.locks.AbstractQueuedSynchronizer.acquireSharedInterruptibly(AbstractQueuedSynchronizer.java:1304)\n        at org.elasticsearch.common.util.concurrent.BaseFuture$Sync.get(BaseFuture.java:238)\n        at org.elasticsearch.common.util.concurrent.BaseFuture.get(BaseFuture.java:78)\n        at org.elasticsearch.action.support.AdapterActionFuture.actionGet(AdapterActionFuture.java:42)\n        at org.elasticsearch.action.ActionRequestBuilder.get(ActionRequestBuilder.java:68)\n        at org.elasticsearch.test.ESIntegTestCase.ensureClusterSizeConsistency(ESIntegTestCase.java:1094)\n        at org.elasticsearch.test.ESIntegTestCase.afterInternal(ESIntegTestCase.java:593)\n        at org.elasticsearch.test.ESIntegTestCase.after(ESIntegTestCase.java:1972)\n        at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)\n        at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)\n        at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\n        at java.lang.reflect.Method.invoke(Method.java:497)\n        at com.carrotsearch.randomizedtesting.RandomizedRunner.invoke(RandomizedRunner.java:1665)\n        at com.carrotsearch.randomizedtesting.RandomizedRunner$10.evaluate(RandomizedRunner.java:922)\n        at com.carrotsearch.randomizedtesting.rules.StatementAdapter.evaluate(StatementAdapter.java:36)\n        at org.apache.lucene.util.TestRuleSetupTeardownChained$1.evaluate(TestRuleSetupTeardownChained.java:50)\n        at org.apache.lucene.util.AbstractBeforeAfterRule$1.evaluate(AbstractBeforeAfterRule.java:46)\n        at org.apache.lucene.util.TestRuleThreadAndTestName$1.evaluate(TestRuleThreadAndTestName.java:49)\n        at org.apache.lucene.util.TestRuleIgnoreAfterMaxFailures$1.evaluate(TestRuleIgnoreAfterMaxFailures.java:65)\n        at org.apache.lucene.util.TestRuleMarkFailure$1.evaluate(TestRuleMarkFailure.java:48)\n```\n\nAlso noteworthy that often the following warning is displayed in the logs (which shows that it has somewhat to do with discovery and the mix of modes):\n\n```\n[2015-11-03 00:19:42,917][WARN ][org.elasticsearch.discovery] [node_t1] waited for 30s and no initial state was set by the discovery\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14476",
+        "assignees": [],
+        "labels": [
+            ">test"
+        ],
+        "issue_closed_at": "2015-11-06T09:17:24.000Z",
+        "fix_commit_hash": "1902c66aaf95d88d6ec78e49bb3f73f7ad6c2ee9",
+        "commit_type": "commit",
+        "commit_message": "Port of publishAddress should match port of corresponding boundAddress\n\nCloses #14535\nCloses #14503\nCloses #14514\nCloses #14513\nCloses #14476",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/1902c66aaf95d88d6ec78e49bb3f73f7ad6c2ee9",
+        "earliest_issue_date": "2015-11-03T10:55:05Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14488,
+        "issue_title": "v2.0.0 security manager with groovy scripts",
+        "issue_body": "Please see this question:\nhttp://stackoverflow.com/questions/33503890/elasticsearch-2-0-0-security-manager-with-groovy-script#\n\nWhen using `JsonOutput.toJson()` in an update (inside an inline groovy script), I'm getting a security exception:\n\n```\nCaused by: java.security.AccessControlException: access denied (\"java.util.PropertyPermission\" \"groovy.json.faststringutils.write.to.final.fields\" \"read\")\n    at java.security.AccessControlContext.checkPermission(AccessControlContext.java:472)\n    at java.security.AccessController.checkPermission(AccessController.java:884)\n    at java.lang.SecurityManager.checkPermission(SecurityManager.java:549)\n    at java.lang.SecurityManager.checkPropertyAccess(SecurityManager.java:1294)\n    at java.lang.System.getProperty(System.java:753)\n    at groovy.json.internal.FastStringUtils.<clinit>(FastStringUtils.java:37)\n    ... 42 more\n```\n\nThe problem is that the new 2.0.0 security manager does not allow to read the `groovy.json.faststringutils.write.to.final.fields` system property that is used by Groovy's `FastStringUtils` class in its line 37.\n\nI don't want to change or disable the new security manager, but I do need to serialize an object to a JSON string inside my groovy script.\n\nNOT: I've set the following options to allow inline groovy scripting:\n\n```\nscript.inline: on \nscript.indexed: on\n```\n\nTo reproduce, just invoke `JsonOutput.toJson(someObject)` inside an inline groovy script, such as in an update command.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14488",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2015-11-03T21:29:25.000Z",
+        "fix_commit_hash": "fb0e3a243db39a2efe22a6c9247812ee146c5224",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Add property permissions so groovy scripts can serialize json\n\nAllowing read to these properties is not really dangerous, even if\nthe code surrounding them is.\n\nCloses #14488",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/14500",
+        "earliest_issue_date": "2015-11-03T18:05:48Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14508,
+        "issue_title": "Typo in parent/child top_children release notes",
+        "issue_body": "Minor typo [here](https://www.elastic.co/guide/en/elasticsearch/reference/current/_parent_child_changes.html#_literal_top_children_literal_query_removed).\n\n> It wasn\u2019t always faster than the has_child query and the was usually inaccurate\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14508",
+        "assignees": [],
+        "labels": [
+            ">docs",
+            "v2.0.0"
+        ],
+        "issue_closed_at": "2015-11-08T20:48:40.000Z",
+        "fix_commit_hash": "296f734a2a50a97885ec730e28377aa16d023463",
+        "commit_type": "commit_ref_pr",
+        "commit_message": "Merge pull request #14509 from elastic/markw/typo-parentchild-releasenotes-14508\n\nFixed minor typo",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/14509",
+        "earliest_issue_date": "2015-11-04T03:46:01Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14510,
+        "issue_title": "Misplaced mapping.date.round_ceil comment",
+        "issue_body": "[Here](https://www.elastic.co/guide/en/elasticsearch/reference/current/_setting_changes.html#_log_messages_truncated) we talk about log messages, but then jump into;\n\n> Remove mapping.date.round_ceil setting for date math parsing #8889 (issues: #8556, #8598)\n\nIs this misplaced?\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14510",
+        "assignees": [],
+        "labels": [
+            ">docs",
+            "v2.0.0"
+        ],
+        "issue_closed_at": "2015-11-08T20:54:36.000Z",
+        "fix_commit_hash": "f0fda740838b6878bd6ae9664d9de1c895ed5dfc",
+        "commit_type": "commit",
+        "commit_message": "Moved a breaking change to the correct section. Closes #14510",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/f0fda740838b6878bd6ae9664d9de1c895ed5dfc",
+        "earliest_issue_date": "2015-11-04T03:59:49Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14512,
+        "issue_title": "CreateIndexIT.testCreateAndDeleteIndexConcurrently test failure",
+        "issue_body": "Failed today: http://build-us-00.elastic.co/job/es_core_master_centos/8366/\nDoesn't reproduce here locally.\n\nAlso this failed before recently:\nhttp://build-us-00.elastic.co/job/es_core_master_centos/8341/ (2 nov)\nhttp://build-us-00.elastic.co/job/es_core_master_centos/8306/ (1 nov)\n\nBefore that I can't find any failures for this test, so maybe this failure has been introduced recently?\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14512",
+        "assignees": [],
+        "labels": [
+            ">test-failure"
+        ],
+        "issue_closed_at": "2016-03-15T03:30:44.000Z",
+        "fix_commit_hash": "bdd1d0703dff32309b78d5f288fd71ef196f0347",
+        "commit_type": "commit_ref_pr",
+        "commit_message": "Acknowledge index deletion requests based on standard cluster state acknowledgment (#18602)\n\nIndex deletion requests currently use a custom acknowledgement mechanism that wait for the data nodes to actually delete the data before acknowledging the request to the client. This was initially put into place as a new index with same name could only be created if the old index was wiped as we used the index name as data folder on the data nodes. With PR #16442, we now use the index uuid as folder name which avoids collision between indices that are named the same (deleted and recreated). This allows us to get rid of the custom acknowledgment mechanism altogether and rely on the standard cluster state-based acknowledgment instead.\r\n\r\nCloses #18558",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16442",
+        "earliest_issue_date": "2015-11-04T05:26:04Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14513,
+        "issue_title": "RareClusterStateIT#testDelayedMappingPropagationOnPrimary test failure",
+        "issue_body": "build url: http://build-us-00.elastic.co/job/es_core_master_strong/5442/\n\nThe following reproduce line made the test fail once locally:\n\n```\ngradle :core:integTest -Dtests.seed=AA231B6B048C00 -Dtests.class=org.elasticsearch.indices.state.RareClusterStateIT -Dtests.method=\"testDelayedMappingPropagationOnPrimary\" -Des.logger.level=DEBUG -Dtests.security.manager=true -Dtests.nightly=false -Dtests.heap.size=1024m -Dtests.jvm.argline=\"-server -XX:+UseSerialGC -XX:-UseCompressedOops -XX:+AggressiveOpts\" -Dtests.locale=ar_YE -Dtests.timezone=Brazil/West\n```\n\nBut now I can make it fail again...\n\nThis test also failed yesterday: http://build-us-00.elastic.co/job/es_core_master_small/5436/\nBefore that I can't find any other failures.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14513",
+        "assignees": [],
+        "labels": [
+            ">test-failure",
+            "v5.0.0-alpha1"
+        ],
+        "issue_closed_at": "2015-11-06T09:17:24.000Z",
+        "fix_commit_hash": "1902c66aaf95d88d6ec78e49bb3f73f7ad6c2ee9",
+        "commit_type": "commit",
+        "commit_message": "Port of publishAddress should match port of corresponding boundAddress\n\nCloses #14535\nCloses #14503\nCloses #14514\nCloses #14513\nCloses #14476",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/1902c66aaf95d88d6ec78e49bb3f73f7ad6c2ee9",
+        "earliest_issue_date": "2015-11-04T06:43:33Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14514,
+        "issue_title": "org.elasticsearch.bwcompat.BasicBackwardsCompatibilityIT fails on 2.x and 2.0 on Windows",
+        "issue_body": "Example failures:\n\nhttp://build-us-00.elastic.co/job/es_core_2x_window-2008/193\nhttp://build-us-00.elastic.co/job/es_core_2x_window-2012/156\nhttp://build-us-00.elastic.co/job/es_core_21_window-2008/70\n\nReproduce command:\n\n```\nmvn verify -Pdev -Dskip.unit.tests -pl org.elasticsearch.qa.backwards:current -Dtests.seed=FDFEBB4487D6B7EC -Dtests.class=org.elasticsearch.bwcompat.BasicBackwardsCompatibilityIT -Dtests.method=\"testDeleteRoutingRequired\" -Des.logger.level=DEBUG -Dtests.nightly=false -Dtests.client.ratio=0.0 -Dtests.heap.size=512m -Des.node.mode=local -Dtests.bwc.version=2.2.0-SNAPSHOT -Dtests.bwc.path=target/backwards -Dtests.jvm.argline=\"\"-server -XX:+UseG1GC -XX:-UseCompressedOops -Djava.net.preferIPv4Stack=true\"\" -Dtests.locale=bg -Dtests.timezone=Africa/Lagos\n```\n\nFailure message:\n\n```\nFAILURE 71.8s | BasicBackwardsCompatibilityIT.testDeleteRoutingRequired <<<\n   > Throwable #1: java.lang.AssertionError: ClusterHealthResponse has timed out - returned: [{\n   >   \"cluster_name\" : \"SUITE-CHILD_VM=[0]-CLUSTER_SEED=[-257963635650616420]-HASH=[1B66F7F9939D50]-cluster\",\n   >   \"status\" : \"green\",\n   >   \"timed_out\" : true,\n   >   \"number_of_nodes\" : 7,\n   >   \"number_of_data_nodes\" : 7,\n   >   \"active_primary_shards\" : 4,\n   >   \"active_shards\" : 4,\n   >   \"relocating_shards\" : 0,\n   >   \"initializing_shards\" : 0,\n   >   \"unassigned_shards\" : 0,\n   >   \"delayed_unassigned_shards\" : 0,\n   >   \"number_of_pending_tasks\" : 0,\n   >   \"number_of_in_flight_fetch\" : 0,\n   >   \"task_max_waiting_in_queue_millis\" : 0,\n   >   \"active_shards_percent_as_number\" : 100.0\n   > }]\n   > Expected: is <false>\n   >      but: was <true>\n   >    at __randomizedtesting.SeedInfo.seed([FDFEBB4487D6B7EC:6D1AB79C0D9CADCA]:0)\n   >    at org.hamcrest.MatcherAssert.assertThat(MatcherAssert.java:20)\n   >    at org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertNoTimeout(ElasticsearchAssertions.java:105)\n   >    at org.elasticsearch.test.ESIntegTestCase.ensureClusterSizeConsistency(ESIntegTestCase.java:1092)\n   >    at org.elasticsearch.test.ESIntegTestCase.afterInternal(ESIntegTestCase.java:600)\n   >    at org.elasticsearch.test.ESIntegTestCase.after(ESIntegTestCase.java:1956)\n   >    at java.lang.Thread.run(Thread.java:745)\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14514",
+        "assignees": [
+            "nik9000"
+        ],
+        "labels": [
+            ">test-failure"
+        ],
+        "issue_closed_at": "2015-11-06T09:17:24.000Z",
+        "fix_commit_hash": "1902c66aaf95d88d6ec78e49bb3f73f7ad6c2ee9",
+        "commit_type": "commit",
+        "commit_message": "Port of publishAddress should match port of corresponding boundAddress\n\nCloses #14535\nCloses #14503\nCloses #14514\nCloses #14513\nCloses #14476",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/1902c66aaf95d88d6ec78e49bb3f73f7ad6c2ee9",
+        "earliest_issue_date": "2015-11-04T07:16:58Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14524,
+        "issue_title": "[CI failure] DateHistogramTests, \"The datetime zone id 'CET' is not recognised\"",
+        "issue_body": "Cannot reproduce this so far, but there are test failures in\n- org.elasticsearch.messy.tests.DateHistogramTests.testDSTBoundaryIssue9491\n- org.elasticsearch.messy.tests.DateHistogramTests.testIssue8209\n\nhttp://build-us-00.elastic.co/job/es_core_2x_small/1726\n\n```\norg.elasticsearch.action.search.type.TransportSearchTypeAction$BaseAsyncAction.raiseEarlyFailure(TransportSearchTypeAction.java:316)\n    ... 10 more\nCaused by: java.lang.IllegalArgumentException: The datetime zone id 'Asia/Jerusalem' is not recognised\n    at org.joda.time.DateTimeZone.forID(DateTimeZone.java:229)\n    at org.elasticsearch.search.aggregations.support.ValuesSourceParser.token(ValuesSourceParser.java:119)\n    at org.elasticsearch.search.aggregations.bucket.histogram.DateHistogramParser.parse(DateHistogramParser.java:97)\n    at org.elasticsearch.search.aggregations.AggregatorParsers.parseAggregators(AggregatorParsers.java:198)\n    at org.elasticsearch.search.aggregations.AggregatorParsers.parseAggregators(AggregatorParsers.java:103)\n    at org.elasticsearch.search.aggregations.AggregationParseElement.parse(AggregationParseElement.java:60)\n    at org.elasticsearch.search.SearchService.parseSource(SearchService.java:835)\n    at org.elasticsearch.search.SearchService.createContext(SearchService.java:655)\n    at org.elasticsearch.search.SearchService.createAndPutContext(SearchService.java:621)\n    at org.elasticsearch.search.SearchService.executeDfsPhase(SearchService.java:266)\n    at \n```\n\nand\n\n```\n...\nCaused by: java.lang.IllegalArgumentException: The datetime zone id 'CET' is not recognised\n    at org.joda.time.DateTimeZone.forID(DateTimeZone.java:229)\n    at org.elasticsearch.search.aggregations.support.ValuesSourceParser.token(ValuesSourceParser.java:119)\n    at org.elasticsearch.search.aggregations.bucket.histogram.DateHistogramParser.parse(DateHistogramParser.java:97)\n    at org.elasticsearch.search.aggregations.AggregatorParsers.parseAggregators(AggregatorParsers.java:198)\n    at org.elasticsearch.search.aggregations.AggregatorParsers.parseAggregators(AggregatorParsers.java:103)\n    at org.elasticsearch.search.aggregations.AggregationParseElement.parse(AggregationParseElement.java:60)\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14524",
+        "assignees": [
+            "jasontedor"
+        ],
+        "labels": [
+            ">test"
+        ],
+        "issue_closed_at": "2016-05-27T12:51:19.000Z",
+        "fix_commit_hash": "41710f1028bd744d14fdddfdcc50e17f460953fb",
+        "commit_type": "pr",
+        "commit_message": "Upgrade joda-time to 2.9.4\n\nThis commit upgrades joda-time to version 2.9.4 to integrate a bug fix\r\nthere into Elasticsearch.\r\n\r\nRelates #18609",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/18609",
+        "earliest_issue_date": "2015-11-04T14:40:24Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14525,
+        "issue_title": "Unable to store / update urls without \\ (backslashes)",
+        "issue_body": "We are using Elasticsearch with Laravel 4.2 and we need to maintain a database containing documents with urls as one of the fields. Everything works fine as far as the storing of the values for other fields are concerned.The problem starts when we begin to index or store urls in these documents.\n\nThe / (forward slash) in the url is escaped (accompanied by a backslash) which is causing a lot of problem. They get stored as follows:\n\n\"url\":\"http:\\/\\/www.xyz.in\\/brands\\/qwerty\\/xyz\"\n\nIs there any work around to get rid of these backslashes while storing or indexing data.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14525",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2015-11-04T15:10:32.000Z",
+        "fix_commit_hash": "4392f1aab032f02b47c7313a8945be321fd1716c",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Mute test (#149382)\n\nMute org.elasticsearch.multiproject.test.CoreWithMultipleProjectsClientYamlTestSuiteIT test {yaml=delete_by_query/10_basic/Response for version conflict with conflicts=proceed}\n\nRelates: https://github.com/elastic/elasticsearch/issues/14525",
+        "closer_url": null,
+        "earliest_issue_date": "2015-11-04T14:41:47Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14527,
+        "issue_title": "delete-by-query failing with Shield enabled",
+        "issue_body": "On Found we are testing the delete-by-query plugin in 2.0.0. I have enabled the plugin and when I issue a delete via _query, I get the following response.\n\n```\n{\"error\":{\"root_cause\":[{\"type\":\"security_exception\",\"reason\":\"action [indices:data/read/search] is unauthorized for user []\"}],\"type\":\"security_exception\",\"reason\":\"action [indices:data/read/search] is unauthorized for user []\"},\"status\":403}\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14527",
+        "assignees": [
+            "tlrx"
+        ],
+        "labels": [
+            ">bug",
+            ":Distributed/CRUD",
+            "v2.1.0"
+        ],
+        "issue_closed_at": "2015-11-10T19:47:42.000Z",
+        "fix_commit_hash": "67108b7408be76258e2362c2653c415d347c37f9",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Fix Delete-by-Query with Shield\n\ncloses #14527",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/14658",
+        "earliest_issue_date": "2015-11-04T15:52:03Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14569,
+        "issue_title": "Include plugin descriptor requirement in breaking changes documentation",
+        "issue_body": "ES node no longer starts up when there is a plugin that does not have the plugin-descriptor.properties set.  While this requirement is documented [here](https://www.elastic.co/guide/en/elasticsearch/plugins/current/plugin-authors.html#_plugin_descriptor_file) and the behavior of the node not starting up at all is intended, it will be helpful to include it also as a breaking change (eg. here: \nhttps://www.elastic.co/guide/en/elasticsearch/reference/current/_plugin_and_packaging_changes.html#_plugin_and_packaging_changes)\n\n```\nException in thread \"main\" java.lang.IllegalStateException: Unable to initialize plugins\nLikely root cause: java.nio.file.NoSuchFileException: /path/to/plugins/test/plugin-descriptor.properties\n    at sun.nio.fs.UnixException.translateToIOException(UnixException.java:86)\n    at sun.nio.fs.UnixException.rethrowAsIOException(UnixException.java:102)\n    at sun.nio.fs.UnixException.rethrowAsIOException(UnixException.java:107)\n    at sun.nio.fs.UnixFileSystemProvider.newByteChannel(UnixFileSystemProvider.java:214)\n    at java.nio.file.Files.newByteChannel(Files.java:315)\n    at java.nio.file.Files.newByteChannel(Files.java:361)\n    at java.nio.file.spi.FileSystemProvider.newInputStream(FileSystemProvider.java:380)\n    at java.nio.file.Files.newInputStream(Files.java:106)\n    at org.elasticsearch.plugins.PluginInfo.readFromProperties(PluginInfo.java:86)\n    at org.elasticsearch.plugins.PluginsService.getPluginBundles(PluginsService.java:301)\n    at org.elasticsearch.plugins.PluginsService.<init>(PluginsService.java:107)\n    at org.elasticsearch.node.Node.<init>(Node.java:148)\n    at org.elasticsearch.node.Node.<init>(Node.java:129)\n    at org.elasticsearch.node.NodeBuilder.build(NodeBuilder.java:145)\n    at org.elasticsearch.bootstrap.Bootstrap.setup(Bootstrap.java:168)\n    at org.elasticsearch.bootstrap.Bootstrap.init(Bootstrap.java:268)\n    at org.elasticsearch.bootstrap.Elasticsearch.main(Elasticsearch.java:35)\nRefer to the log for complete error details.\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14569",
+        "assignees": [],
+        "labels": [
+            ">docs"
+        ],
+        "issue_closed_at": "2015-11-09T11:18:09.000Z",
+        "fix_commit_hash": "bf3f9c778c42ae3af922c7b28249fe94607270aa",
+        "commit_type": "commit",
+        "commit_message": "Docs: Added plugin-descriptor.properties to breaking changes\n\nCloses #14569",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/bf3f9c778c42ae3af922c7b28249fe94607270aa",
+        "earliest_issue_date": "2015-11-05T22:11:43Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14573,
+        "issue_title": "elasticsearch fails to start tribe node",
+        "issue_body": "Hi folks,\n\nI'm trying to start tribe node using following config:\n\n<pre>\ntransport.tcp.port: 9301\nhttp.port: 9201\nnetwork.host: 0.0.0.0\npath.data: /var/lib/elasticsearch/\npath.logs: /var/log/elasticsearch/\n\ntribe:\n    kibana:\n        cluster.name: logstash-kibana\n        discovery.zen.ping.multicast.enabled: false\n        discovery.zen.ping.unicast.hosts: [\"127.0.0.1\"]\n    els:\n        cluster.name: logstash-data\n        discovery.zen.ping.multicast.enabled: false\n        discovery.zen.ping.unicast.hosts: [\"10.128.69.48\", \"10.128.75.237\"]\n</pre>\n\nThis config resides in the file /etc/tribe-elasticseach/elasticsearch.yml. I'm starting it using following command:\n\n<pre>\nsudo -u elasticsearch /usr/share/elasticsearch/bin/elasticsearch -Ddefault.path.conf=/etc/tribe-elasticsearch/\n</pre>\n\nElasticsearch fails with following output:\n\n<pre>\n[2015-11-05 17:07:42,433][INFO ][node                     ] [Bucky] version[2.0.0], pid[25943], build[de54438/2015-10-22T08:09:48Z]\n[2015-11-05 17:07:42,434][INFO ][node                     ] [Bucky] initializing ...\n[2015-11-05 17:07:42,596][INFO ][plugins                  ] [Bucky] loaded [], sites []\nException in thread \"main\" java.security.AccessControlException: access denied (\"java.io.FilePermission\" \"/usr/share/elasticsearch/config/elasticsearch.yml\" \"read\")\n        at java.security.AccessControlContext.checkPermission(AccessControlContext.java:457)\n        at java.security.AccessController.checkPermission(AccessController.java:884)\n        at java.lang.SecurityManager.checkPermission(SecurityManager.java:549)\n        at java.lang.SecurityManager.checkRead(SecurityManager.java:888)\n        at sun.nio.fs.UnixPath.checkRead(UnixPath.java:795)\n        at sun.nio.fs.UnixFileSystemProvider.checkAccess(UnixFileSystemProvider.java:290)\n        at java.nio.file.Files.exists(Files.java:2385)\n        at org.elasticsearch.node.internal.InternalSettingsPreparer.prepareEnvironment(InternalSettingsPreparer.java:87)\n        at org.elasticsearch.node.Node.<init>(Node.java:128)\n        at org.elasticsearch.node.NodeBuilder.build(NodeBuilder.java:145)\n        at org.elasticsearch.tribe.TribeService.<init>(TribeService.java:136)\n        at sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)\n        at sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:62)\n        at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)\n        at java.lang.reflect.Constructor.newInstance(Constructor.java:422)\n        at <<<guice>>>\n        at org.elasticsearch.node.Node.<init>(Node.java:198)\n        at org.elasticsearch.node.NodeBuilder.build(NodeBuilder.java:145)\n        at org.elasticsearch.bootstrap.Bootstrap.setup(Bootstrap.java:170)\n        at org.elasticsearch.bootstrap.Bootstrap.init(Bootstrap.java:270)\n        at org.elasticsearch.bootstrap.Elasticsearch.main(Elasticsearch.java:35)\n</pre>\n\nI'm not sure why it tries to access /usr/share/elasticsearch/config/elasticsearch.yml. There is no such file in the elasticsearch deb package. I created this file, but command above still fails with same output. Please advise how this can be resolved.\n\nI'm running elasticsearch 2.0.0 installed from the debian package downloaded from the official site. I'm using ubuntu 14.\n\nThanks,\nKirill.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14573",
+        "assignees": [
+            "rjernst"
+        ],
+        "labels": [
+            ">bug",
+            ":Delivery/Packaging",
+            "v5.0.0-alpha1",
+            "v2.2.0",
+            "v2.1.1",
+            "Team:Delivery"
+        ],
+        "issue_closed_at": "2015-12-08T16:07:26.000Z",
+        "fix_commit_hash": "11ba5de691a4aac42a0d42589cb77cdd21930a10",
+        "commit_type": "commit_ref_pr",
+        "commit_message": "Merge pull request #15300 from rjernst/tribe_cleanup\n\nFix tribe node to load config file for internal client nodes",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/15300",
+        "earliest_issue_date": "2015-11-06T01:17:02Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14614,
+        "issue_title": "Gradle requires JAVA_HOME to be set",
+        "issue_body": "I get the following error when running the build:\n\n```\n* What went wrong:\nA problem occurred configuring project ':distribution:tar'.\n> Ambiguous method overloading for method java.io.File#<init>.\n  Cannot resolve which method to invoke for [null, class java.lang.String] due to overlapping prototypes between:\n    [class java.lang.String, class java.lang.String]\n    [class java.io.File, class java.lang.String]\n```\n\nwhich is due to the following problem:\n\n```\nCaused by: groovy.lang.GroovyRuntimeException: Ambiguous method overloading for method java.io.File#<init>.\nCannot resolve which method to invoke for [null, class java.lang.String] due to overlapping prototypes between:\n    [class java.lang.String, class java.lang.String]\n    [class java.io.File, class java.lang.String]\n    at org.elasticsearch.gradle.test.ClusterFormationTasks$_configureCheckPreviousTask_closure16.doCall(ClusterFormationTasks.groovy:282)\n    at org.gradle.api.internal.ClosureBackedAction.execute(ClosureBackedAction.java:67)\n    at org.gradle.util.ConfigureUtil.configure(ConfigureUtil.java:130)\n    at org.gradle.util.ConfigureUtil.configure(ConfigureUtil.java:110)\n    at org.gradle.api.internal.AbstractTask.configure(AbstractTask.java:488)\n    at org.gradle.api.internal.tasks.DefaultTaskContainer.create(DefaultTaskContainer.java:93)\n    at org.gradle.api.tasks.TaskContainer$create$3.call(Unknown Source)\n    at org.elasticsearch.gradle.test.ClusterFormationTasks.configureCheckPreviousTask(ClusterFormationTasks.groovy:278)\n    at org.elasticsearch.gradle.test.ClusterFormationTasks.configureTasks(ClusterFormationTasks.groovy:94)\n    at org.elasticsearch.gradle.test.ClusterFormationTasks$configureTasks$1.callStatic(Unknown Source)\n    at org.elasticsearch.gradle.test.ClusterFormationTasks.setup(ClusterFormationTasks.groovy:49)\n    at org.elasticsearch.gradle.test.ClusterFormationTasks$setup.call(Unknown Source)\n    at org.elasticsearch.gradle.test.RestIntegTestTask$_closure1.doCall(RestIntegTestTask.groovy:74)\n    at org.gradle.listener.ClosureBackedMethodInvocationDispatch.dispatch(ClosureBackedMethodInvocationDispatch.java:40)\n    at org.gradle.listener.ClosureBackedMethodInvocationDispatch.dispatch(ClosureBackedMethodInvocationDispatch.java:25)\n    at org.gradle.internal.event.AbstractBroadcastDispatch.dispatch(AbstractBroadcastDispatch.java:44)\n    at org.gradle.internal.event.BroadcastDispatch.dispatch(BroadcastDispatch.java:79)\n    at org.gradle.internal.event.BroadcastDispatch.dispatch(BroadcastDispatch.java:30)\n    at org.gradle.messaging.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:93)\n    at com.sun.proxy.$Proxy12.afterEvaluate(Unknown Source)\n    at org.gradle.configuration.project.LifecycleProjectEvaluator.notifyAfterEvaluate(LifecycleProjectEvaluator.java:67)\n    ... 41 more\n```\n\nAnd indeed at ClusterFormationTasks.groovy:282 we have the following\n\n``` groovy\n            commandLine new File(System.getenv('JAVA_HOME'), 'bin/jps'), '-l'\n```\n\nSo if JAVA_HOME is not set then Groovy won't know whether to use the File(File, String) or the File(String, String) constructor. Could we just expect jps to be on the PATH or at least detect JAVA_HOME automatically when it is not set?\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14614",
+        "assignees": [
+            "jasontedor"
+        ],
+        "labels": [
+            ":Delivery/Build",
+            "Team:Delivery"
+        ],
+        "issue_closed_at": "2015-11-09T18:25:34.000Z",
+        "fix_commit_hash": "a7b78bf67aee91bb681e0e9627468c9209527d2e",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "[build] Use always set java.home\n\n`System.getenv('JAVA_HOME')` relies on JAVA_HOME being setup by the user.\n`System.getProperty('java.home')` is set by Java all the time.\n\nCloses #14614",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/14629",
+        "earliest_issue_date": "2015-11-09T08:48:44Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14641,
+        "issue_title": "Dates and epoch_millis as floats",
+        "issue_body": "Attempting to migrate to 2.x, I've encountered a strange problem with range filters not able to match any of the mappings I try holding epoch_millis. Maybe related to #10971\n\nGiven a document with a time_stamp field in the mapping:\n\n```\n          \"time_stamp\": {\n            \"type\": \"date\",\n            \"format\": \"epoch_millis\"\n          }\n```\n\nWith some data:\n\n```\nstation: \"ASN00033312\",\nprecip_tenths_mm: 2,\ntime_stamp: 1390712400000,\nlocation: {\nlat: -23.2233,\nlon: 150.605\n}\n```\n\nI would expect the following to match:\n\n```\n\"query\": {\n    \"filtered\": {\n      \"filter\": {\n        \"bool\": {\n          \"must\": [\n            {\n              \"range\": {\n                \"time_stamp\": {\n             \"gte\": 1390712400000,\n             \"format\" : \"epoch_millis\"\n                }\n            }\n            }\n          ]\n        }\n      }\n    }\n  }\n```\n\nThe above returns no document, even though there are thousands that should respond. Removing the format at query time, doesn't help. Mapping the time_stamp field as format \"basic_date\", as I had in 1.x, doesn't seem to return anything either.\n\nBug? Pebcak?\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14641",
+        "assignees": [
+            "albertzaharovits"
+        ],
+        "labels": [
+            ">enhancement",
+            "good first issue",
+            "help wanted",
+            ":Search Foundations/Mapping",
+            "Team:Search Foundations"
+        ],
+        "issue_closed_at": "2017-08-13T05:35:46.000Z",
+        "fix_commit_hash": "3e3132fe3f6354acabdc556772ed444dcc44988f",
+        "commit_type": "pr",
+        "commit_message": "Epoch millis and second formats parse float implicitly (Closes #14641) (#26119)\n\n`epoch_millis` and `epoch_second` date formats truncate float values, as numbers or as strings.\r\nThe `coerce` parameter is not defined for `date` field type and this is not changing.\r\nSee PR #26119\r\n\r\nCloses #14641",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/26119",
+        "earliest_issue_date": "2015-11-10T02:35:19Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14670,
+        "issue_title": "Shard relocation happens while cluster is yellow",
+        "issue_body": "This is _cluster/health output after one of nodes restarted:\n\n```\n{\n  \"cluster_name\" : \"<cluster_name>\",\n  \"status\" : \"yellow\",\n  \"timed_out\" : false,\n  \"number_of_nodes\" : 14,\n  \"number_of_data_nodes\" : 10,\n  \"active_primary_shards\" : 1022,\n  \"active_shards\" : 1839,\n  \"relocating_shards\" : 2,\n  \"initializing_shards\" : 0,\n  \"unassigned_shards\" : 205,\n  \"delayed_unassigned_shards\" : 0,\n  \"number_of_pending_tasks\" : 0,\n  \"number_of_in_flight_fetch\" : 0\n}\n```\n\nIt says cluster is in `yellow` status but it is relocating shards.\nThis cluster doesn't have custom `cluster.routing.allocation.allow_rebalance` configuration. So, it should be using `indices_all_active`.\n\nNo relocation should happen in this case?\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14670",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v2.1.0",
+            "v5.0.0-alpha1",
+            "v2.2.0",
+            "v2.0.1",
+            ":Distributed/Allocation"
+        ],
+        "issue_closed_at": "2015-11-16T13:32:07.000Z",
+        "fix_commit_hash": "044b3d59cda609b6e3101bc24951f6c564b157f0",
+        "commit_type": "commit",
+        "commit_message": "Take ingored unallocated shards into account when makeing allocation decision\n\nClusterRebalanceAllocationDecider did not take unassigned shards into account\nthat are temporarily marked as ingored. This can cause unexpected behavior\nwhen gateway allocator is still fetching shards or has marked shareds as ignored\nsince their quorum is not met yet.\n\nCloses #14670\nCloses #14678",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/044b3d59cda609b6e3101bc24951f6c564b157f0",
+        "earliest_issue_date": "2015-11-10T23:57:36Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14673,
+        "issue_title": "remove hacks in 2.1 branch fixed by lucene 5.3.1",
+        "issue_body": "Followup to https://github.com/elastic/elasticsearch/pull/14669\n\nThere is a TODO in IndexShard.java that should be dealt with (I think its a workaround for some bad behavior of caching around MatchAllDocsQuery that is fixed in this 5.3.1 upgrade)\n\n**For the future, I would greatly prefer if we did not add version-based asserts to IndexShard.java like this** \n\nThis class masks all exceptions completely, so nobody ever sees your assert. Instead all tests hang, and when they finally fail its just stuff like \"expected: GREEN, got: YELLOW\" which does not help the guy trying to do the upgrade.\n\nSee #13319 for more information about that.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14673",
+        "assignees": [
+            "jpountz"
+        ],
+        "labels": [
+            "blocker",
+            "help wanted",
+            "v2.1.0"
+        ],
+        "issue_closed_at": "2015-11-17T18:03:49.000Z",
+        "fix_commit_hash": "962baf59ab01f6770c9e543e954915f0d261b037",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Remove TODO about caching, which is already addressed in master/2.x.\n\nClose #14673",
+        "closer_url": null,
+        "earliest_issue_date": "2015-11-11T05:30:26Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14701,
+        "issue_title": "integration test fails and leaks a JVM on java 9EA",
+        "issue_body": "This is separate from the commons lang issue affecting 'deb' (#14700).\nThis one impacts 'zip'\n\n```\n=======================================\nElasticsearch Build Hamster says Hello!\n=======================================\n  Gradle Version : 2.8\n  JDK Version    : 1.9.0-ea-b91 (Oracle Corporation)\n  OS Info        : Linux 4.2.0-16-generic (amd64)\n:core:compileJava\nNote: Some input files use or override a deprecated API.\nNote: Recompile with -Xlint:deprecation for details.\nNote: Some input files use unchecked or unsafe operations.\nNote: Recompile with -Xlint:unchecked for details.\n:core:processResources\n:core:classes\n:core:jar\n:distribution:zip:buildZip\n:rest-api-spec:compileJava UP-TO-DATE\n:rest-api-spec:processResources\n:rest-api-spec:classes\n:rest-api-spec:jar\n:distribution:zip:processTestResources UP-TO-DATE\n:distribution:zip:copyRestSpec\n:test-framework:compileJava\nNote: Some input files use or override a deprecated API.\nNote: Recompile with -Xlint:deprecation for details.\nNote: Some input files use unchecked or unsafe operations.\nNote: Recompile with -Xlint:unchecked for details.\n:test-framework:processResources\n:test-framework:classes\n:test-framework:jar\n:distribution:zip:compileTestJava\n:distribution:zip:testClasses\n:distribution:zip:integTest#clean\n:distribution:zip:integTest#checkPrevious SKIPPED\n:distribution:zip:integTest#stopPrevious SKIPPED\n:distribution:zip:integTest#extract\n:distribution:zip:integTest#configure\n:distribution:zip:integTest#start\nJava HotSpot(TM) 64-Bit Server VM warning: Option UseParNewGC was deprecated in version 9.0 and will likely be removed in a future release.\n\n[2015-11-12 01:25:37,075][INFO ][node                     ] [Living Tribunal] version[3.0.0-SNAPSHOT], pid[26943], build[c2aec53/2015-11-12_01:25:06]\n[2015-11-12 01:25:37,075][INFO ][node                     ] [Living Tribunal] initializing ...\n[2015-11-12 01:25:37,117][INFO ][plugins                  ] [Living Tribunal] loaded [], sites []\n[2015-11-12 01:25:37,132][INFO ][env                      ] [Living Tribunal] using [1] data paths, mounts [[/ (/dev/sdb1)]], net usable_space [85.7gb], net total_space [229.1gb], spins? [no], types [ext4]\n[2015-11-12 01:25:38,411][INFO ][node                     ] [Living Tribunal] initialized\n[2015-11-12 01:25:38,411][INFO ][node                     ] [Living Tribunal] starting ...\n[2015-11-12 01:25:38,518][WARN ][common.network           ] [Living Tribunal] publish host: [_local_] resolves to multiple addresses, auto-selecting {127.0.0.1} as single publish address\n[2015-11-12 01:25:38,518][INFO ][transport                ] [Living Tribunal] publish_address {127.0.0.1:9500}, bound_addresses {[::1]:9500}, {127.0.0.1:9500}\n[2015-11-12 01:25:38,526][INFO ][discovery                ] [Living Tribunal] distribution_zip_integTest/QGrcE43yRtiRtIpn7RpmXQ\n[2015-11-12 01:25:41,547][INFO ][cluster.service          ] [Living Tribunal] new_master {Living Tribunal}{QGrcE43yRtiRtIpn7RpmXQ}{127.0.0.1}{127.0.0.1:9500}[testattr=>test], reason: zen-disco-join(elected_as_master, [0] joins received)\n[2015-11-12 01:25:41,595][WARN ][common.network           ] [Living Tribunal] publish host: [_local_] resolves to multiple addresses, auto-selecting {127.0.0.1} as single publish address\n[2015-11-12 01:25:41,595][INFO ][http                     ] [Living Tribunal] publish_address {127.0.0.1:9400}, bound_addresses {[::1]:9400}, {127.0.0.1:9400}\n[2015-11-12 01:25:41,596][INFO ][node                     ] [Living Tribunal] started\n:distribution:zip:integTest#start FAILED\n\nFAILURE: Build failed with an exception.\n\n* What went wrong:\nExecution failed for task ':distribution:zip:integTest#start'.\n> Failed to start elasticsearch\n\n* Try:\nRun with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output.\n\nBUILD FAILED\n\nTotal time: 39.31 secs\nrmuir@beast:~/workspace/elasticsearch/distribution/zip$ jps\n27032 Jps\n21882 org.eclipse.equinox.launcher_1.3.100.v20150511-1540.jar\n26943 Elasticsearch\n\n```\n\nElasticsearch in fact started up fine, and you can use it. So there are two bugs, probably the first one to fix is the JVM leak, since i've hit that a few times this week already.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14701",
+        "assignees": [],
+        "labels": [
+            ":Delivery/Build",
+            "Team:Delivery"
+        ],
+        "issue_closed_at": "2015-11-13T06:48:11.000Z",
+        "fix_commit_hash": "937338215525c1a66102ceafd7905813c1561b3a",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Build: Use ant exec for starting elasticsearch in integ tests\n\nCurrently elasticsearch in integ tests is started using an ant task on\nwindows, or gradle exec on everything else. However, gradle exec has\nsome flaws, one being Ctrl-C does not run finalizedBy tasks, which means\ninterrupting integ tests will leak a jvm. This change makes all systems\nuse ant exec. One caveat is, if there is any output by the jvm, we lose\nit in ant bit heaven. But this is no different than what we had with\ngradle. In the future, we should look at using a separate thread to\npump streams from the elasticsearch process.\n\ncloses #14701",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/14728",
+        "earliest_issue_date": "2015-11-12T06:27:54Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14702,
+        "issue_title": "gradle puts wrong java version in manifest",
+        "issue_body": "if i build a zip with java 9, then switch to java 8 to run it:\n\n```\nrmuir@beast:~/workspace/elasticsearch/distribution/zip/build/distributions/elasticsearch-3.0.0-SNAPSHOT$ bin/elasticsearch\nException in thread \"main\" java.lang.IllegalStateException: /home/rmuir/workspace/elasticsearch/distribution/zip/build/distributions/elasticsearch-3.0.0-SNAPSHOT/lib/elasticsearch-3.0.0-SNAPSHOT.jar requires Java 1.9:, your system: 1.8\n    at org.elasticsearch.bootstrap.JarHell.checkJavaVersion(JarHell.java:249)\n    at org.elasticsearch.bootstrap.JarHell.checkManifest(JarHell.java:217)\n    at org.elasticsearch.bootstrap.JarHell.checkJarHell(JarHell.java:177)\n    at org.elasticsearch.bootstrap.JarHell.checkJarHell(JarHell.java:87)\n    at org.elasticsearch.bootstrap.Bootstrap.setup(Bootstrap.java:164)\n    at org.elasticsearch.bootstrap.Bootstrap.init(Bootstrap.java:285)\n    at org.elasticsearch.bootstrap.Elasticsearch.main(Elasticsearch.java:35)\nRefer to the log for complete error details.\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14702",
+        "assignees": [],
+        "labels": [
+            ":Delivery/Build",
+            "Team:Delivery"
+        ],
+        "issue_closed_at": "2015-11-12T07:48:04.000Z",
+        "fix_commit_hash": "505a4d9e09b71fdd38fb693f748c7f69b0d698d1",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Build: Simplify where min java version is specified\n\nThis moves the min java version used by elasticsearch to one place, a\nconstant in BuildPlugin. For me on java 9, this fixed my jar to have the\ncorrect target/source versions.\n\ncloses #14702",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/14703",
+        "earliest_issue_date": "2015-11-12T06:48:24Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14733,
+        "issue_title": "link to scripts: java.security.AccessControlException: access denied (\"java.io.FilePermission\"...",
+        "issue_body": "In ES 1.x I was able to symbolically link from a subdirectory of the scripts directory to a directory containing my groovy scripts. Now, with ES 2.0, on load, I get the following error:\n\nException in thread \"main\" java.security.AccessControlException: access denied (\"java.io.FilePermission\" \"/usr/local/Cellar/elasticsearch/2.0.0_1/libexec/config/scripts/my_directory/my_subdirectory\" \"read\")\n    at java.security.AccessControlContext.checkPermission(AccessControlContext.java:457)\n    at java.security.AccessController.checkPermission(AccessController.java:884)\n    at java.lang.SecurityManager.checkPermission(SecurityManager.java:549)\n    at java.lang.SecurityManager.checkRead(SecurityManager.java:888)\n    at sun.nio.fs.UnixPath.checkRead(UnixPath.java:795)\n    at sun.nio.fs.UnixFileSystemProvider.checkAccess(UnixFileSystemProvider.java:290)\n    at java.nio.file.Files.exists(Files.java:2385)\n    at org.elasticsearch.watcher.FileWatcher$FileObserver.init(FileWatcher.java:157)\n    at org.elasticsearch.watcher.FileWatcher$FileObserver.createChild(FileWatcher.java:173)\n    at org.elasticsearch.watcher.FileWatcher$FileObserver.listChildren(FileWatcher.java:188)\n    at org.elasticsearch.watcher.FileWatcher$FileObserver.onDirectoryCreated(FileWatcher.java:299)\n    at org.elasticsearch.watcher.FileWatcher$FileObserver.init(FileWatcher.java:162)\n    at org.elasticsearch.watcher.FileWatcher$FileObserver.createChild(FileWatcher.java:173)\n    at org.elasticsearch.watcher.FileWatcher$FileObserver.listChildren(FileWatcher.java:188)\n    at org.elasticsearch.watcher.FileWatcher$FileObserver.onDirectoryCreated(FileWatcher.java:299)\n    at org.elasticsearch.watcher.FileWatcher$FileObserver.init(FileWatcher.java:162)\n    at org.elasticsearch.watcher.FileWatcher$FileObserver.access$000(FileWatcher.java:75)\n    at org.elasticsearch.watcher.FileWatcher.doInit(FileWatcher.java:65)\n    at org.elasticsearch.watcher.AbstractResourceWatcher.init(AbstractResourceWatcher.java:36)\n    at org.elasticsearch.watcher.ResourceWatcherService.add(ResourceWatcherService.java:133)\n    at org.elasticsearch.watcher.ResourceWatcherService.add(ResourceWatcherService.java:126)\n    at org.elasticsearch.script.ScriptService.<init>(ScriptService.java:192)\n    at sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)\n    at sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:62)\n    at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)\n    at java.lang.reflect.Constructor.newInstance(Constructor.java:408)\n    at <<<guice>>>\n    at org.elasticsearch.node.Node.<init>(Node.java:198)\n    at org.elasticsearch.node.NodeBuilder.build(NodeBuilder.java:145)\n    at org.elasticsearch.bootstrap.Bootstrap.setup(Bootstrap.java:170)\n    <<<truncated>>>\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14733",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2015-11-13T14:12:14.000Z",
+        "fix_commit_hash": "062abf813b16d94a0485e28286c2d8040cfc4990",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Update packaging.asciidoc\n\nRemove mention of following symlinks under `path.scripts`\n\nCloses #14733",
+        "closer_url": null,
+        "earliest_issue_date": "2015-11-13T09:35:08Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14735,
+        "issue_title": "extended_bounds does not play nicely with .kibana index",
+        "issue_body": "If you try to use extended_bounds a request which contains the .kibana index the extended bounds are ignored. See the following sense script to reproduce (must be run on a cluster with a .kibana index to reproduce the bug):\n\n``` js\nPOST index-1/doc/1\n{\n  \"@timestamp\": \"2015-01-01\"\n}\nPOST index-2/doc/1\n{\n  \"@timestamp\": \"2013-01-01\"\n}\nPOST index-3/doc/1\n{\n  \"@timestamp\": \"2011-01-01\"\n}\nPOST index-4/doc/1\n{\n  \"@timestamp\": \"2009-01-01\"\n}\n\n# Correctly returns buckets from 1970 to 2015\nGET /index-*/_search\n{\n    \"aggs\": {\n        \"series\": {\n            \"date_histogram\": {\n                \"field\": \"@timestamp\",\n                \"interval\": \"1y\",\n                \"extended_bounds\": {\n                    \"min\": 0,\n                    \"max\": 1447407264268\n                },\n                \"min_doc_count\": 0\n            }\n        }\n    },\n    \"size\": 0\n}\n\n# Only return buckets between 2009 and 2015 (extended_bounds is ignored)\nGET /index-*,.kibana/_search\n{\n    \"aggs\": {\n        \"series\": {\n            \"date_histogram\": {\n                \"field\": \"@timestamp\",\n                \"interval\": \"1y\",\n                \"extended_bounds\": {\n                    \"min\": 0,\n                    \"max\": 1447407264268\n                },\n                \"min_doc_count\": 0\n            }\n        }\n    },\n    \"size\": 0\n}\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14735",
+        "assignees": [
+            "colings86"
+        ],
+        "labels": [
+            ">bug",
+            ":Analytics/Aggregations"
+        ],
+        "issue_closed_at": "2015-11-13T12:42:56.000Z",
+        "fix_commit_hash": "28703e89218c38e5d5b859166e9a56917b53d793",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Aggregations: Pass extended bounds into HistogramAggregator when creating an unmapped aggregator\n\nThis fixes an issue where if the field for the aggregation was unmapped the extended bounds would get dropped and the resulting buckets would not cover the extended bounds requested.\n\nCloses #14735",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/14736",
+        "earliest_issue_date": "2015-11-13T11:48:28Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14748,
+        "issue_title": "distribution tests hanging when built outside of a git repository",
+        "issue_body": "On master on linux when I run `gradle distribution:zip:check` they seem like they are getting stuck and when I do `jstack pid_of_SlaveMainSafe | grep transport_client_external | wc -l` I get `1245`.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14748",
+        "assignees": [
+            "nik9000"
+        ],
+        "labels": [
+            ":Delivery/Build",
+            "v5.0.0-alpha1",
+            "Team:Delivery"
+        ],
+        "issue_closed_at": "2015-11-17T18:30:23.000Z",
+        "fix_commit_hash": "0119caa4a61141c2ab8ec5e008d33c0066512f7f",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Make Build work without git\n\nIf you build elasticsearch without a git repository it was creating a null\nshortHash which was causing Elasticsearch not to be able to form transport\nconnections.\n\nCloses #14748",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/14754",
+        "earliest_issue_date": "2015-11-13T18:04:31Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14798,
+        "issue_title": "Thread interrupt flag is not properly restored after an InterruptedException",
+        "issue_body": "I've spotted multiple instances across the code base where we catch `InterruptedException` and call `Thread.interrupted()` afterwards.  The problem is that `Thread.interrupted()` queries and _clears_ the interrupted status (see also [Javadoc](http://docs.oracle.com/javase/8/docs/api/java/lang/Thread.html#interrupted--)) which is contrary to what should happen, namely to _set_ the interrupt flag again so code higher up the call stack can check the flag and act accordingly. This is done by calling `Thread.currentThread().interrupt()` (see [Javadoc](http://docs.oracle.com/javase/8/docs/api/java/lang/Thread.html#interrupt--)).\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14798",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ":Core/Infra/Core",
+            "v5.0.0-alpha1",
+            "v2.2.0"
+        ],
+        "issue_closed_at": "2015-11-18T16:13:31.000Z",
+        "fix_commit_hash": "c88047d2ab711c71ec65537beb478c7218d3173e",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Restore thread interrupt flag after an InterruptedException\n\nThis commit replaces all occurrences of Thread.interrupted() with\nThread.currentThread().interrupt(). While the former checks and clears the current\nthread's interrupt flag the latter sets it, which is actually intended.\n\nCloses #14798",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/14799",
+        "earliest_issue_date": "2015-11-17T10:54:47Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14804,
+        "issue_title": "/_field_stats does not accept epoch_millis for date fields",
+        "issue_body": "It looks like `/_field_stats` does not accept milliseconds since epoch for gte/lte unless it is explicitly mapped as such. This isn't the case with say, range filters, which accept `format: \"epoch_millis\"`. This is super important to Kibana as there's no direct mapping from JODA formats to javascript date formatting libraries, so we've always sent everything as epoch. By default date fields are mapped to accept epoch as a format, but if the user uses a custom format, this won't happen.\n\nWe didn't notice this bug until Marvel which sets an explicit mapping format.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14804",
+        "assignees": [
+            "martijnvg"
+        ],
+        "labels": [
+            ">bug",
+            "blocker",
+            ":Search Foundations/Mapping",
+            "v2.0.1",
+            "Team:Search Foundations"
+        ],
+        "issue_closed_at": "2015-11-18T13:25:17.000Z",
+        "fix_commit_hash": "8a454dae331e607457e9ee2d031cfd2459b88f1b",
+        "commit_type": "commit",
+        "commit_message": "field stats: Added a `format` option to index constraint that allows to specify date index constraint values in a different format then the for specified in the mapping.\n\nCloses #14804",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/8a454dae331e607457e9ee2d031cfd2459b88f1b",
+        "earliest_issue_date": "2015-11-17T17:12:42Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14809,
+        "issue_title": "IntelliJ - Gradle Integration broken",
+        "issue_body": "I'm using the [Gradle IntelliJ integration](https://www.jetbrains.com/idea/help/working-with-gradle-projects.html) for Elasticsearch. When I refresh the linked Gradle projects in the Gradle Tool window, the folder `.idea` gets deleted (with all my settings) and I end up in an unrecoverable state (need to completely reimport the whole project from scratch with all my settings gone).\n\nI see that as part of commit f327beac49a7a5097dad64adcb3e43c03980f122 the following lines were introduced:\n\n```\ntasks.cleanIdea {\n    delete '.idea'\n}\n```\n\nCan we undo this?\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14809",
+        "assignees": [
+            "rjernst"
+        ],
+        "labels": [
+            ":Delivery/Build",
+            "Team:Delivery"
+        ],
+        "issue_closed_at": "2015-11-19T12:45:39.000Z",
+        "fix_commit_hash": "cac281424cf186aa2a005639619a2a56745305de",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Stop Gradle from destroying IntelliJ project settings\n\nThis commit stops Gradle from destroying the IntelliJ project settings\nwhen a Gradle refresh is executed in IntelliJ.\n\nCloses #14809",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/14860",
+        "earliest_issue_date": "2015-11-17T20:00:14Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14830,
+        "issue_title": "Terms Query doesn't support minimum_should_match without info in breaking changes",
+        "issue_body": "**minimum_should_match** parametr is not supported in Terms Query in ES 2.0 version and **there is no such info in ES 2.0 Breaking Changes** document.\n\nFollowing query works on ES 1.7.3 but doesn't work on ES 2.0 - [terms] query does not support [minimum_should_match]\n\n``` javascript\nGET _all/_search\n{\n  \"query\": {\n    \"terms\": {\n      \"FIELD\": [\n        \"VALUE1\",\n        \"VALUE2\"\n      ],\n      \"minimum_should_match\": 1\n    }\n  }\n}\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14830",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2016-02-14T17:14:25.000Z",
+        "fix_commit_hash": "cca611171c53254b74f2da7239e05177fec92b1d",
+        "commit_type": "commit",
+        "commit_message": "Document breaking change in terms query/filter in 2.0\n\nCloses #14830",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/cca611171c53254b74f2da7239e05177fec92b1d",
+        "earliest_issue_date": "2015-11-18T13:20:21Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14833,
+        "issue_title": "Align handling of interrupts in BulkProcessor",
+        "issue_body": "### Background\n\nIn #14799, I've spotted that `BulkProcessor` does not handle `InterruptedException` properly. `InterruptedException` is the standard Java facility to request cancellation of an ongoing operation in another thread.\n\nAfter some discussion (see #14799), we've decided to move the change to the client API to a dedicated ticket for documentation purposes as this change also interferes with the retry feature in the `BulkProcessor` (see #14620).\n### Current Situation\n\nThere are two code paths in `BulkProcessor`, one for handling bulk requests in a blocking fashion (`concurrentRequests == 0` when constructing `BulkProcessor`)  and one that allows for concurrent bulk requests from the same client. Both handle interruption differently, the latter does it also wrong (by calling `Thread.interrupted` instead of `Thread.currentThread().interrupt()`).\n### Desired Situation\n\nBoth code paths respond to interruption in a well-defined, documented and ideally consistent way (i.e. both either throw `InterruptedException` or restore the interrupt flag).\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14833",
+        "assignees": [],
+        "labels": [
+            ">enhancement",
+            ":Core/Infra/Transport API",
+            "v5.0.0-alpha1",
+            "v2.2.0"
+        ],
+        "issue_closed_at": "2015-12-18T18:35:42.000Z",
+        "fix_commit_hash": "69f60a77f7f82c7e8de205a8e7e53f3164324cfc",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Align handling of interrupts in BulkProcessor\n\nWith this commit we implement a cancellation policy in\nBulkProcessor which is aligned for the sync and the async case\nand also document it.\n\nCloses #14833.",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/15527",
+        "earliest_issue_date": "2015-11-18T14:32:16Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14838,
+        "issue_title": "[CI Failure] GeoDistanceRangeQueryTests.testToQuery fails due to numeric precision problem",
+        "issue_body": "Via: http://build-us-00.elastic.co/job/es_core_master_centos/8587/testReport/junit/org.elasticsearch.index.query/GeoDistanceRangeQueryTests/testToQuery/\n\n```\nFAILURE 0.21s | GeoDistanceRangeQueryTests.testToQuery <<< FAILURES!\n   > Throwable #1: java.lang.AssertionError: \n   > Expected: a numeric value within <-0.33952242975718117> of <-0.3395224297571812>\n   >      but: <-0.3395224297571813> differed by <0.3395224297571812>\n   >    at __randomizedtesting.SeedInfo.seed([5BDFC4A476C6B339:AC24C69A074576D3]:0)\n   >    at org.hamcrest.MatcherAssert.assertThat(MatcherAssert.java:20)\n   >    at org.elasticsearch.index.query.GeoDistanceRangeQueryTests.assertLegacyQuery(GeoDistanceRangeQueryTests.java:165)\n   >    at org.elasticsearch.index.query.GeoDistanceRangeQueryTests.doAssertLuceneQuery(GeoDistanceRangeQueryTests.java:120)\n   >    at org.elasticsearch.index.query.GeoDistanceRangeQueryTests.doAssertLuceneQuery(GeoDistanceRangeQueryTests.java:41)\n   >    at org.elasticsearch.index.query.AbstractQueryTestCase.assertLuceneQuery(AbstractQueryTestCase.java:555)\n   >    at org.elasticsearch.index.query.AbstractQueryTestCase.testToQuery(AbstractQueryTestCase.java:487)\n   >    at org.elasticsearch.index.query.GeoDistanceRangeQueryTests.testToQuery(GeoDistanceRangeQueryTests.java:203)\n   >    at java.lang.Thread.run(Thread.java:745)\n```\n\nReproduces with:\n\n```\ngradle :core:test -Dtests.seed=5BDFC4A476C6B339 -Dtests.class=org.elasticsearch.index.query.GeoDistanceRangeQueryTests -Dtests.method=\"testToQuery\" -Des.logger.level=DEBUG -Dtests.security.manager=true -Dtests.nightly=false -Dtests.heap.size=1024m -Dtests.jvm.argline=\"-server -XX:+UseParallelGC -XX:+UseCompressedOops -XX:+AggressiveOpts\" -Dtests.locale=pt -Dtests.timezone=America/New_York\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14838",
+        "assignees": [],
+        "labels": [
+            ">test",
+            ":Analytics/Geo",
+            ">test-failure"
+        ],
+        "issue_closed_at": "2015-11-18T20:09:52.000Z",
+        "fix_commit_hash": "9ed77afe1df003705e3aaf2c8d02f9411637d148",
+        "commit_type": "commit",
+        "commit_message": "Fix assertion precision for legacy GeoDistanceRangeQuery tests\n\nThis bug existed for GeoDistanceRangeQuery exclusion limits only (e.g., min/max included == false).\n\ncloses #14838",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/9ed77afe1df003705e3aaf2c8d02f9411637d148",
+        "earliest_issue_date": "2015-11-18T15:31:37Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14843,
+        "issue_title": "Filter cloud azure credentials",
+        "issue_body": "Bug introduced in #13779: we don't filter anymore credentials because we were filtering `cloud.azure.storage.account` and `cloud.azure.storage.key` but now credentials are like `cloud.azure.storage.XXX.account` and `cloud.azure.storage.XXX.key` where `XXX` can be a storage setting id.\n\nSee https://github.com/elastic/elasticsearch/blob/master/plugins/repository-azure/src/main/java/org/elasticsearch/cloud/azure/storage/AzureStorageSettingsFilter.java#L35\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14843",
+        "assignees": [
+            "dadoonet"
+        ],
+        "labels": [
+            ">bug",
+            ">regression",
+            ":Distributed/Snapshot/Restore",
+            "v5.0.0-alpha1",
+            "v2.2.0"
+        ],
+        "issue_closed_at": "2015-11-19T16:04:26.000Z",
+        "fix_commit_hash": "10ee87dc1e5dd4b4786ea40ea81c2f695d14a17b",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Add more tests for Azure Repository client selection\n\nOne test we forgot in #14843 and #13779 is the default client selection.\n\nMost of the time, users won't define explicitly which client they want to use because they are providing only one connection to Azure storage:\n\n```yml\ncloud:\n    azure:\n        storage:\n            my_account:\n                account: your_azure_storage_account\n                key: your_azure_storage_key\n```\n\nThen using the default client like this:\n\n```sh\n# This one will use the default account (my_account1)\ncurl -XPUT localhost:9200/_snapshot/my_backup1?pretty -d '{\n  \"type\": \"azure\"\n}'\n```\n\nThis commit adds tests to check that the right client is still selected when no client is explicitly set when creating the snapshot.\n\nBackport of #16088 in 2.x branch",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/14863",
+        "earliest_issue_date": "2015-11-18T18:21:20Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14866,
+        "issue_title": "Bulk items fail due to TranslogException via ClosedChannelException",
+        "issue_body": "We recently made the jump to start testing ES 2.0 against our codebase, which was pretty straightforward with only a couple of changes on the Query DSL.\n\nHowever, once we put this into our test environment, we see constant streams of this (please note I have removed sensitive information, such as source, index and type):\n\n```\n[2015-11-19 18:21:10,865][DEBUG][action.bulk              ] [La Nuit] [pem:2015:47][5] failed to execute bulk item (index) index {[my-index][my-type][3279b5669abaf1458583678b37bbf2a2], source[{\"my-source\":true}]}\n[my-index][[my-index][5]] TranslogException[Failed to write operation [Index{id='3279b5669abaf1458583678b37bbf2a2', type='my-type'}]]; nested: ClosedChannelException;\n    at org.elasticsearch.index.translog.Translog.add(Translog.java:497)\n    at org.elasticsearch.index.engine.InternalEngine.innerIndex(InternalEngine.java:532)\n    at org.elasticsearch.index.engine.InternalEngine.index(InternalEngine.java:447)\n    at org.elasticsearch.index.shard.IndexShard.index(IndexShard.java:556)\n    at org.elasticsearch.index.engine.Engine$Index.execute(Engine.java:815)\n    at org.elasticsearch.action.support.replication.TransportReplicationAction.executeIndexRequestOnPrimary(TransportReplicationAction.java:1073)\n    at org.elasticsearch.action.bulk.TransportShardBulkAction.shardIndexOperation(TransportShardBulkAction.java:338)\n    at org.elasticsearch.action.bulk.TransportShardBulkAction.shardOperationOnPrimary(TransportShardBulkAction.java:131)\n    at org.elasticsearch.action.support.replication.TransportReplicationAction$PrimaryPhase.performOnPrimary(TransportReplicationAction.java:579)\n    at org.elasticsearch.action.support.replication.TransportReplicationAction$PrimaryPhase$1.doRun(TransportReplicationAction.java:452)\n    at org.elasticsearch.common.util.concurrent.AbstractRunnable.run(AbstractRunnable.java:37)\n    at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1142)\n    at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:617)\n    at java.lang.Thread.run(Thread.java:745)\nCaused by: java.nio.channels.ClosedChannelException\n    at sun.nio.ch.FileChannelImpl.ensureOpen(FileChannelImpl.java:110)\n    at sun.nio.ch.FileChannelImpl.write(FileChannelImpl.java:199)\n    at org.elasticsearch.common.io.Channels.writeToChannel(Channels.java:206)\n    at org.elasticsearch.index.translog.BufferingTranslogWriter.flush(BufferingTranslogWriter.java:75)\n    at org.elasticsearch.index.translog.BufferingTranslogWriter.add(BufferingTranslogWriter.java:62)\n    at org.elasticsearch.index.translog.Translog.add(Translog.java:489)\n    ... 13 more\n```\n\nThis is a pretty constant thing, and there seems to be nothing around about what might cause it. All of our ES settings are pretty much the defaults, and we haven't (deliberately) changed anything between versions. \n\nIs there some change in ES 2.0 which might explain the above, such as maybe tweaking default thread counts for bulk (etc)? If so, where would I start looking to resolve this exception?\n\nIf I had to guess at the rate of failure, I'd say that `> 50%` of bulk items receive this error. \n\nI'm not sure if this is related, but this is also showing up inside the logs; perhaps something regarding indexing is badly configured?\n\n```\n[2015-11-19 18:21:48,456][WARN ][indices.memory           ] [La Nuit] failed to set shard [my-index][4] index buffer to [309.3mb]\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14866",
+        "assignees": [],
+        "labels": [
+            "discuss",
+            ":Distributed/CRUD"
+        ],
+        "issue_closed_at": "2015-11-26T13:47:38.000Z",
+        "fix_commit_hash": "0e5d739776233e3654b190df837ce6fb977c903a",
+        "commit_type": "commit_ref_pr",
+        "commit_message": "Merge pull request #15012 from s1monw/issues/14866\n\nPrevent writing to closed channel if translog is already closed",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/15012",
+        "earliest_issue_date": "2015-11-19T18:27:42Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14882,
+        "issue_title": "MissingValues don't work inside sub aggregations ()",
+        "issue_body": "`missing` values are great to work with - but they do not work within more complex queries.\n\nHere a simple example to reproduce the bug.\nLet's say, we have some index, with optional fields:\n\n```\nPUT /missing-values/test/1_with_my_field\n{\n  \"someField\": \"optionalField_is_present\",\n  \"optionalField\": \"present\"\n}\nPUT /missing-values/test/1_without_my_field\n{\n  \"someField\": \"optionalField_is_missing\"\n}\n```\n\nNow I want to use the fields in some term aggregation. I want information on all items; even if the optional field is missing, so I can use this code:\n\n```\nGET /missing-values/test/_search\n{\n  \"aggregations\" : {\n    \"test\": {\n      \"terms\" : {\n        \"field\" : \"optionalField\",\n        \"missing\": \"n/a\"\n      },\n      \"aggregations\" : {\n        \"test\": {\n          \"terms\" : {\n            \"field\" : \"someField\"\n          }\n        }\n      }\n    }\n  }\n}\n```\n\nThat works fine as long as the `missing` stuff is applied on the outer level only.\nIf I change the order of the fields:\n\n```\nGET /missing-values/test/_search\n{\n  \"aggregations\" : {\n    \"test\": {\n      \"terms\" : {\n        \"field\" : \"someField\"\n      },\n      \"aggregations\" : {\n        \"test\": {\n          \"terms\" : {\n            \"field\" : \"optionalField\",\n            \"missing\": \"n/a\"\n          }\n        }\n      }\n    }\n  }\n}\n```\n\nI receive an exception due to internally used ordinals:\n`org.elasticsearch.search.aggregations.support.MissingValues$6 cannot be cast to org.elasticsearch.search.aggregations.support.ValuesSource$Bytes$WithOrdinals$FieldData`\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14882",
+        "assignees": [
+            "jpountz"
+        ],
+        "labels": [
+            ">bug",
+            ":Analytics/Aggregations",
+            ":Search/Search DO NOT USE"
+        ],
+        "issue_closed_at": "2016-01-06T08:32:39.000Z",
+        "fix_commit_hash": "98dbba141d44d8325c1a3446fe50b14e8790e2d5",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Make `missing` on terms aggs work with all execution modes.\n\nThere are two bugs:\n - the 'global_ordinals_low_cardinality' mode requires a fielddata-based impl so\n   that it can extract the segment to global ordinal mapping\n - the 'global_ordinals_hash' mode abusively casts to the values source to a\n   fielddata-based impl while it is not needed\n\nCloses #14882",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/15746",
+        "earliest_issue_date": "2015-11-20T11:04:32Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14922,
+        "issue_title": "2.1.0 Release notes page links are missing a slash (/)",
+        "issue_body": "In the 2.1.0 release notes:\n\nhttps://www.elastic.co/guide/en/elasticsearch/reference/2.1/release-notes-2.1.0.html\n\nAll the PR and issue links are missing a final slash before the PR/issue number. \n\nFor example the link for the CRUD PR is:\n\nhttps://github.com/elastic/elasticsearch/pull11306\n\nShould be:\n\nhttps://github.com/elastic/elasticsearch/pull/11306\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14922",
+        "assignees": [],
+        "labels": [
+            ">docs"
+        ],
+        "issue_closed_at": "2015-11-24T11:37:13.000Z",
+        "fix_commit_hash": "74d9c8f5cf6a4de1950cb54b851760c6919e1ab5",
+        "commit_type": "commit",
+        "commit_message": "Docs: Fix :issue: and :pull: asciidoc replacements\n\nCloses #14922",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/74d9c8f5cf6a4de1950cb54b851760c6919e1ab5",
+        "earliest_issue_date": "2015-11-22T23:09:44Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14932,
+        "issue_title": "Processing pending deletes can block shard initialisation for 30 minutes",
+        "issue_body": "Test failure: http://build-us-00.elastic.co/job/es_core_master_window-2008/2553/testReport/junit/org.elasticsearch.indices.state/RareClusterStateIT/testDeleteCreateInOneBulk/\n\nThe test fails due to a race in acquiring `ShardLock` locks. \n\nWhen an index is deleted, an asynchronous process is started to process pending deletes on shards of that index. This process first acquires all `ShardLock` locks for the given index in numeric shard order. Meanwhile, the new index can already have been created, and some shard locks can already be held due to shard creation in `IndicesClusterStateService.applyInitializingShard`. For example, shard 0 is locked by `processPendingDeletes` but shard 1 is locked by `applyInitializingShard`. In that case, `processPendingDeletes` cannot lock shard 1 and blocks (and will hold lock on shard 0 for 30 minutes). This means that shard 0 cannot be initialised for 30 minutes.\n\nInteresting bits of stack trace:\n\n```\n\"elasticsearch[node_t1][generic][T#2]\" ID=602 TIMED_WAITING on java.util.concurrent.Semaphore$NonfairSync@2fc45c3b\n    at sun.misc.Unsafe.park(Native Method)\n    - timed waiting on java.util.concurrent.Semaphore$NonfairSync@2fc45c3b\n    at java.util.concurrent.locks.LockSupport.parkNanos(LockSupport.java:215)\n    at java.util.concurrent.locks.AbstractQueuedSynchronizer.doAcquireSharedNanos(AbstractQueuedSynchronizer.java:1037)\n    at java.util.concurrent.locks.AbstractQueuedSynchronizer.tryAcquireSharedNanos(AbstractQueuedSynchronizer.java:1328)\n    at java.util.concurrent.Semaphore.tryAcquire(Semaphore.java:409)\n    at org.elasticsearch.env.NodeEnvironment$InternalShardLock.acquire(NodeEnvironment.java:555)\n    at org.elasticsearch.env.NodeEnvironment.shardLock(NodeEnvironment.java:485)\n    at org.elasticsearch.env.NodeEnvironment.lockAllForIndex(NodeEnvironment.java:429)\n    at org.elasticsearch.indices.IndicesService.processPendingDeletes(IndicesService.java:649)\n    at org.elasticsearch.cluster.action.index.NodeIndexDeletedAction.lockIndexAndAck(NodeIndexDeletedAction.java:101)\n    at org.elasticsearch.cluster.action.index.NodeIndexDeletedAction.access$300(NodeIndexDeletedAction.java:46)\n    at org.elasticsearch.cluster.action.index.NodeIndexDeletedAction$1.doRun(NodeIndexDeletedAction.java:90)\n    at org.elasticsearch.common.util.concurrent.AbstractRunnable.run(AbstractRunnable.java:37)\n    at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1142)\n    at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:617)\n    at java.lang.Thread.run(Thread.java:745)\n    Locked synchronizers:\n    - java.util.concurrent.ThreadPoolExecutor$Worker@b17810e\n\n\n\"elasticsearch[node_t1][clusterService#updateTask][T#1]\" ID=591 TIMED_WAITING on java.util.concurrent.Semaphore$NonfairSync@7fdcd730\n    at sun.misc.Unsafe.park(Native Method)\n    - timed waiting on java.util.concurrent.Semaphore$NonfairSync@7fdcd730\n    at java.util.concurrent.locks.LockSupport.parkNanos(LockSupport.java:215)\n    at java.util.concurrent.locks.AbstractQueuedSynchronizer.doAcquireSharedNanos(AbstractQueuedSynchronizer.java:1037)\n    at java.util.concurrent.locks.AbstractQueuedSynchronizer.tryAcquireSharedNanos(AbstractQueuedSynchronizer.java:1328)\n    at java.util.concurrent.Semaphore.tryAcquire(Semaphore.java:409)\n    at org.elasticsearch.env.NodeEnvironment$InternalShardLock.acquire(NodeEnvironment.java:555)\n    at org.elasticsearch.env.NodeEnvironment.shardLock(NodeEnvironment.java:485)\n    at org.elasticsearch.index.IndexService.createShard(IndexService.java:234)\n    - locked org.elasticsearch.index.IndexService@707e1798\n    at org.elasticsearch.indices.cluster.IndicesClusterStateService.applyInitializingShard(IndicesClusterStateService.java:628)\n    at org.elasticsearch.indices.cluster.IndicesClusterStateService.applyNewOrUpdatedShards(IndicesClusterStateService.java:528)\n    at org.elasticsearch.indices.cluster.IndicesClusterStateService.clusterChanged(IndicesClusterStateService.java:185)\n    - locked java.lang.Object@773b911a\n    at org.elasticsearch.cluster.service.InternalClusterService$UpdateTask.run(InternalClusterService.java:517)\n    at org.elasticsearch.common.util.concurrent.PrioritizedEsThreadPoolExecutor$TieBreakingPrioritizedRunnable.runAndClean(PrioritizedEsThreadPoolExecutor.java:231)\n    at org.elasticsearch.common.util.concurrent.PrioritizedEsThreadPoolExecutor$TieBreakingPrioritizedRunnable.run(PrioritizedEsThreadPoolExecutor.java:194)\n    at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1142)\n    at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:617)\n    at java.lang.Thread.run(Thread.java:745)\n    Locked synchronizers:\n    - java.util.concurrent.ThreadPoolExecutor$Worker@26f887da\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14932",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ">test-failure",
+            ":Distributed/Engine"
+        ],
+        "issue_closed_at": "2016-03-15T03:30:44.000Z",
+        "fix_commit_hash": "bdd1d0703dff32309b78d5f288fd71ef196f0347",
+        "commit_type": "commit_ref_pr",
+        "commit_message": "Acknowledge index deletion requests based on standard cluster state acknowledgment (#18602)\n\nIndex deletion requests currently use a custom acknowledgement mechanism that wait for the data nodes to actually delete the data before acknowledging the request to the client. This was initially put into place as a new index with same name could only be created if the old index was wiped as we used the index name as data folder on the data nodes. With PR #16442, we now use the index uuid as folder name which avoids collision between indices that are named the same (deleted and recreated). This allows us to get rid of the custom acknowledgment mechanism altogether and rely on the standard cluster state-based acknowledgment instead.\r\n\r\nCloses #18558",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/16442",
+        "earliest_issue_date": "2015-11-23T11:01:11Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14944,
+        "issue_title": "more_like_this doesn't understand index alias in doc reference",
+        "issue_body": "After upgrading from 1.7 to 2.0 I have got a problem with my more_like_this query, which stopped returning results. \n\nPlaying around with the query I was surprised to know that if I set a \"like\" document \"_index\" to an alias, no results are returned. When set to the real index name matches are found.\n\n```\nGET /_cat/aliases?v&h=alias,index\n\nalias    index         \ntraits   traits_1123   \nanalysis analysis_1123 \ncatalog  catalog_1123  \n```\n\n```\nPOST /traits/library/_search\n{\n    \"filter\": {\n        \"query\": {\n            \"more_like_this\": {\n                \"min_doc_freq\": 1, \n                \"fields\": [\"data.packages\"], \n                \"min_term_freq\": 1, \n                \"docs\": [\n                    {\n                        \"_type\": \"packages\", \n                        \"_id\": \"1_401f94\", \n                        \"_index\": \"analysis\"\n                    }\n                ]  \n            }    \n        }\n    }\n}\n\n{\n   \"took\": 12,\n   \"timed_out\": false,\n   \"_shards\": {\n      \"total\": 5,\n      \"successful\": 5,\n      \"failed\": 0\n   },\n   \"hits\": {\n      \"total\": 0,\n      \"max_score\": null,\n      \"hits\": []\n   }\n}\n```\n\n```\nPOST /traits_1123/library/_search\n{\n    \"filter\": {\n        \"query\": {\n            \"more_like_this\": {\n                \"min_doc_freq\": 1, \n                \"fields\": [\"data.packages\"], \n                \"min_term_freq\": 1, \n                \"docs\": [\n                    {\n                        \"_type\": \"packages\", \n                        \"_id\": \"1_401f94\", \n                        \"_index\": \"analysis_1123\"\n                    }\n                ]  \n            }    \n        }\n    }\n}\n\n{\n   \"took\": 23,\n   \"timed_out\": false,\n   \"_shards\": {\n      \"total\": 5,\n      \"successful\": 5,\n      \"failed\": 0\n   },\n   \"hits\": {\n      \"total\": 12,\n      \"max_score\": 1,\n      \"hits\": [\n         {\n            \"_index\": \"traits_1123\",\n            \"_type\": \"library\",\n...\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14944",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "good first issue",
+            "help wanted",
+            ":Search/Search DO NOT USE"
+        ],
+        "issue_closed_at": "2016-04-20T13:14:37.000Z",
+        "fix_commit_hash": "4dcdd958386f8b32dde13095d899d9b75b8fdbc5",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "backport  #17204\n\nGet TermVectorResponses for like and unlike items in separate requests, so we don't have to validate responses afterwards.\n\nRelates to #14944",
+        "closer_url": null,
+        "earliest_issue_date": "2015-11-23T15:50:19Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14946,
+        "issue_title": "copy_to of mapper attachments metadata field isn't working",
+        "issue_body": "_From @gpaul on November 17, 2015 10:43_\n\nThe following set of steps against a fresh elasticsearch 2.0.0 instance with v3.0.2 of this plugin installed shows that copy_to isn't working for the name field. I doubt it is working for the other metadata fields, either.\n\nYou can copy/paste this in your shell.\n\n```\n# create a mapping\ncurl -XPOST 'http://localhost:9200/test_copyto' -d '{\n  \"mappings\": {\n    \"person\": {\n      \"properties\": {\n        \"copy_dst\": { \"type\": \"string\" },\n        \"doc\": {\n      \"type\": \"attachment\",\n      \"fields\": {\n        \"name\": { \"copy_to\": \"copy_dst\" }\n          }\n    }\n      }\n    }\n  }\n}'\n## => {\"acknowledged\":true}\n\n\n# index a document, specifying a document name\ncurl -XPOST 'http://localhost:9200/test_copyto/person/1' -d '{\n  \"doc\": {\n    \"_content\": \"e1xydGYxXGFuc2kNCkxvcmVtIGlwc3VtIGRvbG9yIHNpdCBhbWV0DQpccGFyIH0=\",\n    \"_name\": \"my-attachment-name.doc\"\n  }\n}'\n## => {\"_index\":\"test_copyto\",\"_type\":\"person\",\"_id\":\"1\",\"_version\":1,\"_shards\":{\"total\":2,\"successful\":1,\"failed\":0},\"created\":true}\n\n\n# search for the document by its contents\ncurl -XPOST 'http://localhost:9200/test_copyto/person/_search' -d '\n{\n  \"query\": {\n    \"query_string\": {\n      \"default_field\": \"doc.content\",\n      \"fields\": [\"copy_dst\", \"doc.content\"],\n      \"query\": \"ipsum\"\n    }\n  }\n}\n'\n## => {\"took\":5,\"timed_out\":false,\"_shards\":{\"total\":5,\"successful\":5,\"failed\":0},\"hits\": \"total\":1,\"max_score\":0.04119441,\"hits\":[{\"_index\":\"test_copyto\",\"_type\":\"person\",\"_id\":\"1\",\"_score\":0.04119441,\"_source\":{\n#  \"doc\": {\n#    \"_content\": \"e1xydGYxXGFuc2kNCkxvcmVtIGlwc3VtIGRvbG9yIHNpdCBhbWV0DQpccGFyIH0=\",\n#    \"_name\": \"my-attachment-name.doc\"\n#  }\n#}}]}}\n\n\n# search for the document by its name\ncurl -XPOST 'http://localhost:9200/test_copyto/person/_search' -d '\n{\n  \"query\": {\n    \"query_string\": {\n      \"default_field\": \"doc.name\",\n      \"fields\": [\"doc.name\"],\n      \"query\": \"my-test.doc\"\n    }\n  }\n}\n'\n## => {\"took\":5,\"timed_out\":false,\"_shards\":{\"total\":5,\"successful\":5,\"failed\":0},\"hits\":{\"total\":1,\"max_score\":0.02250402,\"hits\":[{\"_index\":\"test_copyto\",\"_type\":\"person\",\"_id\":\"1\",\"_score\":0.02250402,\"_source\":{\n#  \"doc\": {\n#    \"_content\": \"e1xydGYxXGFuc2kNCkxvcmVtIGlwc3VtIGRvbG9yIHNpdCBhbWV0DQpccGFyIH0=\",\n#    \"_name\": \"my-attachment-name.doc\"\n#  }\n#}}]}}\n\n# search for the document by the copy_dst field\ncurl -XPOST 'http://localhost:9200/test_copyto/person/_search' -d '\n{\n  \"query\": {\n    \"query_string\": {\n      \"default_field\": \"copy_dst\",\n      \"fields\": [\"copy_dst\"],\n      \"query\": \"my-test.doc\"\n    }\n  }\n}\n'\n## => {\"took\":1,\"timed_out\":false,\"_shards\":{\"total\":5,\"successful\":5,\"failed\":0},\"hits\":{\"total\":0,\"max_score\":null,\"hits\":[]}}\n```\n\n_Copied from original issue: elastic/elasticsearch-mapper-attachments#190_\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14946",
+        "assignees": [
+            "brwe"
+        ],
+        "labels": [
+            ">bug",
+            ">regression",
+            ":Search Foundations/Mapping",
+            "Team:Search Foundations"
+        ],
+        "issue_closed_at": "2015-12-02T13:04:42.000Z",
+        "fix_commit_hash": "e4cacb3dae51bd1700af906b0be2549cf5dff588",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Merge pull request #15213 from brwe/copy-to-in-multi-fields-exception\n\nthrow exception if a copy_to is within a multi field\n\nCopy to within multi field is ignored from 2.0 on, see #10802.\nInstead of just ignoring it, we should throw an exception if this\nis found in the mapping when a mapping is added. For already\nexisting indices we should at least log a warning.\n\nrelated to #14946",
+        "closer_url": null,
+        "earliest_issue_date": "2015-11-23T16:10:54Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14957,
+        "issue_title": "Multi-fields will create field names with dots '.'",
+        "issue_body": "One of the breaking changes of Elasticsearch 2.0 was that field names are no longer allowed to have dots: https://github.com/elastic/elasticsearch/pull/12068\n\nHowever, if you use the new multi-field syntax, Elasticsearch will create field name with dots. The documentation supports the behavior. The aggregation in the example is on a field named \"city.raw\":\n\nhttps://www.elastic.co/guide/en/elasticsearch/reference/current/multi-fields.html\n\nThe unit tests in the code look for field names with dots: https://github.com/elastic/elasticsearch/blob/2.1/core/src/test/java/org/elasticsearch/index/mapper/multifield/MultiFieldTests.java#L88\n\nThe tests pass because the check in ObjectMapper$TypeParser only checks the original name.\n\nThe field name is built in ContentPath:\nhttps://github.com/elastic/elasticsearch/blob/2.1/core/src/main/java/org/elasticsearch/index/mapper/ContentPath.java#L50\nhttps://github.com/elastic/elasticsearch/blob/2.1/core/src/main/java/org/elasticsearch/index/mapper/ContentPath.java#L80-L87\n\nThese field names will fail if the indices are run through the MetaDataIndexUpgradeService. Are dots allowed in this context?\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14957",
+        "assignees": [
+            "brwe"
+        ],
+        "labels": [
+            ">bug",
+            ":Search Foundations/Mapping",
+            "v2.2.0",
+            "Team:Search Foundations"
+        ],
+        "issue_closed_at": "2015-12-02T19:45:43.000Z",
+        "fix_commit_hash": "e2f87b0c5295935d5f0b6c4c9350f30a01650b80",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "multi field names may not contain dots\n\nrelated to #14957",
+        "closer_url": null,
+        "earliest_issue_date": "2015-11-24T04:50:44Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14982,
+        "issue_title": "Inconsistent result from _cat/aliases vs actual state of the indices.",
+        "issue_body": "This was briefly describe in this issue #14818 \nWhen I call `GET _cat/aliases` or `GET _aliases` I got all the alias associated with an open index, if later I associated the same alias with an closed index, if I try to call the alias I get a `index_closed_exception`, even when is closed, I understand this, but, is that the desire behavior to the `GET _cat/aliases`  or `GET _aliases` endpoints (to just show the alias associated with an open index)?\n\nP.S: I said is inconsistent because is not showing all the indices with an alias.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14982",
+        "assignees": [
+            "javanna"
+        ],
+        "labels": [
+            ">enhancement",
+            "good first issue",
+            ":Data Management/Indices APIs"
+        ],
+        "issue_closed_at": "2016-01-14T13:24:40.000Z",
+        "fix_commit_hash": "07a82d0c098c16608990fbac67c191d66d0027a3",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "make get alias expand to open and closed indices by default\n\nThis change affects get alias, get aliases as well as cat aliases. They all return closed indices too by default. get alias and get aliases also allow to return open indices only through the `expand_wildcards` option (set it to `open`).\n\nCloses #14982",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/15954",
+        "earliest_issue_date": "2015-11-24T19:50:19Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14994,
+        "issue_title": "_ttl filed document a configure line is error",
+        "issue_body": "https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-ttl-field.html\n\ndefault TTL this chapter\nPUT my_index\n{\n  \"mappings\": {\n    \"my_type\": {\n      \"_ttl\": {\n        \"enabled\": true,\n        \"defaut\": \"5m\"\n      }\n    }\n  }\n}\n\ndefault is writed \"defaut\"\nplease update it ,thank you\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14994",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2015-11-25T03:57:58.000Z",
+        "fix_commit_hash": "b6da075505e656e0944807b0025af68a32eb61ed",
+        "commit_type": "commit",
+        "commit_message": "Fix typo in TTL field docs\n\nCloses #14994",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/b6da075505e656e0944807b0025af68a32eb61ed",
+        "earliest_issue_date": "2015-11-25T03:42:30Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 14999,
+        "issue_title": "Highlight not working in elasticsearch 2.1",
+        "issue_body": "When I was upgraded es from 2.0 to 2.1, highlight feature stop working.\n\nI got this error message:\n\n```\n{\n  \"shard\": 0,\n  \"index\": \"4odevelop_4o\",\n  \"node\": \"XiZaRocLQGuBwZPg58Naqw\",\n  \"reason\": {\n    \"type\": \"illegal_state_exception\",\n    \"reason\": \"can't load global ordinals for reader of type: class org.apache.lucene.search.highlight.WeightedSpanTermExtractor$DelegatingLeafReader must be a DirectoryReader\"\n  }\n}\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/14999",
+        "assignees": [
+            "martijnvg"
+        ],
+        "labels": [
+            ">bug",
+            ":Search Relevance/Highlighting",
+            ":Search/Search DO NOT USE",
+            "v2.4.0",
+            "Team:Search Relevance"
+        ],
+        "issue_closed_at": "2016-07-29T11:01:20.000Z",
+        "fix_commit_hash": "72e0d422e95df0f7b7c0816465d9f5d1ebbe1e29",
+        "commit_type": "commit",
+        "commit_message": "Plain highlighter should ignore parent/child queries.\n\nThe plain highligher fails when it tries to select the fragments based on a query containing either a `has_child` or `has_parent` query.\n\nThe plain highligher should just ignore parent/child queries as it makes no sense to highligh a parent match with a has_child as the child documents are not available at highlight time. Instead if child document should be highlighed inner hits should be used.\n\nParent/child queries already have no effect when the `fvh` or `postings` highligher is used. The test added in this commit verifies that.\n\nCloses #14999",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/72e0d422e95df0f7b7c0816465d9f5d1ebbe1e29",
+        "earliest_issue_date": "2015-11-25T09:00:15Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 15057,
+        "issue_title": "Mapping `properties._id` causes conflicts and shard failures",
+        "issue_body": "Recreation on 2.1.0:\n\n```\nPUT t\n{\n  \"mappings\": {\n    \"one\": {\n      \"properties\": {\n        \"_id\": {\n          \"type\": \"string\"\n        }\n      }\n    },\n    \"two\": {}\n  }\n}\n```\n\nThis returns OK, but in the logs:\n\n```\n[2015-11-27 10:36:51,848][WARN ][indices.cluster          ] [Primevil] [t] failed to add mapping [one], source [{\"one\":{\"properties\":{\"_id\":{\"type\":\"string\"}}}}]\njava.lang.IllegalArgumentException: Mapper for [_id] conflicts with existing mapping in other types:\n[mapper [_id] cannot be changed from type [_id] to [string]]\n  at org.elasticsearch.index.mapper.FieldTypeLookup.checkCompatibility(FieldTypeLookup.java:117)\n  at org.elasticsearch.index.mapper.MapperService.checkNewMappersCompatibility(MapperService.java:364)\n  at org.elasticsearch.index.mapper.MapperService.merge(MapperService.java:315)\n  at org.elasticsearch.index.mapper.MapperService.merge(MapperService.java:261)\n  at org.elasticsearch.indices.cluster.IndicesClusterStateService.processMapping(IndicesClusterStateService.java:418)\n  at org.elasticsearch.indices.cluster.IndicesClusterStateService.applyMappings(IndicesClusterStateService.java:372)\n  at org.elasticsearch.indices.cluster.IndicesClusterStateService.clusterChanged(IndicesClusterStateService.java:177)\n  at org.elasticsearch.cluster.service.InternalClusterService$UpdateTask.run(InternalClusterService.java:494)\n  at org.elasticsearch.common.util.concurrent.PrioritizedEsThreadPoolExecutor$TieBreakingPrioritizedRunnable.runAndClean(PrioritizedEsThreadPoolExecutor.java:231)\n  at org.elasticsearch.common.util.concurrent.PrioritizedEsThreadPoolExecutor$TieBreakingPrioritizedRunnable.run(PrioritizedEsThreadPoolExecutor.java:194)\n  at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1142)\n  at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:617)\n  at java.lang.Thread.run(Thread.java:745)\n[2015-11-27 10:36:51,849][WARN ][indices.cluster          ] [Primevil] [[t][4]] marking and sending shard failed due to [master [{Primevil}{FZZ2xKQATOSVT6qMODFe2w}{127.0.0.1}{127.0.0.1:9300}] marked shard as started, but shard has not been created, mark shard as failed]\n[2015-11-27 10:36:51,849][WARN ][cluster.action.shard     ] [Primevil] [t][4] received shard failed for [t][4], node[FZZ2xKQATOSVT6qMODFe2w], [P], v[2], s[STARTED], a[id=SfSzHTRlSAawEvHtC7cMLg], indexUUID [bcTOLPxjTM2cB95wPE0sJQ], message [master [{Primevil}{FZZ2xKQATOSVT6qMODFe2w}{127.0.0.1}{127.0.0.1:9300}] marked shard as started, but shard has not been created, mark shard as failed], failure [Unknown]\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/15057",
+        "assignees": [
+            "jpountz"
+        ],
+        "labels": [
+            ">bug",
+            "blocker",
+            ":Search Foundations/Mapping",
+            "v2.2.0",
+            "Team:Search Foundations"
+        ],
+        "issue_closed_at": "2015-12-15T09:38:47.000Z",
+        "fix_commit_hash": "d7e595b103c55ec3936f7f0af651e1662af80db8",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Validate that fields are defined only once.\n\nThere are two ways that a field can be defined twice:\n - by reusing the name of a meta mapper in the root object (`_id`, `_routing`,\n   etc.)\n - by defining a sub-field both explicitly in the mapping and through the code\n   in a field mapper (like ExternalMapper does)\n\nThis commit adds new checks in order to make sure this never happens.\n\nClose #15057",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/15243",
+        "earliest_issue_date": "2015-11-27T09:38:31Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 15059,
+        "issue_title": "IndicesService.canDeleteShardContent() takes a lot of CPU and time because of regex that is executed against the Settings",
+        "issue_body": "When analyzing some high CPU that we encountered when working with many indices on an Elasticsearch 2.0 clusters. We tried to use 600 indexes with 12 shards here to see where we max out the system.\n\nWe saw that quite some time is spent running regex-matches in the Settings-Builder on the IndicesStore.clusterChanged() event. \n\nIt seems this is executed many times during cluster-change events, as this is run in a loop over all entries in the ShardRoutingsTable:\n\n```\n    for (IndexRoutingTable indexRoutingTable : event.state().routingTable()) {\n        for (IndexShardRoutingTable indexShardRoutingTable : indexRoutingTable) {\n            if (shardCanBeDeleted(event.state(), indexShardRoutingTable)) {\n```\n\nSee the following extract when using Dynatrace to do some performance analysis, out of the 19 seconds spent in the clusterChanged() method, nearly 6 are needed just for constructing the IndexSettings again and again:\n\n<img width=\"774\" alt=\"elasticsearch_candeleteshardcontent_highcpu_2015-11-27_09-05-42\" src=\"https://cloud.githubusercontent.com/assets/548322/11438382/bffdbcd8-94f4-11e5-831f-7f3a9dc305a9.png\">\n\nI checked the code to ensure this is still the same on newer branches for 2.1, 2.x and master.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/15059",
+        "assignees": [],
+        "labels": [
+            ">enhancement",
+            "discuss",
+            ":Core/Infra/Settings"
+        ],
+        "issue_closed_at": "2015-12-03T09:04:20.000Z",
+        "fix_commit_hash": "9930e6883d1365ed082effbb52ffb0c22410f0ab",
+        "commit_type": "commit",
+        "commit_message": "Move IndicesService.canDeleteShardContent to use IndexSettings\n\nJust a minor cleanup/simplification\n\nCloses #15059\nCloses #15150",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/9930e6883d1365ed082effbb52ffb0c22410f0ab",
+        "earliest_issue_date": "2015-11-27T10:22:21Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 15068,
+        "issue_title": "fix extraConfigFile to not check for the file, until runtime",
+        "issue_body": "Currently gradle checks for this at compile-time, but this prevents you from generating configuration files in the build itself. Can we move the check to runtime?\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/15068",
+        "assignees": [],
+        "labels": [
+            ":Delivery/Build",
+            "Team:Delivery"
+        ],
+        "issue_closed_at": "2015-11-29T03:44:16.000Z",
+        "fix_commit_hash": "018c766bf7606ae775398f274078c5d5476cc116",
+        "commit_type": "commit_ref_issue",
+        "commit_message": "Build: Fix delayed extra config file checks to be right before copy\n\nThe current delay waits until later after normal configuration, but\nstill just after resolution (ie when paths would be known for\ndependencies but not actual execution). This delays the checks further\nto be done right before we actually execute the copy task.\n\ncloses #15068",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/15089",
+        "earliest_issue_date": "2015-11-27T16:55:13Z",
+        "predicted_class": "bug"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 15070,
+        "issue_title": "Regexp on the _index does not work in 2.0",
+        "issue_body": "Currently, some queries work on the special `_index` field, as an example:\n- Input\n\n```\nPOST trial/doc\n{\n  \"text\": \"this is text\"\n}\n\nGET trial/_search\n{\n  \"query\": {\n    \"filtered\": {\n      \"filter\": {\n        \"term\": {\n          \"_index\": \"trial\"\n        }\n      }\n    }\n  }\n}\n```\n- Response\n\n```\n{\n  \"took\": 1,\n  \"timed_out\": false,\n  \"_shards\": {\n    \"total\": 5,\n    \"successful\": 5,\n    \"failed\": 0\n  },\n  \"hits\": {\n    \"total\": 1,\n    \"max_score\": 1,\n    \"hits\": [\n      {\n        \"_index\": \"trial\",\n        \"_type\": \"doc\",\n        \"_id\": \"AVFKXPURmqplIqGCgb_z\",\n        \"_score\": 1,\n        \"_source\": {\n          \"text\": \"this is text\"\n        }\n      }\n    ]\n  }\n}\n```\n\n**However**, wildcards are not supported for querying this field:\n- Input\n\n```\nGET trial/_search\n{\n  \"query\": {\n    \"filtered\": {\n      \"filter\": {\n        \"regexp\": {\n          \"_index\": \"tri*\"\n        }\n      }\n    }\n  }\n}\n```\n- Response (No results)\n\n```\n{\n  \"took\": 2,\n  \"timed_out\": false,\n  \"_shards\": {\n    \"total\": 5,\n    \"successful\": 5,\n    \"failed\": 0\n  },\n  \"hits\": {\n    \"total\": 0,\n    \"max_score\": null,\n    \"hits\": []\n  }\n}\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/15070",
+        "assignees": [],
+        "labels": [
+            ">docs",
+            ":Search/Search DO NOT USE"
+        ],
+        "issue_closed_at": "2015-11-30T07:43:52.000Z",
+        "fix_commit_hash": "72be42d742a085b645e58cd82aacade6fde2d211",
+        "commit_type": "commit",
+        "commit_message": "Document that _index is a virtual field and only supports term queries\n\nCloses #15070\nCloses #15081",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/72be42d742a085b645e58cd82aacade6fde2d211",
+        "earliest_issue_date": "2015-11-27T19:14:54Z",
+        "predicted_class": "bug"
+    }
+]
