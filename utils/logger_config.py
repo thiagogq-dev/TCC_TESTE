@@ -7,25 +7,28 @@ if not os.path.exists("logs"):
     os.makedirs("logs")
 
 # === Configuração Geral ===
-def setup_loggers():
+def setup_loggers(repo_name="default"):
     # General Log
     general_log = logging.getLogger("general_log")
     general_log.setLevel(logging.INFO)
-    general_handler = logging.FileHandler("logs/info.log")
+    general_log.handlers.clear() # Limpa handlers antigos
+    general_handler = logging.FileHandler(f"logs/{repo_name}_info.log")
     general_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     general_log.addHandler(general_handler)
 
     # Error Log
     error_log = logging.getLogger("error_log")
     error_log.setLevel(logging.ERROR)
-    error_handler = logging.FileHandler("logs/error.log")
+    error_log.handlers.clear() # Limpa handlers antigos
+    error_handler = logging.FileHandler(f"logs/{repo_name}_error.log")
     error_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     error_log.addHandler(error_handler)
 
     # Warning Log
     warning_log = logging.getLogger("warning_log")
     warning_log.setLevel(logging.WARNING)
-    warning_handler = logging.FileHandler("logs/warning.log")
+    warning_log.handlers.clear() # Limpa handlers antigos
+    warning_handler = logging.FileHandler(f"logs/{repo_name}_warning.log")
     warning_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     warning_log.addHandler(warning_handler)
 

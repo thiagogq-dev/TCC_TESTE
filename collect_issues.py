@@ -10,14 +10,15 @@ from urllib3.util.retry import Retry
 
 from utils.queries import REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY
 from utils.logger_config import setup_loggers, log_message
-from utils.utils import is_commit_valid, get_commit_that_references_pr, get_commit_that_references_issue, split_json_file
+from utils.utils import is_commit_valid, get_commit_that_references_pr, get_commit_that_references_issue
 
 dotenv.load_dotenv()
 
-setup_loggers()
 
 repo_name = os.getenv('REPO_NAME')
 repo_owner = os.getenv('REPO_OWNER')
+
+setup_loggers(repo_name)
 
 API_TOKENS = [v for k, v in os.environ.items() if k.startswith("API_TOKEN_") and v]
 OUTPUT_DIR = "data"
@@ -98,47 +99,53 @@ def execute_query(query, headers):
     return {"errors": [{"message": "Max retries exceeded"}]}
 
 def resolve_fix_commit(issue, repo_owner, repo_name):
-    node = issue["timelineItems"]["nodes"][0]["closer"]
-    if not node:
-        return None
+    nodes = issue.get("timelineItems", {}).get("nodes", [])
+    node = nodes[0].get("closer") if nodes else None
+    if node:
+        closer_type = node.get("__typename", "")
 
-    closer_type = node.get("__typename", "")
+        if closer_type == "PullRequest":
+            pr_number = node.get("number")
+            merge_commit = node.get("mergeCommit", {}).get("oid") if node.get("mergeCommit") else None
+            if merge_commit:
+                valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", merge_commit)
+                if valid:
+                    return merge_commit, "pr", node.get("mergeCommit", {}).get("message") if node.get("mergeCommit") else None
+                
+            fix_commit, commit_message = get_commit_that_references_pr(f"{repo_owner}/{repo_name}", pr_number, get_headers())
+            if fix_commit:
+                valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
+                if valid:
+                    return fix_commit, "commit_ref_pr", commit_message
 
-    if closer_type == "PullRequest":
-        pr_number = node.get("number")
-        merge_commit = node.get("mergeCommit", {}).get("oid") if node.get("mergeCommit") else None
-        if merge_commit:
-            valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", merge_commit)
-            if valid:
-                return merge_commit, "pr", node.get("mergeCommit", {}).get("message") if node.get("mergeCommit") else None
-            
-        fix_commit, commit_message = get_commit_that_references_pr(f"{repo_owner}/{repo_name}", pr_number, get_headers())
-        if fix_commit:
-            valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
-            if valid:
-                return fix_commit, "commit_ref_pr", commit_message
+            issue_number = issue.get("number")
+            fix_commit, commit_message = get_commit_that_references_issue(f"{repo_owner}/{repo_name}", issue_number, get_headers())
+            if fix_commit:
+                valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
+                if valid:
+                    return fix_commit, "commit_ref_issue", commit_message
+        else:
+            fix_commit = node.get("oid", None)
+            if fix_commit:
+                valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
+                if valid:
+                    return fix_commit, "commit", node.get("message", None)
+                
+            issue_number = issue.get("number")
+            fix_commit, commit_message = get_commit_that_references_issue(f"{repo_owner}/{repo_name}", issue_number, get_headers())
 
-        issue_number = issue.get("number")
-        fix_commit, commit_message = get_commit_that_references_issue(f"{repo_owner}/{repo_name}", issue_number, get_headers())
-        if fix_commit:
-            valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
-            if valid:
-                return fix_commit, "commit_ref_issue", commit_message
+            if fix_commit:
+                valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
+                if valid:
+                    return fix_commit, "commit_ref_issue", commit_message
     else:
-        fix_commit = node.get("oid", None)
-        if fix_commit:
-            valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
-            if valid:
-                return fix_commit, "commit", node.get("message", None)
-            
         issue_number = issue.get("number")
         fix_commit, commit_message = get_commit_that_references_issue(f"{repo_owner}/{repo_name}", issue_number, get_headers())
-
         if fix_commit:
             valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
             if valid:
-                return fix_commit, "commit_ref_issue", commit_message
-            
+                return fix_commit, "commit_ref_issue_no_event", commit_message
+
     return None, None, None
 
 def check_data(data):
@@ -226,31 +233,31 @@ def get_data():
                         log_message(f"Issue #{issue.get('number')} de {repo_name} fechada em {issue_closed_date} é posterior a {closed_until_date}. Pulando...", "info")
                         continue
 
-                if issue["timelineItems"]["nodes"] and issue["timelineItems"]["nodes"][0]["closer"] is not None:
-                    issue_number = issue.get("number", "N/A")
+                # if issue["timelineItems"]["nodes"] and issue["timelineItems"]["nodes"][0]["closer"] is not None:
+                issue_number = issue.get("number", "N/A")
 
-                    final_fix_commit, commit_type, commit_message = resolve_fix_commit(issue, repo_owner, repo_name)
-                    if not final_fix_commit:
-                        log_message(f"Nenhum commit válido encontrado para a issue #{issue_number} de {repo_name}. Pulando...", "warning")
-                        continue
+                final_fix_commit, commit_type, commit_message = resolve_fix_commit(issue, repo_owner, repo_name)
+                if not final_fix_commit:
+                    log_message(f"Nenhum commit válido encontrado para a issue #{issue_number} de {repo_name}. Pulando...", "warning")
+                    continue
 
-                    issue_data = {
-                        "repo_name": repo_name,
-                        "issue_number": issue_number,
-                        "issue_title": issue.get("title"),
-                        "issue_body": issue.get("body"),
-                        "issue_url": issue.get("url"),
-                        "assignees": [assignee.get("login") for assignee in issue.get("assignees", {}).get("nodes", [])],
-                        "labels": [label.get("name") for label in issue.get("labels", {}).get("nodes", [])],
-                        "issue_closed_at": closed_at,
-                        "fix_commit_hash": final_fix_commit,
-                        "commit_type": commit_type,
-                        "commit_message": commit_message,
-                        "closer_url": issue["timelineItems"]["nodes"][0]["closer"].get("url") if issue["timelineItems"]["nodes"][0]["closer"] else None,
-                        "earliest_issue_date": issue.get("createdAt"),
-                    }
+                issue_data = {
+                    "repo_name": repo_name,
+                    "issue_number": issue_number,
+                    "issue_title": issue.get("title"),
+                    "issue_body": issue.get("body"),
+                    "issue_url": issue.get("url"),
+                    "assignees": [assignee.get("login") for assignee in issue.get("assignees", {}).get("nodes", [])],
+                    "labels": [label.get("name") for label in issue.get("labels", {}).get("nodes", [])],
+                    "issue_closed_at": closed_at,
+                    "fix_commit_hash": final_fix_commit,
+                    "commit_type": commit_type,
+                    "commit_message": commit_message,
+                    "closer_url": issue["timelineItems"]["nodes"][0]["closer"].get("url") if issue["timelineItems"]["nodes"][0]["closer"] else None,
+                    "earliest_issue_date": issue.get("createdAt"),
+                }
 
-                    all_data.append(issue_data)
+                all_data.append(issue_data)
 
             if not page_info.get("hasNextPage"):
                 save_progress(all_data, None, total_count, read_issues)
@@ -280,5 +287,3 @@ if __name__ == "__main__":
     _ensure_output_dir()
     with open(OUTPUT_FILE, "w") as f:
         json.dump(data, f, indent=2)
-
-    # split_json_file(data, OUTPUT_DIR, f"{repo_name}", max_items_per_file=50)
