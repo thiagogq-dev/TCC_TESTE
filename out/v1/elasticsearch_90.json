@@ -1,0 +1,1214 @@
+[
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50156,
+        "issue_title": "JVM debug logs are not redirerected to the elasticsearch log",
+        "issue_body": "JVM debug logs ( such as the logs produced by setting `-Dsun.security.krb5.debug=true` or \r\n`-Dsun.security.spnego.debug=true` ) are only printed in stdout and are not redirected to the elasticsearch log. \r\n\r\nThese are crucial for Kerberos troubleshooting as these are the only actionable information we can get from Java GSS. In general though, it might also make sense for other JVM related logs to be redirected to elasticsearch.log and we could add a proxy in code to make writing to stdout go to the log. \r\n\r\nAt a bare minimum, we should update https://www.elastic.co/guide/en/elasticsearch/reference/7.5/trb-security-kerberos.html to point out that after enabling the debug logs, these logs can be found in `stdout` when running elasticsearch with the `bin/elasticsearch` script , in the systemd journal for `elasticsearch.service` when running with systemd and in `docker logs` when running elasticsearch in docker container.",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50156",
+        "assignees": [],
+        "labels": [
+            ">docs",
+            ":Core/Infra/Logging",
+            ":Security/Authentication"
+        ],
+        "issue_closed_at": "2020-01-25T18:59:32.000Z",
+        "fix_commit_hash": "0ec74f80fe686668506f64e774d0419ee082174f",
+        "commit_type": "pr",
+        "commit_message": "Capture stdout and stderr to log4j log (#50259)\n\nThis commit overrides the stdout and stderr print streams to be\r\nredirected to the main elasticsearch.log file. While the Elasticsearch\r\nproject ensures stdout and stderr are not written to, the jdk or 3rd\r\nparty libs may do this, which can be unexepected for users used to\r\nlooking the elasticsearch log.\r\n\r\ncloses #50156",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50259",
+        "earliest_issue_date": "2019-12-12T21:31:11Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50168,
+        "issue_title": "[CI] org.elasticsearch.xpack.ml.integration.ClassificationIT.testSingleNumericFeatureAndMixedTrainingAndNonTrainingRows failure",
+        "issue_body": "Example failure: https://gradle-enterprise.elastic.co/s/uohtdst7yu7lk\r\n\r\nStarted occurring after https://github.com/elastic/elasticsearch/pull/50040 got merged.\r\nStack trace:\r\n\r\n```\r\norg.elasticsearch.xpack.ml.integration.ClassificationIT > testSingleNumericFeatureAndMixedTrainingAndNonTrainingRows FAILED | \u00a0\r\n-- | --\r\n\u00a0 | java.lang.AssertionError: | \u00a0\r\n\u00a0 | Expected: <1> | \u00a0\r\n\u00a0 | but: was <0> | \u00a0\r\n\u00a0 | at __randomizedtesting.SeedInfo.seed([6B678FC96FDF9BF5:7F732A40232997FC]:0) | \u00a0\r\n\u00a0 | at org.hamcrest.MatcherAssert.assertThat(MatcherAssert.java:18) | \u00a0\r\n\u00a0 | at org.junit.Assert.assertThat(Assert.java:956) | \u00a0\r\n\u00a0 | at org.junit.Assert.assertThat(Assert.java:923) | \u00a0\r\n\u00a0 | at org.elasticsearch.xpack.ml.integration.MlNativeDataFrameAnalyticsIntegTestCase.assertModelStatePersisted(MlNativeDataFrameAnalyticsIntegTestCase.java:282) | \u00a0\r\n\u00a0 | at org.elasticsearch.xpack.ml.integration.ClassificationIT.testSingleNumericFeatureAndMixedTrainingAndNonTrainingRows(ClassificationIT.java:98)\r\n```\r\n\r\nFails in https://github.com/elastic/elasticsearch/blob/68c739fff3739afc1d610855e9b3f95a9ab0ccf2/x-pack/plugin/ml/qa/native-multi-node-tests/src/test/java/org/elasticsearch/xpack/ml/integration/MlNativeDataFrameAnalyticsIntegTestCase.java#L282\r\n\r\nreturning 0 hits.\r\n\r\nI can reproduce it locally with:\r\n\r\n```\r\n./gradlew ':x-pack:plugin:ml:qa:native-multi-node-tests:integTestRunner' --tests \"org.elasticsearch.xpack.ml.integration.ClassificationIT.testSingleNumericFeatureAndMixedTrainingAndNonTrainingRows\" -Dtests.seed=6B678FC96FDF9BF5 -Dtests.security.manager=true -Dbuild.snapshot=false -Dtests.jvm.argline=\"-Dbuild.snapshot=false\" -Dtests.locale=fi-FI -Dtests.timezone=Europe/Isle_of_Man -Dcompiler.java=13 -Dlicense.key=<path_to_release_key>\r\n```\r\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50168",
+        "assignees": [
+            "dimitris-athanasiou"
+        ],
+        "labels": [
+            ">test-failure",
+            ":ml"
+        ],
+        "issue_closed_at": "2019-12-18T16:56:15.000Z",
+        "fix_commit_hash": "4d8d8d93d62cf784ae8ec2e6aaf8a4d2addb9e03",
+        "commit_type": "pr",
+        "commit_message": "[ML] Refresh state index before completing data frame analytics job (#50322)\n\nIn order to ensure any persisted model state is searchable by the moment\r\nthe job reports itself as `stopped`, we need to refresh the state index\r\nbefore completing.\r\n\r\nThis should fix the occasional failures we see in #50168 and #50313 where\r\nthe model state appears missing.\r\n\r\nCloses #50168\r\nCloses #50313",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50322",
+        "earliest_issue_date": "2019-12-13T09:50:14Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50174,
+        "issue_title": "SQL: JDBC getDate() method fails with NPE for a CASTed NULL AS DATE query",
+        "issue_body": "```\r\nConnection conn = DriverManager.getConnection(URL);\r\nPreparedStatement statement = conn.prepareStatement(\"SELECT CAST(NULL AS DATE)\");\r\nResultSet results = statement.executeQuery();\r\nwhile (results.next()) {\r\n\tResultSetMetaData resultSetMetaData = results.getMetaData();\r\n\tlogger.log(resultSetMetaData.getColumnLabel(1) + \": \" + results.getObject(1));\r\n\tlogger.log(resultSetMetaData.getColumnLabel(1) + \": \" + results.getDate(1, Calendar.getInstance()));\r\n}\r\n```\r\n\r\nresults in \r\n\r\n```\r\nCAST(NULL AS DATE): null\r\nException in thread \"main\" java.lang.NullPointerException\r\n\tat org.elasticsearch.xpack.sql.jdbc.JdbcResultSet.dateTimeAsMillis(JdbcResultSet.java:276)\r\n\tat org.elasticsearch.xpack.sql.jdbc.JdbcResultSet.getDate(JdbcResultSet.java:360)\r\n```\r\n\r\nFor `SELECT CAST(NULL AS DATETIME)` the query is successful.\r\nFor `SELECT CAST(NULL AS TIME)` the query fails again with NPE.",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50174",
+        "assignees": [
+            "astefan"
+        ],
+        "labels": [
+            ">bug",
+            ":Analytics/SQL"
+        ],
+        "issue_closed_at": "2019-12-17T08:00:54.000Z",
+        "fix_commit_hash": "08214eb1338fef5c8082c3f8b84c24dd53224ebe",
+        "commit_type": "pr",
+        "commit_message": "Handle NULL in ResultSet's getDate() method (#50184)",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50184",
+        "earliest_issue_date": "2019-12-13T11:48:51Z",
+        "predicted_class": "bug",
+        "bic": [
+            "d31eaf731393fafc35beac4867edb2f562a4f816"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50191,
+        "issue_title": "SQL: CASTing passes instead of throwing an exception",
+        "issue_body": "`SELECT (CAST('bla' AS DATE) IS NOT NULL)`\r\n\r\nyields\r\n\r\n```\r\nCAST('bla' AS DATE) IS NOT NULL\r\n-------------------------------\r\ntrue    \r\n```\r\n\r\nBut running `SELECT CAST('bla' AS DATE)` throws an (expected) exception:\r\n\r\n```\r\n                \"type\": \"sql_illegal_argument_exception\",\r\n                \"reason\": \"cannot cast [bla] to [date]: Text 'bla' could not be parsed at index 0\"\r\n```\r\n\r\nIn reality, both cases should have thrown the sql_illegal_argument_exception. In the first case, though, `bla` is evaluated as not being null and the optimizer is already returning `TRUE` for `IS NOT NULL`.",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50191",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ":Analytics/SQL"
+        ],
+        "issue_closed_at": "2019-12-19T22:19:23.000Z",
+        "fix_commit_hash": "671e07a931cd828661e226cba22a5d38804a17a5",
+        "commit_type": "pr",
+        "commit_message": "SQL: Fix issue with CAST and NULL checking. (#50371)\n\nPreviously, during expression optimisation, CAST would be considered\r\nnullable if the casted expression resulted to a NULL literal, and would\r\nbe always non-nullable otherwise. As a result if CASE was wrapped by a\r\nnull check function like IS NULL or IS NOT NULL it was simplified to\r\nTRUE/FALSE, eliminating the actual casting operation. So in case of an\r\nexpression with an erroneous casting like CAST('foo' AS DATETIME) IS NULL\r\nit would be simplified to FALSE instead of throwing an Exception signifying\r\nthe attempt to cast 'foo' to a DATETIME type.\r\n\r\nCAST now always returns Nullability.UKNOWN except from the case that\r\nits result evaluated to a constant NULL, where it returns Nullability.TRUE.\r\nThis way the IS NULL/IS NOT NULL don't get simplified to FALSE/TRUE\r\nand the CAST actually gets evaluated resulting to a thrown Exception.\r\n\r\nFixes: #50191",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50371",
+        "earliest_issue_date": "2019-12-13T15:40:57Z",
+        "predicted_class": "bug",
+        "bic": [
+            "28703123207b86dc2a5d47a1facb934e915fc883"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50200,
+        "issue_title": "Snapshot Finalization Throws NPE in 7.5",
+        "issue_body": "We're seeing the following NPE in Cloud logs:\r\n\r\n```\r\nCaused by: java.lang.NullPointerException\r\n\tat org.elasticsearch.repositories.blobstore.ChecksumBlobStoreFormat.write(ChecksumBlobStoreFormat.java:226) ~[elasticsearch-7.5.0.jar:7.5.0]\r\n\tat org.elasticsearch.repositories.blobstore.ChecksumBlobStoreFormat.writeTo(ChecksumBlobStoreFormat.java:197) ~[elasticsearch-7.5.0.jar:7.5.0]\r\n\tat org.elasticsearch.repositories.blobstore.ChecksumBlobStoreFormat.write(ChecksumBlobStoreFormat.java:185) ~[elasticsearch-7.5.0.jar:7.5.0]\r\n\tat org.elasticsearch.repositories.blobstore.BlobStoreRepository.lambda$finalizeSnapshot$26(BlobStoreRepository.java:738) ~[elasticsearch-7.5.0.jar:7.5.0]\r\n\tat org.elasticsearch.action.ActionRunnable$1.doRun(ActionRunnable.java:45) ~[elasticsearch-7.5.0.jar:7.5.0]\r\n\t... 5 more\r\n```\r\n\r\nduring snapshot finalization. This seems like a bug where the cluster metadata does not contain an index for a name that was just snapshot (the deeper cause is that `clusterMetaData.index(index.getName())` in `BlobStoreRepository` returns `null`). I'm investigating this.",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50200",
+        "assignees": [
+            "original-brownbear"
+        ],
+        "labels": [
+            ">bug",
+            ":Distributed/Snapshot/Restore"
+        ],
+        "issue_closed_at": "2019-12-17T08:42:03.000Z",
+        "fix_commit_hash": "e70c7c9e94847a882bf6a401fbe70177affefe2f",
+        "commit_type": "pr",
+        "commit_message": "Fix Index Deletion During Partial Snapshot Create (#50234)\n\n* Fix Index Deletion During Partial Snapshot Create\r\n\r\nWe can simply filter out shard generation updates for indices\r\nthat were removed from the cluster state concurrently to fix\r\nindex deletes during partial snapshots as that completely removes\r\nany reference to those shards from the snapshot.\r\n\r\nFollow up to #50202\r\nCloses #50200",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50234",
+        "earliest_issue_date": "2019-12-14T10:17:45Z",
+        "predicted_class": "bug",
+        "bic": [
+            "4d659c4bdbfb6b9eb9ab271a4e247663cd6b63cb"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50209,
+        "issue_title": "CsvProcessorTests#testUntrimmed fails",
+        "issue_body": "This test failed in an 7.x intake build: https://gradle-enterprise.elastic.co/s/ignvzyeja77a2. This is reproducible.\r\n\r\n```\r\norg.elasticsearch.ingest.common.CsvProcessorTests > testUntrimmed {quote='} FAILED\r\n    java.lang.AssertionError\r\n        at __randomizedtesting.SeedInfo.seed([5F99CFEE74FB3D07:C80ADE82161D92B]:0)\r\n        at org.junit.Assert.fail(Assert.java:86)\r\n        at org.junit.Assert.assertTrue(Assert.java:41)\r\n        at org.junit.Assert.assertFalse(Assert.java:64)\r\n        at org.junit.Assert.assertFalse(Assert.java:74)\r\n        at org.elasticsearch.ingest.common.CsvProcessorTests.testUntrimmed(CsvProcessorTests.java:190)\r\nREPRODUCE WITH: ./gradlew ':modules:ingest-common:test' --tests \"org.elasticsearch.ingest.common.CsvProcessorTests.testUntrimmed {quote='}\" -Dtests.seed=5F99CFEE74FB3D07 -Dtests.security.manager=true -Dtests.locale=en -Dtests.timezone=Australia/Melbourne -Dcompiler.java=13 -Druntime.java=8\r\n```\r\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50209",
+        "assignees": [
+            "probakowski"
+        ],
+        "labels": [
+            ">test-failure",
+            ":Distributed/Ingest Node"
+        ],
+        "issue_closed_at": "2020-02-07T18:06:30.000Z",
+        "fix_commit_hash": "4ea1b06562ff41ea4e32cbea1f0d426b6564192a",
+        "commit_type": "pr",
+        "commit_message": "Avoid clash between source field and header field in CsvProcessorTests (#51962)\n\nThis change fixes flakiness in `CsvProcessorTests` where source field\r\ncan be the same as one of the headers used by tests which messes up\r\nasserts when we check that field is not present after processor run.\r\n\r\nCloses #50209",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/51962",
+        "earliest_issue_date": "2019-12-15T16:28:19Z",
+        "predicted_class": "bug",
+        "bic": [
+            "64e1a774fcbf5061d981b3e8b5f8dda00fa0c93b"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50245,
+        "issue_title": "Rollup_search requires more than read-only permissions",
+        "issue_body": "In searches against rollup indices using the `_rollup_search` api, users need at least `manage` privileges for what should really be a `read` only operation.\r\nThis was reported on 6.8 and I reproduced it but this may apply to other versions too.\r\nIt's possible `read` and `view_index_metadata` may be required privileges but write-capable permissions should really not be required here. ",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50245",
+        "assignees": [
+            "ywangd"
+        ],
+        "labels": [
+            ">bug",
+            ":Security/Authorization",
+            ":StorageEngine/Rollup",
+            "v6.8.0",
+            "v7.5.1"
+        ],
+        "issue_closed_at": "2020-03-03T10:02:19.000Z",
+        "fix_commit_hash": "9a2a59b12c2156872ba909f72c3feea885d88a1d",
+        "commit_type": "pr",
+        "commit_message": "Allow _rollup_search with read privilege (#52043)\n\nCurrently _rollup_search requires manage privilege to access. It should really be\r\na read only operation. This PR changes the requirement to be read indices privilege.\r\n\r\nResolves: #50245",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/52043",
+        "earliest_issue_date": "2019-12-16T17:09:08Z",
+        "predicted_class": "bug",
+        "bic": [
+            "11b58eb4c0bbf0e478aa495e395386a717b0d41d"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50248,
+        "issue_title": "Reindex wait_for_completion=false task failure",
+        "issue_body": "```\r\ncurl -XPUT \"http://localhost:9220/foo\"\r\ncurl -XPOST \"http://localhost:9220/_reindex?wait_for_completion=false\" -H 'Content-Type: application/json' -d'{  \"source\": {    \"index\": \"foo\"  },  \"dest\": {    \"index\": \"bar\"  }}'\r\n\r\n// run twice\r\ncurl -XPOST \"http://localhost:9220/_reindex?wait_for_completion=false\" -H 'Content-Type: application/json' -d'{  \"source\": {    \"index\": \"foo\"  },  \"dest\": {    \"index\": \"bar\"  }}'\r\n```\r\n\r\nError log\r\n```\r\n   \u2502 info [o.e.t.LoggingTaskListener] [windesk] 6563 failed with exception\r\n   \u2502      org.elasticsearch.index.mapper.MapperParsingException: Root mapping definition has unsupported parameters:  [task : {_meta={version=2}, dynamic=strict, properties={completed={type=boolean}, task={properties={action={type=keyword}, cancellable={type=boolean}, id={type=long}, parent_task_id={type=keyword}, node={type=keyword}, running_time_in_nanos={type=long}, start_time_in_millis={type=long}, type={type=keyword}, status={type=object, enabled=false}, description={type=text}, headers={type=object, enabled=false}}}, response={type=object, enabled=false}, error={type=object, enabled=false}}}]\r\n   \u2502            at org.elasticsearch.index.mapper.DocumentMapperParser.checkNoRemainingFields(DocumentMapperParser.java:147) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502            at org.elasticsearch.index.mapper.DocumentMapperParser.parse(DocumentMapperParser.java:135) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502            at org.elasticsearch.index.mapper.DocumentMapperParser.parse(DocumentMapperParser.java:83) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502            at org.elasticsearch.index.mapper.MapperService.parse(MapperService.java:553) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n```\r\n\r\nThe response code is 200 with a task id.  When attempting to retrieve the returned task id:\r\n```\r\ncurl -XGET \"http://localhost:9220/_tasks/UWqGoA9jRM25A2GQIUZp3g:6563\"\r\n```\r\n```\r\n{\r\n  \"error\" : {\r\n    \"root_cause\" : [\r\n      {\r\n        \"type\" : \"resource_not_found_exception\",\r\n        \"reason\" : \"task [UWqGoA9jRM25A2GQIUZp3g:6563] isn't running and hasn't stored its results\"\r\n      }\r\n    ],\r\n    \"type\" : \"resource_not_found_exception\",\r\n    \"reason\" : \"task [UWqGoA9jRM25A2GQIUZp3g:6563] isn't running and hasn't stored its results\"\r\n  },\r\n  \"status\" : 404\r\n}\r\n\r\n```\r\n\r\n\r\nRe-indexing fails until the .tasks index is deleted, and then I can run it once before it starts failing again.\r\n\r\n\r\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50248",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ":Distributed/Reindex"
+        ],
+        "issue_closed_at": "2019-12-19T11:31:44.000Z",
+        "fix_commit_hash": "2ee4f1b2048c33f3e434d892f5a14439d20ee6d5",
+        "commit_type": "pr",
+        "commit_message": "Fixes to task result index mapping (#50359)\n\nThe built-in mapping for the tasks result index still has a mapping type defined; while\r\nthis does not matter for index creation, as we still have a create method that takes a\r\ntop-level type, it does matter for updates. In combination with a separate bug, that the\r\nbuilt-in mapping has not incremented its meta version, this meant that tasks submitted\r\nto a cluster with an already existing task index would attempt to update the mappings\r\non that index, and fail due to the top-level type.\r\n\r\nThis commit fixes the mapping to have a top-level mapping of _doc, and also updates\r\nthe meta version so that we do not update mappings on every new task. It also adds a\r\ntest that explicitly runs two asynchronous tasks to ensure that the mappings do not\r\ncause a failure.\r\n\r\nFixes #50248",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50359",
+        "earliest_issue_date": "2019-12-16T19:25:16Z",
+        "predicted_class": "bug",
+        "bic": [
+            "fb763c1e8e31176398cbd07942f9adf9edc3f937"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50250,
+        "issue_title": "Incorrect \"Collections\" type check in OpenID Connect Realm",
+        "issue_body": "Reported: https://discuss.elastic.co/t/openid-connect-not-parsing-multi-value-array-list-user-attributes/212025\r\n\r\nWhen parsing OIDC metadata we do an [instanceof Collections](https://github.com/elastic/elasticsearch/blob/13179b2/x-pack/plugin/security/src/main/java/org/elasticsearch/xpack/security/authc/oidc/OpenIdConnectRealm.java#L218) check that should be `Collection`.\r\nThis prevents mutli-valued metadata from being provided.\r\n ",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50250",
+        "assignees": [
+            "tvernum"
+        ],
+        "labels": [
+            ">bug",
+            ":Security/Authentication"
+        ],
+        "issue_closed_at": "2020-01-08T02:32:46.000Z",
+        "fix_commit_hash": "7e12d5a7958eb9f62fdb073863110dbd09b79747",
+        "commit_type": "pr",
+        "commit_message": "Populate OpenIDConnect metadata collections (#50521)\n\nThe OpenIdConnectRealm had a bug which would cause it not to populate\r\nUser metadata for collections contained in the user JWT claims.\r\n\r\nThis commit fixes that bug.\r\n\r\nResolves: #50250",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50521",
+        "earliest_issue_date": "2019-12-16T20:54:41Z",
+        "predicted_class": "bug",
+        "bic": [
+            "d029a131ba116927a8b005533cb56f1a24e0d9a8"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50265,
+        "issue_title": "date_histogram parse_exception in time_zone America/Phoenix",
+        "issue_body": "**Elasticsearch version** (`bin/elasticsearch --version`):  8.0.0-SNAPSHOT\r\n\r\n**Plugins installed**: []\r\n\r\n**JVM version** (`java -version`): 13.0.1\r\n\r\n**OS version** (`uname -a` if on a Unix-like system):  Darwin Kernel Version 18.7.0\r\n\r\n**Description of the problem including expected versus actual behavior**:\r\n\r\nA `date_histogram` with a `fixed_interval` range  of  `1ms` to `999ms` in the timezone `America/Phoenix` causes a \"parse_exception\". In other timezones e.g. `Europe/Berlin` it works\r\n\r\n**Steps to reproduce**:\r\n\r\n 1. Try the following request when you've got our Kibana sample flight test data installed\r\n```\r\nGET kibana_sample_data_flights/_search\r\n{\r\n  \"aggs\": {\r\n    \"2\": {\r\n      \"date_histogram\": {\r\n        \"field\": \"timestamp\",\r\n        \"fixed_interval\": \"1ms\",\r\n        \"time_zone\": \"America/Phoenix\",\r\n        \"min_doc_count\": 1\r\n      }\r\n    }\r\n  }\r\n}\r\n```\r\nHere's the error message of the result:\r\n```\r\n{\r\n  \"error\" : {\r\n    \"root_cause\" : [\r\n      {\r\n        \"type\" : \"parse_exception\",\r\n        \"reason\" : \"failed to parse date field [-68659199999] with format [epoch_millis]: [failed to parse date field [-68659199999] with format [epoch_millis]]\"\r\n      }\r\n    ],\r\n    \"type\" : \"search_phase_execution_exception\",\r\n    \"reason\" : \"all shards failed\",\r\n    \"phase\" : \"query\",\r\n    \"grouped\" : true,\r\n    \"failed_shards\" : [\r\n      {\r\n        \"shard\" : 0,\r\n        \"index\" : \"kibana_sample_data_flights\",\r\n        \"node\" : \"N2J6g-DxSySnU5YiP-9aAA\",\r\n        \"reason\" : {\r\n          \"type\" : \"parse_exception\",\r\n          \"reason\" : \"failed to parse date field [-68659199999] with format [epoch_millis]: [failed to parse date field [-68659199999] with format [epoch_millis]]\",\r\n          \"caused_by\" : {\r\n            \"type\" : \"illegal_argument_exception\",\r\n            \"reason\" : \"failed to parse date field [-68659199999] with format [epoch_millis]\",\r\n            \"caused_by\" : {\r\n              \"type\" : \"date_time_parse_exception\",\r\n              \"reason\" : \"Failed to parse with all enclosed parsers\"\r\n            }\r\n          }\r\n        }\r\n      }\r\n    ]\r\n  },\r\n  \"status\" : 400\r\n}\r\n```\r\n\r\n\r\n**Provide logs (if relevant)**:\r\n```\r\n   \u2502 info [o.e.a.s.TransportSearchAction] [kertal-elastic.local] All shards failed for phase: [query]\r\n   \u2502      org.elasticsearch.ElasticsearchParseException: failed to parse date field [-68659199001] with format [epoch_millis]: [failed to parse date field [-68659199001] with format [epoch_millis]]\r\n   \u2502      \tat org.elasticsearch.common.time.JavaDateMathParser.parseDateTime(JavaDateMathParser.java:233) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.common.time.JavaDateMathParser.parse(JavaDateMathParser.java:74) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.index.mapper.DateFieldMapper$DateFieldType.parseToLong(DateFieldMapper.java:401) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.index.mapper.DateFieldMapper$DateFieldType.isFieldWithinQuery(DateFieldMapper.java:415) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.search.aggregations.bucket.histogram.DateHistogramAggregationBuilder.rewriteTimeZone(DateHistogramAggregationBuilder.java:473) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.search.aggregations.bucket.histogram.DateHistogramAggregationBuilder.innerBuild(DateHistogramAggregationBuilder.java:493) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.search.aggregations.support.ValuesSourceAggregationBuilder.doBuild(ValuesSourceAggregationBuilder.java:313) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.search.aggregations.support.ValuesSourceAggregationBuilder.doBuild(ValuesSourceAggregationBuilder.java:37) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.search.aggregations.AbstractAggregationBuilder.build(AbstractAggregationBuilder.java:139) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.search.aggregations.AggregatorFactories$Builder.build(AggregatorFactories.java:333) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.search.SearchService.parseSource(SearchService.java:790) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.search.SearchService.createContext(SearchService.java:586) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.search.SearchService.createAndPutContext(SearchService.java:545) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.search.SearchService.executeQueryPhase(SearchService.java:348) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.search.SearchService.lambda$executeQueryPhase$1(SearchService.java:340) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.action.ActionListener.lambda$map$2(ActionListener.java:146) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.action.ActionListener$1.onResponse(ActionListener.java:63) [elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.action.ActionRunnable.lambda$supply$0(ActionRunnable.java:58) [elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.action.ActionRunnable$2.doRun(ActionRunnable.java:73) [elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.common.util.concurrent.AbstractRunnable.run(AbstractRunnable.java:37) [elastic\r\n   \u2502 info search-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.common.util.concurrent.TimedRunnable.doRun(TimedRunnable.java:44) [elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.common.util.concurrent.ThreadContext$ContextPreservingAbstractRunnable.doRun(ThreadContext.java:769) [elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.common.util.concurrent.AbstractRunnable.run(AbstractRunnable.java:37) [elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1128) [?:?]\r\n   \u2502      \tat java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:628) [?:?]\r\n   \u2502      \tat java.lang.Thread.run(Thread.java:830) [?:?]\r\n   \u2502      Caused by: java.lang.IllegalArgumentException: failed to parse date field [-68659199001] with format [epoch_millis]\r\n   \u2502      \tat org.elasticsearch.common.time.JavaDateFormatter.parse(JavaDateFormatter.java:169) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.common.time.JavaDateMathParser.parseDateTime(JavaDateMathParser.java:223) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \t... 25 more\r\n   \u2502      Caused by: java.time.format.DateTimeParseException: Failed to parse with all enclosed parsers\r\n   \u2502      \tat org.elasticsearch.common.time.JavaDateFormatter.doParse(JavaDateFormatter.java:196) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.common.time.JavaDateFormatter.parse(JavaDateFormatter.java:167) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \tat org.elasticsearch.common.time.JavaDateMathParser.parseDateTime(JavaDateMathParser.java:223) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n   \u2502      \t... 25 more\r\n```\r\n\r\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50265",
+        "assignees": [
+            "nik9000"
+        ],
+        "labels": [
+            ">bug",
+            ":Analytics/Aggregations"
+        ],
+        "issue_closed_at": "2020-02-11T21:04:37.000Z",
+        "fix_commit_hash": "da2b67d6e5b61a3b11680ed71bb8dfb04e27dd1f",
+        "commit_type": "pr",
+        "commit_message": "Fix a DST error in date_histogram (#52016)\n\nWhen `date_histogram` attempts to optimize itself it for a particular\r\ntime zone it checks to see if the entire shard is within the same\r\n\"transition\". Most time zone transition once every size months or\r\nthereabouts so the optimization can usually kicks in.\r\n\r\n*But* it crashes when you attempt feed it a time zone who's last DST\r\ntransition was before epoch. The reason for this is a little twisted:\r\nbefore this patch it'd find the next and previous transitions in\r\nmilliseconds since epoch. Then it'd cast them to `Long`s and pass them\r\ninto the `DateFieldType` to check if the shard's contents were within\r\nthe range. The trouble is they are then converted to `String`s which are\r\n*then* parsed back to `Instant`s which are then convertd to `long`s. And\r\nthe parser doesn't like most negative numbers. And everything before\r\nepoch is negative.\r\n\r\nThis change removes the\r\n`long` -> `Long` -> `String` -> `Instant` -> `long` chain in favor of\r\npassing the `long` -> `Instant` -> `long` which avoids the fairly complex\r\nparsing code and handles a bunch of interesting edge cases around\r\nepoch. And other edge cases around `date_nanos`.\r\n\r\nCloses #50265",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/52016",
+        "earliest_issue_date": "2019-12-17T08:24:03Z",
+        "predicted_class": "bug",
+        "bic": [
+            "df10704ffc7f92dbb64e0660e6604f2b426f65e7"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50288,
+        "issue_title": "Security api responses when security is disabled",
+        "issue_body": "This request:\r\n```\r\ncurl -XPOST http://localhost:9200/_security/user/_has_privileges -H \"Content-Type: application/json\" -d '{\"foo\": 1}' -s | jq\r\n```\r\nwhen security is disabled results in:\r\n```\r\n{\r\n  \"error\": {\r\n    \"root_cause\": [\r\n      {\r\n        \"type\": \"illegal_argument_exception\",\r\n        \"reason\": \"request [POST /_security/user/_has_privileges] does not support having a body\"\r\n      }\r\n    ],\r\n    \"type\": \"illegal_argument_exception\",\r\n    \"reason\": \"request [POST /_security/user/_has_privileges] does not support having a body\"\r\n  },\r\n  \"status\": 400\r\n}\r\n```\r\n\r\nHowever, this request:\r\n```\r\ncurl -XPOST http://localhost:9200/_security/user/_has_privileges -H \"Content-Type: application/json\" -s | jq\r\n```\r\nresults in:\r\n```\r\n{\r\n  \"error\": {\r\n    \"root_cause\": [\r\n      {\r\n        \"type\": \"exception\",\r\n        \"reason\": \"Security must be explicitly enabled when using a [trial] license. Enable security by setting [xpack.security.enabled] to [true] in the elasticsearch.yml file and restart the node.\"\r\n      }\r\n    ],\r\n    \"type\": \"exception\",\r\n    \"reason\": \"Security must be explicitly enabled when using a [trial] license. Enable security by setting [xpack.security.enabled] to [true] in the elasticsearch.yml file and restart the node.\"\r\n  },\r\n  \"status\": 500\r\n}\r\n```\r\n\r\nIs it a bug that they don't return the same error message when security is disabled? Can this be normalized?",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50288",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ":Security/Client"
+        ],
+        "issue_closed_at": "2019-12-18T13:26:58.000Z",
+        "fix_commit_hash": "4861a25f992b9dc9d4951e23e2e695d9cb0932b4",
+        "commit_type": "pr",
+        "commit_message": "Always consume the body in has privileges (#50298)\n\nOur REST infrastructure will reject requests that have a body where the\r\nbody of the request is never consumed. This ensures that we reject\r\nrequests on endpoints that do not support having a body. This requires\r\ncooperation from the REST handlers though, to actually consume the body,\r\notherwise the REST infrastructure will proceed with rejecting the\r\nrequest. This commit addresses an issue in the has privileges API where\r\nwe would prematurely try to reject a request for not having a username,\r\nbefore consuming the body. Since the body was not consumed, the REST\r\ninfrastructure would instead reject the request as a bad request.",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50298",
+        "earliest_issue_date": "2019-12-17T18:28:50Z",
+        "predicted_class": "bug",
+        "bic": [
+            "670ccfb85383f649168c613125466fefc9544019"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50302,
+        "issue_title": "[CI] WebhookIntegrationTests teardown failure",
+        "issue_body": "Reproduce line: \r\n\r\nREPRODUCE WITH: ./gradlew ':x-pack:plugin:watcher:test' --tests \"org.elasticsearch.xpack.watcher.actions.webhook.WebhookIntegrationTests\" \\\r\n  -Dtests.seed=540CAA169039113A \\\r\n  -Dtests.security.manager=true \\\r\n  -Dtests.locale=en-US \\\r\n  -Dtests.timezone=Etc/UTC \\\r\n  -Dcompiler.java=12 \\\r\n  -Druntime.java=13\r\n\r\nDoes not reproduce for me locally.\r\n\r\nTest suite failed due to uncaught exception:\r\n\r\n```\r\n> WARNING: Uncaught exception in thread: Thread[elasticsearch[node_s1][snapshot][T#2],5,TGRP-WebhookIntegrationTests] | \u00a0\r\n-- | --\r\n\u00a0 | 2> java.util.concurrent.RejectedExecutionException: Task java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask@345c0ad7[Not completed, task = java.util.concurrent.Executors$RunnableAdapter@4f070870[Wrapped task = org.elasticsearch.xpack.core.scheduler.SchedulerEngine$ActiveSchedule@a059ff4]] rejected from java.util.concurrent.ScheduledThreadPoolExecutor@3bc5777e[Terminated, pool size = 0, active threads = 0, queued tasks = 0, completed tasks = 0] | \u00a0\r\n\u00a0 | 2> \tat __randomizedtesting.SeedInfo.seed([540CAA169039113A]:0) | \u00a0\r\n\u00a0 | 2> \tat java.base/java.util.concurrent.ThreadPoolExecutor$AbortPolicy.rejectedExecution(ThreadPoolExecutor.java:2057) | \u00a0\r\n\u00a0 | 2> \tat java.base/java.util.concurrent.ThreadPoolExecutor.reject(ThreadPoolExecutor.java:827) | \u00a0\r\n\u00a0 | 2> \tat java.base/java.util.concurrent.ScheduledThreadPoolExecutor.delayedExecute(ScheduledThreadPoolExecutor.java:340) | \u00a0\r\n\u00a0 | 2> \tat java.base/java.util.concurrent.ScheduledThreadPoolExecutor.schedule(ScheduledThreadPoolExecutor.java:562) | \u00a0\r\n\u00a0 | 2> \tat org.elasticsearch.xpack.core.scheduler.SchedulerEngine$ActiveSchedule.scheduleNextRun(SchedulerEngine.java:222) | \u00a0\r\n\u00a0 | 2> \tat org.elasticsearch.xpack.core.scheduler.SchedulerEngine$ActiveSchedule.<init>(SchedulerEngine.java:196) | \u00a0\r\n\u00a0 | 1> [2019-12-18T18:02:46,555][INFO ][o.e.n.Node               ] [suite] closed | \u00a0\r\n\u00a0 | 2> \tat org.elasticsearch.xpack.core.scheduler.SchedulerEngine.add(SchedulerEngine.java:147) | \u00a0\r\n\u00a0 | 2> \tat org.elasticsearch.xpack.slm.SnapshotRetentionService.rescheduleRetentionJob(SnapshotRetentionService.java:90) | \u00a0\r\n\u00a0 | 2> \tat org.elasticsearch.xpack.slm.SnapshotRetentionService.onMaster(SnapshotRetentionService.java:75) | \u00a0\r\n\u00a0 | 2> \tat org.elasticsearch.cluster.service.ClusterApplierService$OnMasterRunnable.run(ClusterApplierService.java:650) | \u00a0\r\n\u00a0 | 2> \tat org.elasticsearch.common.util.concurrent.ThreadContext$ContextPreservingRunnable.run(ThreadContext.java:703) | \u00a0\r\n\u00a0 | 2> \tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1130) | \u00a0\r\n\u00a0 | 2> \tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:630) | \u00a0\r\n\u00a0 | 2> \tat java.base/java.lang.Thread.run(Thread.java:832)\r\n```\r\n\r\nBuild failure: https://gradle-enterprise.elastic.co/s/hjvfr234rxj5m/\r\n\r\nI think this caused by a timing issue and all tests extending from `AbstractWatcherIntegrationTestCase` are prone this this. Maybe we should disable slm in this test base class?",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50302",
+        "assignees": [],
+        "labels": [
+            ">test-failure",
+            ":Distributed/Watcher"
+        ],
+        "issue_closed_at": "2019-12-20T14:43:01.000Z",
+        "fix_commit_hash": "f66555ea831f145df8ac124d2cf49293069f5055",
+        "commit_type": "pr",
+        "commit_message": "Disable slm in AbstractWatcherIntegrationTestCase (#50422)\n\nSLM isn't required tests extending from this base class and\r\nonly add noise during test suite teardown.\r\n\r\nCloses #50302",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50422",
+        "earliest_issue_date": "2019-12-18T10:13:30Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50304,
+        "issue_title": "[CI] AzureStorageRepositoryClientYamlTestSuiteIT( repository_azure/10_repository:56)",
+        "issue_body": "Build url: https://elasticsearch-ci.elastic.co/job/elastic+elasticsearch+7.x+multijob+third-party-tests-azure-sas/189/console\r\nhttps://gradle-enterprise.elastic.co/s/uxlrgod35ayr4\r\n\r\n```\r\n./gradlew ':plugins:repository-azure:qa:microsoft-azure-storage:integTestRunner' --tests \"org.elasticsearch.repositories.azure.AzureStorageRepositoryClientYamlTestSuiteIT.test {yaml=repository_azure/10_repository/Snapshot/Restore with repository-azure}\" \\\r\n  -Dtests.seed=2AD384511D4F359C \\\r\n  -Dtests.security.manager=true \\\r\n  -Dtests.locale=ko-KR \\\r\n  -Dtests.timezone=America/Scoresbysund \\\r\n  -Dcompiler.java=13 \\\r\n  -Druntime.java=8\r\n```\r\n\r\nDoesn't reproduce for me.\r\n\r\n```\r\norg.elasticsearch.repositories.azure.AzureStorageRepositoryClientYamlTestSuiteIT > test {yaml=repository_azure/10_repository/Snapshot/Restore with repository-azure} FAILED\r\n12:03:29     java.lang.AssertionError: Failure at [repository_azure/10_repository:56]: expected [2xx] status code but api [snapshot.create] returned [400 Bad Request] [{\"error\":{\"root_cause\":[{\"type\":\"invalid_snapshot_name_exception\",\"reason\":\"[repository:snapshot-one] Invalid snapshot name [snapshot-one], snapshot with the same name already exists\",\"stack_trace\":\"InvalidSnapshotNameException[[repository:snapshot-one] Invalid snapshot name [snapshot-one], snapshot with the same name already exists]\\n\\tat org.elasticsearch.snapshots.SnapshotsService$2.lambda$doRun$1(SnapshotsService.java:436)\\n\\tat org.elasticsearch.action.ActionListener$1.onResponse(ActionListener.java:63)\\n\\tat org.elasticsearch.common.util.concurrent.ListenableFuture$1.doRun(ListenableFuture.java:112)\\n\\tat org.elasticsearch.common.util.concurrent.AbstractRunnable.run(AbstractRunnable.java:37)\\n\\tat org.elasticsearch.common.util.concurrent.EsExecutors$DirectExecutorService.execute(EsExecutors.java:225)\\n\\tat org.elasticsearch.common.util.concurrent.ListenableFuture.notifyListener(ListenableFuture.java:106)\\n\\tat org.elasticsearch.common.util.concurrent.ListenableFuture.addListener(ListenableFuture.java:68)\\n\\tat org.elasticsearch.action.StepListener.whenComplete(StepListener.java:78)\\n\\tat org.elasticsearch.snapshots.SnapshotsService$2.doRun(SnapshotsService.java:432)\\n\\tat org.elasticsearch.common.util.concurrent.ThreadContext$ContextPreservingAbstractRunnable.doRun(ThreadContext.java:692)\\n\\tat org.elasticsearch.common.util.concurrent.AbstractRunnable.run(AbstractRunnable.java:37)\\n\\tat java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)\\n\\tat java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)\\n\\tat java.lang.Thread.run(Thread.java:748)\\n\"}],\"type\":\"invalid_snapshot_name_exception\",\"reason\":\"[repository:snapshot-one] Invalid snapshot name [snapshot-one], snapshot with the same name already exists\",\"stack_trace\":\"InvalidSnapshotNameException[[repository:snapshot-one] Invalid snapshot name [snapshot-one], snapshot with the same name already exists]\\n\\tat org.elasticsearch.snapshots.SnapshotsService$2.lambda$doRun$1(SnapshotsService.java:436)\\n\\tat org.elasticsearch.action.ActionListener$1.onResponse(ActionListener.java:63)\\n\\tat org.elasticsearch.common.util.concurrent.ListenableFuture$1.doRun(ListenableFuture.java:112)\\n\\tat org.elasticsearch.common.util.concurrent.AbstractRunnable.run(AbstractRunnable.java:37)\\n\\tat org.elasticsearch.common.util.concurrent.EsExecutors$DirectExecutorService.execute(EsExecutors.java:225)\\n\\tat org.elasticsearch.common.util.concurrent.ListenableFuture.notifyListener(ListenableFuture.java:106)\\n\\tat org.elasticsearch.common.util.concurrent.ListenableFuture.addListener(ListenableFuture.java:68)\\n\\tat org.elasticsearch.action.StepListener.whenComplete(StepListener.java:78)\\n\\tat org.elasticsearch.snapshots.SnapshotsService$2.doRun(SnapshotsService.java:432)\\n\\tat org.elasticsearch.common.util.concurrent.ThreadContext$ContextPreservingAbstractRunnable.doRun(ThreadContext.java:692)\\n\\tat org.elasticsearch.common.util.concurrent.AbstractRunnable.run(AbstractRunnable.java:37)\\n\\tat java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)\\n\\tat java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)\\n\\tat java.lang.Thread.run(Thread.java:748)\\n\"},\"status\":400}]\r\n```\r\n\r\nThis qa module only seems to create a single snaphot, but somehow it already exists.",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50304",
+        "assignees": [
+            "tlrx"
+        ],
+        "labels": [
+            ":Distributed/Snapshot/Restore",
+            ">test-failure"
+        ],
+        "issue_closed_at": "2019-12-19T16:50:59.000Z",
+        "fix_commit_hash": "4fef422976b73ceaddbed66147da52acd7c048c8",
+        "commit_type": "pr",
+        "commit_message": "Remove snapshots left by previous tests failures (#50380)\n\nWhen a third party test failed, it potentially left some snapshots \r\nin the repository. In case of tests running against an external \r\nservice like Azure, the remaining snapshots can fail the future \r\ntest executions are they are not supposed to exist.\r\n\r\nSimilarly to what has been done for S3 and GCS, this commit \r\ncleans up remaining snapshots before the test execution.\r\n\r\nCloses #50304",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50380",
+        "earliest_issue_date": "2019-12-18T10:33:42Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50305,
+        "issue_title": "[CI] org.elasticsearch.percolator.CandidateQueryTests.testDuel failure",
+        "issue_body": "```\r\nREPRODUCE WITH: ./gradlew ':modules:percolator:test' --tests \"org.elasticsearch.percolator.CandidateQueryTests.testDuel\" -Dtests.seed=90ED18A4A0A763FF -Dtests.security.manager=true -Dtests.locale=el-CY -Dtests.timezone=Etc/GMT-13 -Dcompiler.java=13\r\n```\r\n\r\nThis failure does reproduce locally for me.\r\n\r\n```\r\n2> java.lang.AssertionError: \r\n    Expected: <835L>\r\n         but: was <834L>\r\n        at __randomizedtesting.SeedInfo.seed([90ED18A4A0A763FF:DC6DA2A4FE2FFBED]:0)\r\n        at org.hamcrest.MatcherAssert.assertThat(MatcherAssert.java:18)\r\n        at org.junit.Assert.assertThat(Assert.java:956)\r\n        at org.junit.Assert.assertThat(Assert.java:923)\r\n        at org.elasticsearch.percolator.CandidateQueryTests.duelRun(CandidateQueryTests.java:1056)\r\n        at org.elasticsearch.percolator.CandidateQueryTests.testDuel(CandidateQueryTests.java:269)\r\n```\r\n\r\nBuild urls:\r\n* https://elasticsearch-ci.elastic.co/job/elastic+elasticsearch+master+matrix-java-periodic/ES_BUILD_JAVA=openjdk13,ES_RUNTIME_JAVA=adoptopenjdk11,nodes=general-purpose/394/console\r\n* https://gradle-enterprise.elastic.co/s/tep2tg7wrjfhy",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50305",
+        "assignees": [
+            "romseygeek"
+        ],
+        "labels": [
+            ">test-failure",
+            ":Search Relevance/Percolator",
+            "Team:Search Relevance"
+        ],
+        "issue_closed_at": "2020-01-07T09:31:23.000Z",
+        "fix_commit_hash": "0bbae8a84301bec84a98a48a9e7366f6fd1af2df",
+        "commit_type": "pr",
+        "commit_message": "Correctly handle MSM for nested disjunctions (#50669)\n\nWith the rewrite of the percolator's QueryAnalyzer to use lucene's QueryVisitor API,\r\nterm queries that are direct children of a boolean query are handled separately from\r\nother children. This works fine for conjunctions, but for disjunctions we need to\r\ntreat the extracted terms from these direct descendents along with extractions from\r\nmore deeply nested children to ensure that minimum-should-match requirements\r\nare met correctly.\r\n\r\nThis commit changes the logic in QueryAnalyzer#getResult() to bundle child term\r\nresults with all other results before handling them.\r\n\r\nFixes #50305",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50669",
+        "earliest_issue_date": "2019-12-18T10:51:16Z",
+        "predicted_class": "bug",
+        "bic": [
+            "0f6ffc20a536d5daecb6fcc0cb5f59cf1acd63ca"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50307,
+        "issue_title": "[CI] HistogramPercentileAggregationTests.testTDigestHistogram failure",
+        "issue_body": "Reproduce line:\r\n\r\n```\r\nREPRODUCE WITH: ./gradlew ':x-pack:plugin:analytics:test' --tests \"org.elasticsearch.xpack.analytics.mapper.HistogramPercentileAggregationTests.testTDigestHistogram\" -Dtests.seed=44FD6E7912D5FDE5 -Dtests.security.manager=true -Dbuild.snapshot=false -Dtests.jvm.argline=\"-Dbuild.snapshot=false\" -Dtests.locale=it -Dtests.timezone=America/Rosario -Dcompiler.java=13 -Druntime.java=8\r\n```\r\n\r\nDoes not reproduce locally for me.\r\n\r\nFailure:\r\n\r\n```\r\n2> java.lang.AssertionError: expected:<0.43155573922885637> but was:<0.42117091333838197>\r\n01:30:22         at __randomizedtesting.SeedInfo.seed([44FD6E7912D5FDE5:B71A4A5D4933432F]:0)\r\n01:30:22         at org.junit.Assert.fail(Assert.java:88)\r\n01:30:22         at org.junit.Assert.failNotEquals(Assert.java:834)\r\n01:30:22         at org.junit.Assert.assertEquals(Assert.java:553)\r\n01:30:22         at org.junit.Assert.assertEquals(Assert.java:683)\r\n01:30:22         at org.elasticsearch.xpack.analytics.mapper.HistogramPercentileAggregationTests.testTDigestHistogram(HistogramPercentileAggregationTests.java:223)\r\n```\r\n\r\nBuild urls:\r\n* https://gradle-enterprise.elastic.co/s/jc7f7hqq3jnb4\r\n* https://elasticsearch-ci.elastic.co/job/elastic+elasticsearch+7.x+release-tests/675/console",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50307",
+        "assignees": [
+            "iverase"
+        ],
+        "labels": [
+            ":Analytics/Aggregations",
+            ">test-failure"
+        ],
+        "issue_closed_at": "2020-02-05T10:36:15.000Z",
+        "fix_commit_hash": "17156220fb4b2b65622243786ce55d881f136789",
+        "commit_type": "pr",
+        "commit_message": "Histogram field: Use #name() instead of #simpleName() when generating doc values (#51920)",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/51920",
+        "earliest_issue_date": "2019-12-18T11:09:12Z",
+        "predicted_class": "bug",
+        "bic": [
+            "d8b9b02b2957d4f76c49bf4dece52267c2a3da36"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50315,
+        "issue_title": "[CI] InternalEngineTests.testIndexWriterInfoStream failure",
+        "issue_body": "Reproduce line:\r\n\r\n```\r\n./gradlew ':server:unitTest' -Dtests.seed=23A79BFD76C74CE -Dtests.class=org.elasticsearch.index.engine.InternalEngineTests -Dtests.method=\"testIndexWriterInfoStream\" -Dtests.security.manager=true -Dtests.locale=zh-Hans-CN -Dtests.timezone=Atlantic/Stanley -Dcompiler.java=12 -Druntime.java=12\r\n```\r\n\r\nI was unable to reproduce it locally\r\n\r\nFailure:\r\n\r\n```\r\nFAILURE 0.36s J13 | InternalEngineTests.testIndexWriterInfoStream <<< FAILURES!\r\n13:55:36    > Throwable #1: java.lang.AssertionError: \r\n13:55:36    > Expected: an empty collection\r\n13:55:36    >      but: <[Attempted to append to non-started appender testIndexWriterInfoStream]>\r\n13:55:36    > \tat __randomizedtesting.SeedInfo.seed([23A79BFD76C74CE:303742EE3F4AC155]:0)\r\n13:55:36    > \tat org.hamcrest.MatcherAssert.assertThat(MatcherAssert.java:20)\r\n13:55:36    > \tat org.elasticsearch.test.ESTestCase.checkStaticState(ESTestCase.java:516)\r\n13:55:36    > \tat org.elasticsearch.test.ESTestCase.after(ESTestCase.java:365)\r\n13:55:36    > \tat jdk.internal.reflect.GeneratedMethodAccessor6.invoke(Unknown Source)\r\n13:55:36    > \tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\r\n13:55:36    > \tat java.base/java.lang.reflect.Method.invoke(Method.java:567)\r\n13:55:36    > \tat java.base/java.lang.Thread.run(Thread.java:835)\r\n```\r\n\r\nBranch: 6.8\r\n\r\nFailure happens when running tear down validation in ESTestCase.checkStaticState(...)\r\n\r\nBuild url: https://gradle-enterprise.elastic.co/s/csltgh2b5h22w",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50315",
+        "assignees": [
+            "dnhatn"
+        ],
+        "labels": [
+            ">test-failure",
+            ":Distributed/Engine"
+        ],
+        "issue_closed_at": "2019-12-20T16:47:48.000Z",
+        "fix_commit_hash": "64b07191c2d81e41c5253e6d36e16cae2dd775d7",
+        "commit_type": "pr",
+        "commit_message": "Close engine before reset log appender (#50390)\n\nMerge threads can run and access the mock appender after we have stopped it.\r\n\r\nCloses #50315",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50390",
+        "earliest_issue_date": "2019-12-18T14:13:14Z",
+        "predicted_class": "bug",
+        "bic": [
+            "ba738775804c265413ac77f77a84f3fb7be772ff"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50316,
+        "issue_title": "[CI] IndexStatsIT.testQueryCache failure",
+        "issue_body": "Failure:\r\n\r\n```\r\nFAILURE 3.53s J0  \\| IndexStatsIT.testQueryCache <<< FAILURES! | \u00a0\r\n-- | --\r\n\u00a0 | > Throwable #1: java.lang.AssertionError: | \u00a0\r\n\u00a0 | > Expected: a value greater than <0L> | \u00a0\r\n\u00a0 | >      but: <0L> was equal to <0L> | \u00a0\r\n\u00a0 | > \tat __randomizedtesting.SeedInfo.seed([8A39F72864578767:51CEA03B37EFB079]:0) | \u00a0\r\n\u00a0 | > \tat org.hamcrest.MatcherAssert.assertThat(MatcherAssert.java:20) | \u00a0\r\n\u00a0 | > \tat org.elasticsearch.indices.stats.IndexStatsIT.testQueryCache(IndexStatsIT.java:295) | \u00a0\r\n\u00a0 | > \tat java.lang.Thread.run(Thread.java:748)\r\n```\r\n\r\nBranch: 6.8\r\n\r\n\r\nReproduce line:\r\n\r\n```\r\n./gradlew ':server:integTest' -Dtests.seed=8A39F72864578767 -Dtests.class=org.elasticsearch.indices.stats.IndexStatsIT -Dtests.method=\"testQueryCache\" -Dtests.security.manager=true -Dtests.locale=sr-RS -Dtests.timezone=Asia/Brunei -Dcompiler.java=12 -Druntime.java=8\r\n```\r\n\r\nDoesn't reproduce for me.\r\n\r\nBuild log: https://gradle-enterprise.elastic.co/s/zd5tbe4e5qjci\r\n\r\nFailure only seems to have occurred twice with the same error this month: \r\nhttps://build-stats.elastic.co/app/kibana#/discover?_g=(refreshInterval:(pause:!t,value:0),time:(from:now%2FM,mode:quick,to:now%2FM))&_a=(columns:!(_source),filters:!(),index:e58bf320-7efd-11e8-bf69-63c8ef516157,interval:auto,query:(language:lucene,query:'test:testQueryCache%20AND%20class:*IndexStatsIT'),sort:!(time,desc))",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50316",
+        "assignees": [
+            "romseygeek"
+        ],
+        "labels": [
+            ":Search/Search DO NOT USE",
+            ">test-failure",
+            "Team:Search"
+        ],
+        "issue_closed_at": "2022-01-17T16:34:11.000Z",
+        "fix_commit_hash": "cfb392fe36a7253afa62bfc317ed9f4aaedab50b",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Mute IndexStatsIT.testQueryCache (#54185)\n\nRelates #50316",
+        "closer_url": null,
+        "earliest_issue_date": "2019-12-18T14:22:06Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50331,
+        "issue_title": "ScriptContextInfoSerializingTests:testEqualsAndHashcode Failure",
+        "issue_body": "```\r\norg.elasticsearch.action.admin.cluster.storedscripts.ScriptContextInfoSerializingTests > testEqualsAndHashcode FAILED\r\n    java.lang.AssertionError: ScriptContextInfo mutation should not be equal to original\r\n    Expected: not <org.elasticsearch.script.ScriptContextInfo@64055836>\r\n         but: was <org.elasticsearch.script.ScriptContextInfo@64055836>\r\nREPRODUCE WITH: ./gradlew ':server:test' --tests \"org.elasticsearch.action.admin.cluster.storedscripts.ScriptContextInfoSerializingTests.testEqualsAndHashcode\" -Dtests.seed=34E57CF2B8EE0338 -Dtests.security.manager=true -Dtests.locale=uk -Dtests.timezone=Pacific/Pago_Pago -Dcompiler.java=13 -Druntime.java=11\r\nSuite: Test class org.elasticsearch.action.admin.cluster.storedscripts.ScriptContextInfoSerializingTests\r\n  1> [2019-12-18T07:29:51,642][INFO ][o.e.a.a.c.s.ScriptContextInfoSerializingTests] [testEqualsAndHashcode] before test\r\n  1> [2019-12-18T07:29:51,823][INFO ][o.e.a.a.c.s.ScriptContextInfoSerializingTests] [testEqualsAndHashcode] after test\r\n  2> REPRODUCE WITH: ./gradlew ':server:test' --tests \"org.elasticsearch.action.admin.cluster.storedscripts.ScriptContextInfoSerializingTests.testEqualsAndHashcode\" -Dtests.seed=34E57CF2B8EE0338 -Dtests.security.manager=true -Dtests.locale=uk -Dtests.timezone=Pacific/Pago_Pago -Dcompiler.java=13 -Druntime.java=11\r\n  2> java.lang.AssertionError: ScriptContextInfo mutation should not be equal to original\r\n    Expected: not <org.elasticsearch.script.ScriptContextInfo@64055836>\r\n         but: was <org.elasticsearch.script.ScriptContextInfo@64055836>\r\n  2> NOTE: leaving temporary files on disk at: /home/igor/Projects/Elastic/7.x/elasticsearch/server/build/testrun/test/temp/org.elasticsearch.action.admin.cluster.storedscripts.ScriptContextInfoSerializingTests_34E57CF2B8EE0338-002\r\n  2> NOTE: test params are: codec=Asserting(Lucene84): {}, docValues:{}, maxPointsInLeafNode=630, maxMBSortInHeap=7.763758134491177, sim=Asserting(org.apache.lucene.search.similarities.AssertingSimilarity@42c2f6c0), locale=uk, timezone=Pacific/Pago_Pago\r\n  2> NOTE: Linux 5.0.0-37-generic amd64/Oracle Corporation 11.0.2 (64-bit)/cpus=8,threads=1,free=473437208,total=536870912\r\n  2> NOTE: All tests run in this JVM: [ScriptContextInfoSerializingTests]\r\n1 test completed, 1 failed\r\nTests with failures:\r\n - org.elasticsearch.action.admin.cluster.storedscripts.ScriptContextInfoSerializingTests.testEqualsAndHashcode\r\n```",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50331",
+        "assignees": [
+            "stu-elastic"
+        ],
+        "labels": [
+            ":Core/Infra/Scripting"
+        ],
+        "issue_closed_at": "2019-12-18T20:29:18.000Z",
+        "fix_commit_hash": "976269bcc22c3dbc2e87757b9cb0b43bf8a49375",
+        "commit_type": "pr",
+        "commit_message": "[TEST] Exclude name on ScriptContextInfo mutate (#50332)\n\nScriptContextInfoSerializingTests:testEqualsAndHashcode was failing\r\nbecause the mutation was generating the same name.\r\n\r\nFixes: #50331",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50332",
+        "earliest_issue_date": "2019-12-18T18:37:44Z",
+        "predicted_class": "bug",
+        "bic": [
+            "0f1b076e4020a41d453a82f57b1586418d61eea5"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50353,
+        "issue_title": "[CI] TimeSeriesLifecycleActionsIT testHistoryIsWrittenWithFailure ",
+        "issue_body": "A number of failures on the master branch in the last day:\r\n\r\nhttps://elasticsearch-ci.elastic.co/job/elastic+elasticsearch+master+multijob-windows-compatibility/os=windows-2012-r2/331/console\r\nhttps://gradle-enterprise.elastic.co/s/clxgk64w274hw\r\n\r\nhttps://elasticsearch-ci.elastic.co/job/elastic+elasticsearch+master+multijob-unix-compatibility/os=ubuntu-18.04&&immutable/460/console\r\nhttps://gradle-enterprise.elastic.co/s/ptsngwrgxzn64\r\n\r\nhttps://elasticsearch-ci.elastic.co/job/elastic+elasticsearch+master+multijob-unix-compatibility/os=centos-6&&immutable/460/console\r\nhttps://gradle-enterprise.elastic.co/s/jdmkulxql5ris\r\n\r\n```\r\njava.lang.AssertionError: \r\n\r\nExpected: a value equal to or greater than <1>\r\n     but: <0> was less than <1>\r\n\r\nat __randomizedtesting.SeedInfo.seed([9BF20B84CA3FCF0E:49B89F3F80A0B0A0]:0)\r\nat org.hamcrest.MatcherAssert.assertThat(MatcherAssert.java:18)\r\nat org.junit.Assert.assertThat(Assert.java:956)\r\nat org.junit.Assert.assertThat(Assert.java:923)\r\nat org.elasticsearch.xpack.ilm.TimeSeriesLifecycleActionsIT.assertHistoryIsPresent(TimeSeriesLifecycleActionsIT.java:1157)\r\nat org.elasticsearch.xpack.ilm.TimeSeriesLifecycleActionsIT.lambda$testHistoryIsWrittenWithDeletion$72(TimeSeriesLifecycleActionsIT.java:1103)\r\nat org.elasticsearch.test.ESTestCase.assertBusy(ESTestCase.java:866)\r\nat org.elasticsearch.xpack.ilm.TimeSeriesLifecycleActionsIT.testHistoryIsWrittenWithDeletion(TimeSeriesLifecycleActionsIT.java:1102)\r\n```\r\n\r\nDoes not reproduce:\r\n```\r\ngradlew ':x-pack:plugin:ilm:qa:multi-node:integTestRunner' --tests \"org.elasticsearch.xpack.ilm.TimeSeriesLifecycleActionsIT.testHistoryIsWrittenWithSuccess\" \\\r\n  -Dtests.seed=DA4311B28F41839E \\\r\n  -Dtests.security.manager=true \\\r\n  -Dtests.locale=id-ID \\\r\n  -Dtests.timezone=SystemV/MST7MDT \\\r\n  -Dcompiler.java=13\r\n```\r\n\r\n\r\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50353",
+        "assignees": [
+            "dakrone"
+        ],
+        "labels": [
+            ">test-failure",
+            ":Data Management/ILM+SLM",
+            "Team:Data Management (obsolete)",
+            "v8.0.0-alpha1"
+        ],
+        "issue_closed_at": "2021-01-13T13:29:33.000Z",
+        "fix_commit_hash": "a38e5ca8e7eb7fd01c2114cd9906f0633f117754",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Mute TimeSeriesLifecycleActionsIT.testHistoryIsWrittenWithFailure (#53595)\n\nFailure tracked in #50353",
+        "closer_url": null,
+        "earliest_issue_date": "2019-12-19T09:36:02Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50355,
+        "issue_title": "SQL: ORDER BY column and aggregate orders only by aggregate",
+        "issue_body": "Query to test on SQL's test data: `SELECT gender, MIN(salary) AS min, COUNT(*) AS c, MAX(salary) FROM test_emp GROUP BY gender HAVING c > 1 ORDER BY gender ASC, MAX(salary) DESC` which gives:\r\n\r\n```\r\n    gender     |      min      |       c       |  MAX(salary)  \r\n---------------+---------------+---------------+---------------\r\nM              |25945.0        |57             |74999.0        \r\nF              |25976.0        |33             |74572.0        \r\nnull           |25324.0        |10             |73717.0        \r\n```\r\n\r\nThe result seems to indicate that the ordering is done ONLY on the aggregate. Changing the directions of ORDER BYs - `SELECT gender, MIN(salary) AS min, COUNT(*) AS c, MAX(salary) FROM test_emp GROUP BY gender HAVING c > 1 ORDER BY gender DESC, MAX(salary) ASC` seems to support the above assumption:\r\n\r\n```\r\n    gender     |      min      |       c       |  MAX(salary)  \r\n---------------+---------------+---------------+---------------\r\nnull           |25324.0        |10             |73717.0        \r\nF              |25976.0        |33             |74572.0        \r\nM              |25945.0        |57             |74999.0        \r\n```\r\n\r\nOur tests DO cover this scenario but only partially.\r\nIn `agg-ordering.sql-spec` we have\r\n\r\n```\r\nSELECT gender, MIN(salary) AS min, COUNT(*) AS c FROM test_emp GROUP BY gender HAVING c > 1 ORDER BY gender, MAX(salary)\r\n```\r\n\r\nwhich runs ok, but only because ordering by `gender` and ordering by `MAX(salary)` offer the same results for `ASC` ordering. A better test should also return `MAX(salary)` as a projection and should mix `ASC` and `DESC` as directions of `ORDER BY`.",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50355",
+        "assignees": [
+            "matriv"
+        ],
+        "labels": [
+            ">bug",
+            ":Analytics/SQL"
+        ],
+        "issue_closed_at": "2020-02-12T08:37:37.000Z",
+        "fix_commit_hash": "be680af11c823292c2d115bff01658f7b75abd76",
+        "commit_type": "pr",
+        "commit_message": "SQL: Fix ORDER BY on aggregates and GROUPed BY fields (#51894)\n\nPreviously, in the in-memory sorting module\r\n`LocalAggregationSorterListener` only the aggregate functions where used\r\n(grabbed by the `sortingColumns`). As a consequence, if the ORDER BY\r\nwas also using columns of the GROUP BY clause, (especially in the case\r\nof higher priority - before the aggregate functions) wrong results were\r\nproduced. E.g.:\r\n```\r\nSELECT gender, MAX(salary) AS max FROM test_emp\r\nGROUP BY gender\r\nORDER BY gender, max\r\n```\r\n\r\nAdd all columns of the ORDER BY to the `sortingColumns` so that the\r\n`LocalAggregationSorterListener` can use the correct comparators in\r\nthe underlying PriorityQueue used to implement the in-memory sorting.\r\n\r\nFixes: #50355",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/51894",
+        "earliest_issue_date": "2019-12-19T10:01:28Z",
+        "predicted_class": "bug",
+        "bic": [
+            "be1baef78938ce3f8af92be872c1e99003a54f55"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50358,
+        "issue_title": "SnapshotLifecycleRestIT testFullPolicySnapshot failure ",
+        "issue_body": "https://elasticsearch-ci.elastic.co/job/elastic+elasticsearch+master+multijob-windows-compatibility/os=windows-2016/331/console\r\nhttps://gradle-enterprise.elastic.co/s/fmz3orwsf6ceu\r\n\r\n```\r\norg.elasticsearch.client.ResponseException: \r\nmethod [DELETE], host [http://127.0.0.1:60674], URI [/_snapshot/my-repo/snap-dgpzyeujtlil-pxstwwurg], status line [HTTP/1.1 503 Service Unavailable]\r\n{\"error\":{\"root_cause\":[{\"type\":\"concurrent_snapshot_execution_exception\",\"reason\":\"[my-repo:snap-dgpzyeujtlil-pxstwwurg/5U_JWp2pRceMG2VKwqteqQ] another snapshot is currently running cannot delete\"}],\"type\":\"concurrent_snapshot_execution_exception\",\"reason\":\"[my-repo:snap-dgpzyeujtlil-pxstwwurg/5U_JWp2pRceMG2VKwqteqQ] another snapshot is currently running cannot delete\"},\"status\":503}\r\n\r\nat __randomizedtesting.SeedInfo.seed([A77F6987797E068:3AE5B97574CB83D]:0)\r\nat org.elasticsearch.client.RestClient.convertResponse(RestClient.java:283)\r\nat org.elasticsearch.client.RestClient.performRequest(RestClient.java:261)\r\nat org.elasticsearch.client.RestClient.performRequest(RestClient.java:267)\r\nat org.elasticsearch.client.RestClient.performRequest(RestClient.java:267)\r\nat org.elasticsearch.client.RestClient.performRequest(RestClient.java:267)\r\nat org.elasticsearch.client.RestClient.performRequest(RestClient.java:267)\r\nat org.elasticsearch.client.RestClient.performRequest(RestClient.java:267)\r\nat org.elasticsearch.client.RestClient.performRequest(RestClient.java:267)\r\nat org.elasticsearch.client.RestClient.performRequest(RestClient.java:267)\r\nat org.elasticsearch.client.RestClient.performRequest(RestClient.java:235)\r\nat org.elasticsearch.test.rest.ESRestTestCase.wipeSnapshots(ESRestTestCase.java:613)\r\nat org.elasticsearch.test.rest.ESRestTestCase.lambda$wipeCluster$3(ESRestTestCase.java:504)\r\nat org.elasticsearch.test.ESTestCase.assertBusy(ESTestCase.java:854)\r\nat org.elasticsearch.test.rest.ESRestTestCase.wipeCluster(ESRestTestCase.java:503)\r\nat org.elasticsearch.test.rest.ESRestTestCase.cleanUpCluster(ESRestTestCase.java:287)\r\n...\r\n```\r\n\r\n\r\nDoes not reproduce:\r\n```\r\ngradlew ':x-pack:plugin:ilm:qa:multi-node:integTestRunner' --tests \"org.elasticsearch.xpack.slm.SnapshotLifecycleRestIT.testFullPolicySnapshot\" \\\r\n  -Dtests.seed=A77F6987797E068 \\\r\n  -Dtests.security.manager=true \\\r\n  -Dtests.locale=ca \\\r\n  -Dtests.timezone=Europe/Ulyanovsk \\\r\n  -Dcompiler.java=13\r\n```",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50358",
+        "assignees": [
+            "dakrone"
+        ],
+        "labels": [
+            ">test-failure",
+            ":Data Management/ILM+SLM",
+            "Team:Data Management (obsolete)",
+            "v7.10.0",
+            "v8.0.0-alpha1"
+        ],
+        "issue_closed_at": "2020-07-16T21:48:52.000Z",
+        "fix_commit_hash": "340fcd1c5aa54c01a85ecd01945408f504ebdf59",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Mute SnapshotLifecycleRestIT.testFullPolicySnapshot (#53588)\n\nhttps://github.com/elastic/elasticsearch/issues/50358",
+        "closer_url": null,
+        "earliest_issue_date": "2019-12-19T10:28:39Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50360,
+        "issue_title": "nGram and edgeNGram names don't throw an error with custom filters on ES 7+",
+        "issue_body": "**Elasticsearch version** (`bin/elasticsearch --version`): 7.0.0 - 7.5.1\r\n\r\n**Plugins installed**: []\r\n\r\n**JVM version** (`java -version`): n/a\r\n\r\n**OS version** (`uname -a` if on a Unix-like system): n/a\r\n\r\n**Description of the problem including expected versus actual behavior**:\r\n\r\nHi, according to [the docs](https://www.elastic.co/guide/en/elasticsearch/reference/current/breaking-changes-7.0.html#deprecated-ngram-edgengram-token-filter-cannot-be-used), the `nGram` and `edgeNGram` token filter should throw an error in ES 7 (since they've been replaced with `ngram` and `edge_ngram`). However, this doesn't appear to be the case if you use them in custom filters. \r\n\r\n**Steps to reproduce**:\r\n\r\n```sh\r\ncurl -X PUT \"localhost:9200/my_index?pretty\" -H 'Content-Type: application/json' -d'\r\n{\r\n  \"settings\": {\r\n    \"analysis\": {\r\n      \"analyzer\": {\r\n        \"bad_analyzer\": { \r\n          \"type\": \"custom\",\r\n          \"tokenizer\": \"standard\",\r\n          \"filter\": [\r\n            \"lowercase\",\r\n            \"bad_filter\"\r\n          ]\r\n        }\r\n      },\r\n      \"filter\": {\r\n        \"bad_filter\": {\r\n          \"type\": \"nGram\"\r\n        }\r\n      }\r\n    }\r\n  }\r\n}\r\n'\r\ncurl -X GET \"localhost:9200/my_index/_analyze?pretty\" -H 'Content-Type: application/json' -d'\r\n{\r\n  \"analyzer\": \"bad_analyzer\", \r\n  \"text\":     \"Is this d\u00e9j\u00e0 vu?\"\r\n}\r\n'\r\n```",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50360",
+        "assignees": [
+            "cbuescher"
+        ],
+        "labels": [
+            ">bug",
+            ":Search Relevance/Analysis",
+            "Team:Search Relevance"
+        ],
+        "issue_closed_at": "2019-12-20T17:01:06.000Z",
+        "fix_commit_hash": "c6f7166145412a3a1a9c639cc07a2329e879a575",
+        "commit_type": "pr",
+        "commit_message": "Throw Error on deprecated nGram and edgeNGram custom filters (#50376)\n\nThe camel-case `nGram` and `edgeNGram` filter names were deprecated in 6. We\r\ncurrently throw errors on new indices when they are used. However these errors\r\nare currently only thrown for pre-configured filters, adding them as custom\r\nfilters doesn't trigger the warning and error. This change adds the appropriate\r\nexceptions for `nGram` and `edgeNGram` respectively.\r\n\r\nCloses #50360",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50376",
+        "earliest_issue_date": "2019-12-19T10:39:14Z",
+        "predicted_class": "bug",
+        "bic": [
+            "0b776a1de0bf345f871fa6b64e959a94d282164c"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50362,
+        "issue_title": "IndexStatsIT testSegmentsStats failure",
+        "issue_body": "https://elasticsearch-ci.elastic.co/job/elastic+elasticsearch+master+matrix-java-periodic/ES_BUILD_JAVA=openjdk13,ES_RUNTIME_JAVA=java11,nodes=general-purpose/396/console\r\nhttps://gradle-enterprise.elastic.co/s/s2yxbphb5vs2g\r\n\r\n```\r\nExpected: a value greater than <0L>\r\n     but: <0L> was equal to <0L>\r\n\r\nat __randomizedtesting.SeedInfo.seed([640AC00B268DA531:D3217E5DBB119265]:0)\r\nat org.hamcrest.MatcherAssert.assertThat(MatcherAssert.java:18)\r\nat org.junit.Assert.assertThat(Assert.java:956)\r\nat org.junit.Assert.assertThat(Assert.java:923)\r\nat org.elasticsearch.indices.stats.IndexStatsIT.testSegmentsStats(IndexStatsIT.java:608)\r\n```\r\n\r\nDoes not reproduce \r\n```\r\n./gradlew ':server:integTest' --tests \"org.elasticsearch.indices.stats.IndexStatsIT.testSegmentsStats\" \\\r\n  -Dtests.seed=640AC00B268DA531 \\\r\n  -Dtests.security.manager=true \\\r\n  -Dtests.locale=de-CH \\\r\n  -Dtests.timezone=Africa/Bangui \\\r\n  -Dcompiler.java=13\r\n```",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50362",
+        "assignees": [
+            "dnhatn"
+        ],
+        "labels": [
+            ">test-failure",
+            ":Distributed/Engine",
+            "v8.0.0-alpha1"
+        ],
+        "issue_closed_at": "2020-01-07T15:08:14.000Z",
+        "fix_commit_hash": "c8333ea03532d4dfb758bda1e53365ea71bbe8a9",
+        "commit_type": "pr",
+        "commit_message": "Disable auto refresh in testSegmentsStats (#50689)\n\nIf an auto-refresh happens, then version_map_memory is reset to 0. By \r\ndefault, the auto-refresh occurs for every second in the first 30\r\nseconds until search becomes idle.\r\n\r\nCloses #50362",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50689",
+        "earliest_issue_date": "2019-12-19T11:10:28Z",
+        "predicted_class": "bug",
+        "bic": [
+            "c95c7096e50d329d4591913bf1b3e5c58d3a6065"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50364,
+        "issue_title": "Distribution tests failing due to unknown setting [xpack.security.ssl.diagnose.trust]",
+        "issue_body": "```process was found dead while waiting for ports files, node{:distribution:archives:integ-test-zip:integTest-0}```\r\n\r\nCaused by:\r\n```\r\n\r\nERROR][o.e.b.ElasticsearchUncaughtExceptionHandler] [integTest-0] uncaught exception in thread [main] | \u00a0\r\n-- | --\r\n\u00a0 | \u00bb  org.elasticsearch.bootstrap.StartupException: java.lang.IllegalArgumentException: unknown setting [xpack.security.ssl.diagnose.trust] please check that any required plugins are installed, or check the breaking changes documentation for removed settings | \u00a0\r\n\u00a0 | \u00bb  \tat org.elasticsearch.bootstrap.Elasticsearch.init(Elasticsearch.java:174) ~[elasticsearch-7.6.0-SNAPSHOT.jar:7.6.0-SNAPSHOT] | \u00a0\r\n\u00a0 | \u00bb  \tat org.elasticsearch.bootstrap.Elasticsearch.execute(Elasticsearch.java:161) ~[elasticsearch-7.6.0-SNAPSHOT.jar:7.6.0-SNAPSHOT] | \u00a0\r\n\u00a0 | \u00bb  \tat org.elasticsearch.cli.EnvironmentAwareCommand.execute(EnvironmentAwareCommand.java:86) ~[elasticsearch-7.6.0-SNAPSHOT.jar:7.6.0-SNAPSHOT] | \u00a0\r\n\u00a0 | \u00bb  \tat org.elasticsearch.cli.Command.mainWithoutErrorHandling(Command.java:125) ~[elasticsearch-cli-7.6.0-SNAPSHOT.jar:7.6.0-SNAPSHOT] | \u00a0\r\n\u00a0 | \u00bb  \tat org.elasticsearch.cli.Command.main(Command.java:90) ~[elasticsearch-cli-7.6.0-SNAPSHOT.jar:7.6.0-SNAPSHOT] | \u00a0\r\n\u00a0 | \u00bb  \tat org.elasticsearch.bootstrap.Elasticsearch.main(Elasticsearch.java:126) ~[elasticsearch-7.6.0-SNAPSHOT.jar:7.6.0-SNAPSHOT] | \u00a0\r\n\u00a0 | \u00bb  \tat org.elasticsearch.bootstrap.Elasticsearch.main(Elasticsearch.java:92) ~[elasticsearch-7.6.0-SNAPSHOT.jar:7.6.0-SNAPSHOT] | \u00a0\r\n\u00a0 | \u00bb  Caused by: java.lang.IllegalArgumentException: unknown setting [xpack.security.ssl.diagnose.trust] please check that any required plugins are installed, or check the breaking changes documentation for removed settings | \u00a0\r\n\u00a0 | \u00bb  \tat org.elasticsearch.common.settings.AbstractScopedSettings.validate(AbstractScopedSettings.java:530) ~[elasticsearch-7.6.0-SNAPSHOT.jar:7.6.0-SNAPSHOT] | \u00a0\r\n\u00a0 | \u00bb  \tat org.elasticsearch.common.settings.AbstractScopedSettings.validate(AbstractScopedSettings.java:475) ~[elasticsearch-7.6.0-SNAPSHOT.jar:7.6.0-SNAPSHOT] | \u00a0\r\n\u00a0 | \u00bb  \tat org.elasticsearch.common.settings.AbstractScopedSettings.validate(AbstractScopedSettings.java:446) ~[elasticsearch-7.6.0-SNAPSHOT.jar:7.6.0-SNAPSHOT] | \u00a0\r\n\u00a0 | \u00bb  \tat org.elasticsearch.common.settings.AbstractScopedSettings.validate(AbstractScopedSettings.java:417) ~[elasticsearch-7.6.0-SNAPSHOT.jar:7.6.0-SNAPSHOT] | \u00a0\r\n\u00a0 | \u00bb  \tat org.elasticsearch.common.settings.SettingsModule.<init>(SettingsModule.java:149) ~[elasticsearch-7.6.0-SNAPSHOT.jar:7.6.0-SNAPSHOT] | \u00a0\r\n\u00a0 | \u00bb  \tat org.elasticsearch.node.Node.<init>(Node.java:352) ~[elasticsearch-7.6.0-SNAPSHOT.jar:7.6.0-SNAPSHOT] | \u00a0\r\n\u00a0 | \u00bb  \tat org.elasticsearch.node.Node.<init>(Node.java:253) ~[elasticsearch-7.6.0-SNAPSHOT.jar:7.6.0-SNAPSHOT] | \u00a0\r\n\u00a0 | \u00bb  \tat org.elasticsearch.bootstrap.Bootstrap$5.<init>(Bootstrap.java:221) ~[elasticsearch-7.6.0-SNAPSHOT.jar:7.6.0-SNAPSHOT] | \u00a0\r\n\u00a0 | \u00bb  \tat org.elasticsearch.bootstrap.Bootstrap.setup(Bootstrap.java:221) ~[elasticsearch-7.6.0-SNAPSHOT.jar:7.6.0-SNAPSHOT] | \u00a0\r\n\u00a0 | \u00bb  \tat org.elasticsearch.bootstrap.Bootstrap.init(Bootstrap.java:349) ~[elasticsearch-7.6.0-SNAPSHOT.jar:7.6.0-SNAPSHOT] | \u00a0\r\n\u00a0 | \u00bb  \tat org.elasticsearch.bootstrap.Elasticsearch.init(Elasticsearch.java:170) ~[elasticsearch-7.6.0-SNAPSHOT.jar:7.6.0-SNAPSHOT] | \u00a0\r\n\u00a0 | \u00bb  \t... 6 more\r\n```\r\n\r\nhttps://elasticsearch-ci.elastic.co/job/elastic+elasticsearch+7.x+matrix-java-periodic/ES_BUILD_JAVA=openjdk13,ES_RUNTIME_JAVA=java8fips,nodes=general-purpose/397/console\r\nhttps://gradle-enterprise.elastic.co/s/rghajdqd44lle\r\n\r\nRelated to #49900?",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50364",
+        "assignees": [
+            "jkakavas"
+        ],
+        "labels": [
+            ">test-failure",
+            ":Security/Security",
+            "v7.7.0"
+        ],
+        "issue_closed_at": "2020-01-22T18:55:26.000Z",
+        "fix_commit_hash": "e34d7fdaf7b511627c64a9e16805fd82f980b8c6",
+        "commit_type": "pr",
+        "commit_message": "Always test against default distribution when in a FIPS JVM (#51273)",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/51273",
+        "earliest_issue_date": "2019-12-19T11:50:44Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50393,
+        "issue_title": "Linux OS id [arch-null] is not present in the Docker exclude list?",
+        "issue_body": "**Elasticsearch version** (`bin/elasticsearch --version`): `master`\r\n\r\n**Plugins installed**: none\r\n\r\n**JVM version** (`java -version`): jdk-13\r\n\r\n**OS version** (`uname -a` if on a Unix-like system): Linux/arch\r\n\r\n**Description of the problem including expected versus actual behavior**:\r\n\r\n`./gradlew :run` logs\r\n```\r\nLinux OS id [arch-null] is not present in the Docker exclude list\r\n```\r\n\r\nThis seems like a message that we log for CI, but it was an odd greeting while compiling the project for the first time in a year.\r\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50393",
+        "assignees": [],
+        "labels": [
+            ":Delivery/Build",
+            "Team:Delivery"
+        ],
+        "issue_closed_at": "2020-01-07T09:09:48.000Z",
+        "fix_commit_hash": "8893e587e1edc13d50c35934f63dd561d06bbb57",
+        "commit_type": "pr",
+        "commit_message": "Skip Linux OS checks unless running in CI (#50664)\n\nCloses #50393. When generating the packaging test tasks, skip the Linux OS\r\nchecks unless we're running in CI.",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50664",
+        "earliest_issue_date": "2019-12-19T19:22:44Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50416,
+        "issue_title": "sum_of_squares calculation and docs don't align",
+        "issue_body": "Potentially a link in the docs to a Wikipedia article is incorrect and should be removed, or the function to calculate the intended usage of the sum of squares is incorrect and needs to be updated.\r\n\r\n<!-- Feature request -->\r\n\r\n**Describe the feature**:\r\nExpecting a sum_of_squares output in the Extended Stats Aggregation to align with the formula provided by [Wikipedia](https://en.wikipedia.org/wiki/Total_sum_of_squares) and many other statistical sources. \r\n\r\n\r\n<!-- Bug report -->\r\nThe current calculation for the Extended Stats Aggregation for the `sum_of_squares` is calculated using the following equation: `sumOfSquares += value * value;` The [docs](https://www.elastic.co/guide/en/elasticsearch/reference/7.5/sql-functions-aggs.html#sql-functions-aggs-sum-squares) references a [Wikipedia](https://en.wikipedia.org/wiki/Total_sum_of_squares) article which provides a different function. \r\n\r\n![image](https://user-images.githubusercontent.com/56210812/71232680-cbaabf00-2342-11ea-86a9-7805d20cc8da.png)\r\n\r\n**Elasticsearch version**: Tested on `6.5.4, 7.5.0`\r\n\r\n**Description of the problem including expected versus actual behavior**:\r\nCurrent calculation of the sum of squares does not align to the statistical technique used to calculate the sum of squares.\r\n\r\nSum of squares is a statistical technique used in regression analysis to determine the dispersion of data points. In a regression analysis, the goal is to determine how well a data series can be fitted to a function that might help to explain how the data series was generated. Sum of squares is used as a mathematical way to find the function that best fits (varies least) from the data.\r\n\r\nMany sum of squares calculators do not align to the way the sum of \r\n**Steps to reproduce**:\r\n\r\n**List of Numbers**: `74.01,74.77,73.94,73.61,73.40`\r\n**Expected outcome:**\r\n\r\n\r\n```\r\nSS = (74.01 - 73.95)2 + (74.77 - 73.95)2 + (73.94 - 73.95)2 + (73.61 - 73.95)2 + (73.40 - 73.95)2\r\nSS = (0.06) 2 + (0.82)2 + (-0.01)2 + (-0.34)2 + (-0.55)2\r\nSS = 1.0942\r\n```\r\n**Actual Outcome**:\r\nElastic looks to be using the following formula to calculate the sum_of_squares:\r\n```\r\nSS = (74.01 )2 + (74.77)2 + (73.94)2 + (73.61)2 + (73.40)2\r\nSS = 5477.4801 + 5590.5529 + 5467.1236 + 5418.4321 + 5387.56\r\nSS = 27341.1487\r\n```\r\n\r\n**Recreate**:\r\nCreated an index:\r\n```\r\nPUT /sum_of_squares_test_2\r\n{\r\n    \"settings\" : {\r\n        \"index\" : {\r\n            \"number_of_shards\" : 1, \r\n            \"number_of_replicas\" : 1\r\n        }\r\n    }\r\n}\r\n```\r\n\r\nAdd some Docs\r\n```\r\nPOST /sum_of_squares_test_2/_doc/\r\n{\r\n  \"grade\": 74.01\r\n}\r\n\r\nPOST /sum_of_squares_test_2/_doc\r\n{\r\n  \"grade\": 74.77\r\n}\r\n\r\nPOST /sum_of_squares_test_2/_doc\r\n{\r\n  \"grade\": 73.94\r\n}\r\n\r\nPOST /sum_of_squares_test_2/_doc\r\n{\r\n  \"grade\": 73.61\r\n}\r\n\r\nPOST /sum_of_squares_test_2/_doc\r\n{\r\n  \"grade\": 73.40\r\n}\r\n```\r\n\r\nSearch the index:\r\n```\r\nGET sum_of_squares_test_2/_search\r\n{\r\n  \"size\":0,\r\n  \"aggs\":{\r\n    \"grade_stats\":{\r\n      \"extended_stats\":{\r\n        \"field\":\"grade\"\r\n      }\r\n    }\r\n  }\r\n}\r\n```\r\nResponse:\r\n```\r\n{\r\n  \"took\" : 1,\r\n  \"timed_out\" : false,\r\n  \"_shards\" : {\r\n    \"total\" : 1,\r\n    \"successful\" : 1,\r\n    \"skipped\" : 0,\r\n    \"failed\" : 0\r\n  },\r\n  \"hits\" : {\r\n    \"total\" : {\r\n      \"value\" : 5,\r\n      \"relation\" : \"eq\"\r\n    },\r\n    \"max_score\" : null,\r\n    \"hits\" : [ ]\r\n  },\r\n  \"aggregations\" : {\r\n    \"grade_stats\" : {\r\n      \"count\" : 5,\r\n...\r\n      \"sum_of_squares\" : 27341.149189099146,\r\n...\r\n      }\r\n    }\r\n  }\r\n}\r\n```\r\n\r\n\r\nSearch the index using SQL\r\n```\r\nPOST /_xpack/sql?format=txt\r\n{\r\n    \"query\": \"SELECT SUM_OF_SQUARES(grade) AS sumsq FROM sum_of_squares_test_2\"\r\n}\r\n```\r\nResponse:\r\n```\r\n      sumsq       \r\n------------------\r\n27341.149189099146\r\n```\r\n\r\nCan the statistical method also be added if the current method is as expected. The link in the docs will need to be removed if the current method is correct. I am happy to put in the PR once I have the clarification.",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50416",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ">enhancement",
+            ">docs",
+            ":Analytics/Aggregations",
+            "Team:Docs",
+            "Team:Analytics"
+        ],
+        "issue_closed_at": "2020-07-31T18:05:11.000Z",
+        "fix_commit_hash": "1f6f99286e8e5aac283d81383be3c629e35f3143",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "[DOCS] Remove Wikipedia link from `SUM_OF_SQUARES` SQL function docs (#52398)\n\nRemoved the link to Wikipedia as the function is not calculating the sum of squares in this way. More can be found here at this issue:\r\n\r\nhttps://github.com/elastic/elasticsearch/issues/50416",
+        "closer_url": null,
+        "earliest_issue_date": "2019-12-20T06:05:50Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50420,
+        "issue_title": "[Transform] SourceDestValidatorTests.testRemoteSourceDoesNotExist test failure",
+        "issue_body": "Fails on 7.x:\r\n\r\n```\r\n./gradlew ':x-pack:plugin:core:test' --tests \"org.elasticsearch.xpack.core.common.validation.SourceDestValidatorTests.testRemoteSourceDoesNotExist\" -Dtests.seed=5105F6CB1E897072 -Dtests.security.manager=true -Dtests.locale=en-GB -Dtests.timezone=Asia/Colombo -Dcompiler.java=13 -Druntime.java=8\r\n```\r\n\r\nTest is muted",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50420",
+        "assignees": [],
+        "labels": [
+            ">test-failure",
+            ":ml/Transform",
+            "v7.6.0"
+        ],
+        "issue_closed_at": "2020-01-07T13:07:07.000Z",
+        "fix_commit_hash": "98ca9500e85a0637a74c2ee9595f174732d5fed5",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "implement a workaround for remote cluster validation (#50460)\n\nIn 7.x an internal API used for validating remote cluster does not throw, see #50420 for the \r\ndetails. This change implements a workaround for remote cluster validation, only for 7.x branches.\r\n\r\nfixes #50420",
+        "closer_url": null,
+        "earliest_issue_date": "2019-12-20T10:23:47Z",
+        "predicted_class": "bug",
+        "bic": [
+            "de14092ad2e698bf1888d1c7a63602d99edc34a8"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50424,
+        "issue_title": "RecoverySourceHandlerTests.testCancelRecoveryDuringPhase1 failing",
+        "issue_body": "Test failure is reproducible. Possibly related to #50351.\r\n\r\nhttps://gradle-enterprise.elastic.co/s/7qzhu37ptbtl4\r\n\r\n```\r\nREPRODUCE WITH: ./gradlew ':server:test' --tests \"org.elasticsearch.indices.recovery.RecoverySourceHandlerTests\" \\\r\n  -Dtests.seed=FB712647FCD390D3 \\\r\n  -Dtests.security.manager=true \\\r\n  -Dbuild.snapshot=false \\\r\n  -Dtests.jvm.argline=\"-Dbuild.snapshot=false\" \\\r\n  -Dtests.locale=en-US \\\r\n  -Dtests.timezone=UTC \\\r\n  -Dcompiler.java=13\r\n```",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50424",
+        "assignees": [
+            "dnhatn"
+        ],
+        "labels": [
+            ">test-failure",
+            ":Distributed/Recovery"
+        ],
+        "issue_closed_at": "2019-12-26T13:56:01.000Z",
+        "fix_commit_hash": "50bd5842c3cbaa3a68f95cb84f6d893c7fabf50e",
+        "commit_type": "pr",
+        "commit_message": "Fix testCancelRecoveryDuringPhase1 (#50449)\n\ntestCancelRecoveryDuringPhase1 uses a mock of IndexShard, which can't\r\ncreate retention leases. We need to stub method createRetentionLease.\r\n\r\nRelates #50351 \r\nCloses #50424",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50449",
+        "earliest_issue_date": "2019-12-20T10:58:48Z",
+        "predicted_class": "bug",
+        "bic": [
+            "34f65c603fb1fce213f37ecc7a5f2ea30e848d58"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50426,
+        "issue_title": "RecoveryIT.testAutoExpandIndicesDuringRollingUpgrade failing",
+        "issue_body": "Build scan:\r\n\r\nhttps://gradle-enterprise.elastic.co/s/ad7pjkaf7e2h4/\r\n\r\nTest mute incoming.",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50426",
+        "assignees": [],
+        "labels": [
+            ">test-failure",
+            ":Distributed/Allocation",
+            "v7.6.0"
+        ],
+        "issue_closed_at": "2019-12-20T16:16:16.000Z",
+        "fix_commit_hash": "c37c53a7f77448eac2d10d4065728895edbbd8e0",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Fix testAutoExpandIndicesDuringRollingUpgrade (#50427)\n\nFixes the muted test \"testAutoExpandIndicesDuringRollingUpgrade\". We can't wait in the test for\r\nthe index to be green, as we have put a filter exclusion into place that prevents all shards from\r\nbeing allocated after a node rejoins. Instead we check whether the correct auto-expansion has\r\ntaken place.\r\n\r\nCloses #50426",
+        "closer_url": null,
+        "earliest_issue_date": "2019-12-20T11:15:10Z",
+        "predicted_class": "bug",
+        "bic": [
+            "4f805deb0ce8cda86799fe5d96dc36d2526deaec"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50450,
+        "issue_title": "[CI] Rest text `p0=snapshot/10_basic/Create a source only snapshot and then restore it` failure",
+        "issue_body": "Received this build failure during the push of an unrelated docs change (a311018fbcac72f479be29bef32bfb312193dbce)\r\n\r\nFailure: https://gradle-enterprise.elastic.co/s/v5h5hntmwkiqy/tests/fcijb24gqtmnc-cqpxjyuvwnxpc\r\n\r\nBased on the results, it looks like two snapshots were restored instead of one as expected.\r\n\r\n```\r\nCaused by: java.lang.AssertionError: \r\nsnapshot.shards.successful didn't match expected value:\r\n    snapshot.shards.successful: expected Integer [1] but was Integer [2]\r\n```\r\n\r\n```[2019-12-20T22:16:11,776][INFO ][o.e.x.t.r.XPackRestIT    ] [test] Stash dump on test failure [{\r\n  \"stash\" : {\r\n    \"body\" : {\r\n      \"snapshot\" : {\r\n        \"snapshot\" : \"test_snapshot\",\r\n        \"uuid\" : \"1pr60of1RIWn1w2MAjRmRw\",\r\n        \"version_id\" : 8000099,\r\n        \"version\" : \"8.0.0\",\r\n        \"indices\" : [\r\n          \"test_index\",\r\n          \"ilm-history-1-000001\"\r\n        ],\r\n        \"include_global_state\" : true,\r\n        \"state\" : \"SUCCESS\",\r\n        \"start_time\" : \"2019-12-20T19:16:11.335Z\",\r\n        \"start_time_in_millis\" : 1576869371335,\r\n        \"end_time\" : \"2019-12-20T19:16:11.535Z\",\r\n        \"end_time_in_millis\" : 1576869371535,\r\n        \"duration_in_millis\" : 200,\r\n        \"failures\" : [ ],\r\n        \"shards\" : {\r\n          \"total\" : 2,\r\n          \"failed\" : 0,\r\n          \"successful\" : 2\r\n        }\r\n      }\r\n    }\r\n  }\r\n}]\r\n```",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50450",
+        "assignees": [
+            "original-brownbear"
+        ],
+        "labels": [
+            ":Distributed/Snapshot/Restore",
+            ">test-failure"
+        ],
+        "issue_closed_at": "2019-12-23T10:23:39.000Z",
+        "fix_commit_hash": "7203ceefd8761cdbfd9d4510cdda1ac968caf11d",
+        "commit_type": "pr",
+        "commit_message": "Fix Source Only Snapshot REST Test Failure (#50456)\n\nWe are matching on the exact number of shards in this test, but may run into\r\nsnapshotting more than the single index created in it due to auto-created indices like\r\n`.watcher`.\r\nFixed by making the test only take a snapshot of the single index used by this test.\r\n\r\nCloses #50450",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50456",
+        "earliest_issue_date": "2019-12-20T20:09:25Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50462,
+        "issue_title": "[discovery-ec2] Plugin doesn't retry EC2 describe instance calls",
+        "issue_body": "### Problem Description\r\nDiscovery EC2 doesn't retry EC2 describe calls on throttle or exceptions due to `NO_RETRY_CONDITION`  which has the potential to make the throttling worse. Although there is a logic to exponentially backoff in such cases, backoff doesn't kick in.\r\n\r\nhttps://github.com/elastic/elasticsearch/blob/7203ceefd8761cdbfd9d4510cdda1ac968caf11d/plugins/discovery-ec2/src/main/java/org/elasticsearch/discovery/ec2/AwsEc2ServiceImpl.java#L82-L90\r\n\r\nAWS [reference](https://github.com/aws/aws-sdk-java/blob/de3ea40fbd783f1a667f24303399f5ed2a0279ec/aws-java-sdk-core/src/main/java/com/amazonaws/retry/RetryPolicy.java#L140-L148)\r\n\r\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50462",
+        "assignees": [
+            "original-brownbear"
+        ],
+        "labels": [
+            ">bug",
+            ":Distributed/Discovery-Plugins"
+        ],
+        "issue_closed_at": "2020-01-02T15:30:23.000Z",
+        "fix_commit_hash": "789f7908d8c26765cfcc507518312801d4761734",
+        "commit_type": "pr",
+        "commit_message": "Make EC2 Discovery Plugin Retry Requests (#50550)\n\nUse the default retry condition instead of never retrying in the discovery plugin causing hot retries upstream and add a test that verifies retrying works.\r\n\r\nCloses #50462",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50550",
+        "earliest_issue_date": "2019-12-23T13:19:31Z",
+        "predicted_class": "bug",
+        "bic": [
+            "baf33b31626f13521d4862d0b700c7c6d728bb6f"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50478,
+        "issue_title": "[DOCS] Missing OIDC realm page",
+        "issue_body": "We have a [1 page realm doc for SAML](https://www.elastic.co/guide/en/elasticsearch/reference/7.5/saml-realm.html) but not for OpenID Connect.\r\n\r\nThat means we have this statement for SAML, but don't have the equivalent for OIDC (but we need it).\r\n\r\n> This means that the {SAML|OIDC} realm is not suitable for use by standard REST clients. If you configure a {SAML|OIDC} realm for use in Kibana, you should also configure another realm, such as the native realm in your authentication chain. \r\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50478",
+        "assignees": [
+            "lcawl"
+        ],
+        "labels": [
+            ">docs",
+            ":Security/Authentication"
+        ],
+        "issue_closed_at": "2019-12-30T15:03:39.000Z",
+        "fix_commit_hash": "4478fae9781244c9978785adb6d95c893760589e",
+        "commit_type": "pr",
+        "commit_message": "[DOCS] Adds intro for OIDC realm (#50485)",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50485",
+        "earliest_issue_date": "2019-12-24T00:22:40Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50497,
+        "issue_title": "testAuthenticateWithWrongToken fails",
+        "issue_body": "This test failed on the intake builds: https://gradle-enterprise.elastic.co/s/c53xhmfok4zaa/tests/g5u3xltc4r2du-ibqvili3nuzwk and https://gradle-enterprise.elastic.co/s/szjolir56mqyy/tests/g5u3xltc4r2du-ibqvili3nuzwk. I was not able to reproduce this locally.\r\n\r\n```\r\n  2> REPRODUCE WITH: ./gradlew ':x-pack:plugin:security:test' --tests \"org.elasticsearch.xpack.security.authc.TokenAuthIntegTests.testAuthenticateWithWrongToken\" -Dtests.seed=7452EF005295377 -Dtests.security.manager=true -Dtests.locale=sk -Dtests.timezone=Europe/Ulyanovsk -Dcompiler.java=13\r\n  2> java.lang.AssertionError: \r\n    Expected: <UNAUTHORIZED>\r\n         but: was <INTERNAL_SERVER_ERROR>\r\n        at __randomizedtesting.SeedInfo.seed([7452EF005295377:A40C8BB55B1AD6FC]:0)\r\n        at org.hamcrest.MatcherAssert.assertThat(MatcherAssert.java:18)\r\n        at org.junit.Assert.assertThat(Assert.java:956)\r\n        at org.junit.Assert.assertThat(Assert.java:923)\r\n        at org.elasticsearch.xpack.security.authc.TokenAuthIntegTests.testAuthenticateWithWrongToken(TokenAuthIntegTests.java:478)\r\n```\r\n\r\nThis could be the reason.\r\n\r\n```\r\njava.lang.NegativeArraySizeException: array size must be positive but was: -654100205\r\nat org.elasticsearch.common.io.stream.StreamInput.readArraySize(StreamInput.java:1233) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\nat org.elasticsearch.common.io.stream.StreamInput.readByteArray(StreamInput.java:939) ~[elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\nat org.elasticsearch.xpack.security.authc.TokenService.decodeToken(TokenService.java:499) ~[main/:?]\r\nat org.elasticsearch.xpack.security.authc.TokenService.getAndValidateToken(TokenService.java:382) ~[main/:?]\r\nat org.elasticsearch.xpack.security.authc.AuthenticationService$Authenticator.lambda$authenticateAsync$2(AuthenticationService.java:250) ~[main/:?]\r\nat org.elasticsearch.xpack.security.authc.AuthenticationService$Authenticator.lambda$lookForExistingAuthentication$6(AuthenticationService.java:310) ~[main/:?]\r\nat org.elasticsearch.xpack.security.authc.AuthenticationService$Authenticator.lookForExistingAuthentication(AuthenticationService.java:321) ~[main/:?]\r\nat org.elasticsearch.xpack.security.authc.AuthenticationService$Authenticator.authenticateAsync(AuthenticationService.java:245) ~[main/:?]\r\nat org.elasticsearch.xpack.security.authc.AuthenticationService.authenticate(AuthenticationService.java:122) ~[main/:?]\r\nat org.elasticsearch.xpack.security.rest.SecurityRestFilter.handleRequest(SecurityRestFilter.java:55) ~[main/:?]\r\nat org.elasticsearch.rest.RestController.dispatchRequest(RestController.java:225) [elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\nat org.elasticsearch.rest.RestController.tryAllHandlers(RestController.java:307) [elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\nat org.elasticsearch.rest.RestController.dispatchRequest(RestController.java:165) [elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\nat org.elasticsearch.http.AbstractHttpServerTransport.dispatchRequest(AbstractHttpServerTransport.java:322) [elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\nat org.elasticsearch.http.AbstractHttpServerTransport.handleIncomingRequest(AbstractHttpServerTransport.java:372) [elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\nat org.elasticsearch.http.AbstractHttpServerTransport.incomingRequest(AbstractHttpServerTransport.java:301) [elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\nat org.elasticsearch.http.netty4.Netty4HttpRequestHandler.channelRead0(Netty4HttpRequestHandler.java:54) [transport-netty4-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\nat org.elasticsearch.http.netty4.Netty4HttpRequestHandler.channelRead0(Netty4HttpRequestHandler.java:29) [transport-netty4-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\nat io.netty.channel.SimpleChannelInboundHandler.channelRead(SimpleChannelInboundHandler.java:99) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:374) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:360) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.fireChannelRead(AbstractChannelHandlerContext.java:352) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat org.elasticsearch.http.netty4.Netty4HttpPipeliningHandler.channelRead(Netty4HttpPipeliningHandler.java:58) [transport-netty4-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\nat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:374) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:360) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.fireChannelRead(AbstractChannelHandlerContext.java:352) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.handler.codec.MessageToMessageDecoder.channelRead(MessageToMessageDecoder.java:102) [netty-codec-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.handler.codec.MessageToMessageCodec.channelRead(MessageToMessageCodec.java:111) [netty-codec-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:374) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:360) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.fireChannelRead(AbstractChannelHandlerContext.java:352) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.handler.codec.MessageToMessageDecoder.channelRead(MessageToMessageDecoder.java:102) [netty-codec-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:374) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:360) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.fireChannelRead(AbstractChannelHandlerContext.java:352) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.handler.codec.MessageToMessageDecoder.channelRead(MessageToMessageDecoder.java:102) [netty-codec-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:374) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:360) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.fireChannelRead(AbstractChannelHandlerContext.java:352) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.handler.codec.ByteToMessageDecoder.fireChannelRead(ByteToMessageDecoder.java:326) [netty-codec-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.handler.codec.ByteToMessageDecoder.channelRead(ByteToMessageDecoder.java:300) [netty-codec-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:374) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:360) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.fireChannelRead(AbstractChannelHandlerContext.java:352) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.handler.timeout.IdleStateHandler.channelRead(IdleStateHandler.java:287) [netty-handler-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:374) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:360) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.fireChannelRead(AbstractChannelHandlerContext.java:352) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.DefaultChannelPipeline$HeadContext.channelRead(DefaultChannelPipeline.java:1422) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:374) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.AbstractChannelHandlerContext.invokeChannelRead(AbstractChannelHandlerContext.java:360) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.DefaultChannelPipeline.fireChannelRead(DefaultChannelPipeline.java:931) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.nio.AbstractNioByteChannel$NioByteUnsafe.read(AbstractNioByteChannel.java:163) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.nio.NioEventLoop.processSelectedKey(NioEventLoop.java:700) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.nio.NioEventLoop.processSelectedKeysPlain(NioEventLoop.java:600) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.nio.NioEventLoop.processSelectedKeys(NioEventLoop.java:554) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.channel.nio.NioEventLoop.run(NioEventLoop.java:514) [netty-transport-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.util.concurrent.SingleThreadEventExecutor$6.run(SingleThreadEventExecutor.java:1050) [netty-common-4.1.43.Final.jar:4.1.43.Final]\r\nat io.netty.util.internal.ThreadExecutorMap$2.run(ThreadExecutorMap.java:74) [netty-common-4.1.43.Final.jar:4.1.43.Final]\r\nat java.lang.Thread.run(Thread.java:834) [?:?]\r\n```",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50497",
+        "assignees": [
+            "albertzaharovits"
+        ],
+        "labels": [
+            ">test-failure",
+            ":Security/Authentication"
+        ],
+        "issue_closed_at": "2020-01-16T12:11:59.000Z",
+        "fix_commit_hash": "b02119c42377b191cc97808c814cd4399da99dd0",
+        "commit_type": "commit",
+        "commit_message": "Fail gracefully on invalid token strings (#51014)\n\nWhen we receive a request with an Authorization header that contains\r\na Bearer token that is not generated by us or that is malformed in\r\nsome way, attempting to decode it as one of our own might cause a\r\nnumber of exceptions that are not IOExceptions. This commit ensures\r\nthat we catch and log these too and call onResponse with `null, so\r\nthat we can return 401 instead of 500.\r\n\r\nResolves: #50497",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/b02119c42377b191cc97808c814cd4399da99dd0",
+        "earliest_issue_date": "2019-12-26T16:12:06Z",
+        "predicted_class": "bug",
+        "bic": [
+            "357aac806641b3807dcbbc70c33676228a33f627"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50505,
+        "issue_title": "[CI] InternalGeoBoundsTests.testFromXContentWithRandomFields failure",
+        "issue_body": "Failure:\r\n```\r\njava.lang.NullPointerException\r\n\tat __randomizedtesting.SeedInfo.seed([1C33F4DADA278134:1E26D99B81E009E1]:0)\r\n\tat org.elasticsearch.search.aggregations.metrics.ParsedGeoBounds.topLeft(ParsedGeoBounds.java:58)\r\n\tat org.elasticsearch.search.aggregations.metrics.InternalGeoBoundsTests.assertFromXContent(InternalGeoBoundsTests.java:100)\r\n\tat org.elasticsearch.search.aggregations.metrics.InternalGeoBoundsTests.assertFromXContent(InternalGeoBoundsTests.java:36)\r\n\tat org.elasticsearch.test.InternalAggregationTestCase.testFromXContentWithRandomFields(InternalAggregationTestCase.java:356)\r\n```\r\nBranch master and 7.6.0\r\n\r\nReproduce with\r\n```\r\n./gradlew ':server:test' --tests \"org.elasticsearch.search.aggregations.metrics.InternalGeoBoundsTests.testFromXContentWithRandomFields\" \\\r\n  -Dtests.seed=1C33F4DADA278134 \\\r\n  -Dtests.security.manager=true \\\r\n  -Dtests.locale=ga-IE \\\r\n  -Dtests.timezone=Atlantic/Bermuda \\\r\n  -Dcompiler.java=13\r\n```\r\n\r\nBuild scan available at https://gradle-enterprise.elastic.co/s/7x2ct6yywkw3o\r\n\r\nThis is a regression introduced by https://github.com/elastic/elasticsearch/pull/50253",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50505",
+        "assignees": [],
+        "labels": [
+            ":Analytics/Geo",
+            ">test-failure"
+        ],
+        "issue_closed_at": "2020-01-03T15:14:34.000Z",
+        "fix_commit_hash": "051718f9b1e1ca957229b01e80d7b79d7e727e14",
+        "commit_type": "pr",
+        "commit_message": "Guard against null geoBoundingBox (#50506)\n\nA geo box with a top value of Double.NEGATIVE_INFINITY will yield an empty\r\nxContent which translates to a null `geoBoundingBox`. This commit marks the\r\nfield as `Nullable` and guards against null when retrieving the `topLeft`\r\nand `bottomRight` fields.\r\n\r\nFixes https://github.com/elastic/elasticsearch/issues/50505",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50506",
+        "earliest_issue_date": "2019-12-27T11:35:06Z",
+        "predicted_class": "bug",
+        "bic": [
+            "769650e00d2eab12813584f68d98cf7cf6f7ff0c"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50507,
+        "issue_title": "[CI] ClusterStatsNodesTests.testIngestStats failure",
+        "issue_body": "AssertionError \r\n```\r\nExpected: \"{\\\"ingest\\\":{\\\"number_of_pipelines\\\":7,\\\"processor_stats\\\":{\\\"BVnswuwET\\\":{\\\"count\\\":8558306664820333374,\\\"failed\\\":5046051171408668009,\\\"current\\\":3041919542172151635,\\\"time_in_millis\\\":3129450618830012446},\\\"BdTwsnFxBG\\\":{\\\"count\\\":8354636182310660703,\\\"failed\\\":6647292735810865695,\\\"current\\\":5140100942953055163,\\\"time_in_millis\\\":1361194147241593116},\\\"BoFewhD\\\":{\\\"count\\\":6727844367904381552,\\\"failed\\\":6079720951270125336,\\\"current\\\":157078052097980021,\\\"time_in_millis\\\":4198910094422190385},\\\"CjtvCfnueM\\\":{\\\"count\\\":876468025915048140,\\\"failed\\\":8769109119428512815,\\\"current\\\":847669326027042311,\\\"time_in_millis\\\":4759865986751273886},\\\"Cyo\\\":{\\\"count\\\":8322591501624407743,\\\"failed\\\":5286825427117829480,\\\"current\\\":1890873076557166901,\\\"time_in_millis\\\":418527843717457735},\\\"DyJLN\\\":{\\\"count\\\":2667321485076778001,\\\"failed\\\":5560288020925949601,\\\"current\\\":1210303103985344714,\\\"time_in_millis\\\":1637821456779809146},\\\"EmX\\\":{\\\"count\\\":8458108606767741115,\\\"failed\\\":2710713392935296393,\\\"current\\\":5623962890690706975,\\\"time_in_millis\\\":5604691397842882373},\\\"GRNfWWviUr\\\":{\\\"count\\\":4785823293613268664,\\\"failed\\\":2189749109116749775,\\\"current\\\":6890013979443992512,\\\"time_in_millis\\\":6630994969425544509},\\\"HcQRPm\\\":{\\\"count\\\":8533424724567725945,\\\"failed\\\":4711058884626492286,\\\"current\\\":3731816581543283798,\\\"time_in_millis\\\":4163466983183525856},\\\"IGUC\\\":{\\\"count\\\":6539132842802389302,\\\"failed\\\":7055401806851091327,\\\"current\\\":3640411474552441860,\\\"time_in_millis\\\":4043949451211748761},\\\"IMrZuu\\\":{\\\"count\\\":8385246298769471417,\\\"failed\\\":3755327382987138040,\\\"current\\\":6958582781482617159,\\\"time_in_millis\\\":7372080347055073193},\\\"IfUs\\\":{\\\"count\\\":1643475851909208334,\\\"failed\\\":1997739261998842837,\\\"current\\\":8872948356901025391,\\\"time_in_millis\\\":9052270018843535482},\\\"NiUeJn\\\":{\\\"count\\\":6611448893731182665,\\\"failed\\\":1106279437573266352,\\\"current\\\":5153381073648049851,\\\"time_in_millis\\\":317600429369050876},\\\"PQdGrNEOX\\\":{\\\"count\\\":677625012402003567,\\\"failed\\\":6423727160593273277,\\\"current\\\":158523069022058758,\\\"time_in_millis\\\":7856047952745928054},\\\"QnYZBSDI\\\":{\\\"count\\\":7841319989006198906,\\\"failed\\\":9057517984397810444,\\\"current\\\":5715356336430666525,\\\"time_in_millis\\\":3061777352606594767},\\\"RePtM\\\":{\\\"count\\\":8155459631091111667,\\\"failed\\\":4634038489791983185,\\\"current\\\":2714240716311079725,\\\"time_in_millis\\\":1591993766655559365},\\\"RxTgufA\\\":{\\\"count\\\":2047801574797932502,\\\"failed\\\":4960353384630529654,\\\"current\\\":8593265923866299946,\\\"time_in_millis\\\":8640188377871305272},\\\"STVzHb\\\":{\\\"count\\\":1227789633850898445,\\\"failed\\\":8505107874246476029,\\\"current\\\":6729352113673199927,\\\"time_in_millis\\\":8778009954392025577},\\\"SaJUOhXD\\\":{\\\"count\\\":702487755878867426,\\\"failed\\\":4301116027928797482,\\\"current\\\":346730027709775485,\\\"time_in_millis\\\":8639894516942078063},\\\"TKxqJ\\\":{\\\"count\\\":6378994562921484917,\\\"failed\\\":3810791421382457274,\\\"current\\\":5508599683847415655,\\\"time_in_millis\\\":6122680672422535956},\\\"TfqoGbfOog\\\":{\\\"count\\\":2118963749787841005,\\\"failed\\\":328993806773970145,\\\"current\\\":8189547843242769489,\\\"time_in_millis\\\":7259874487458485593},\\\"ThAfbV\\\":{\\\"count\\\":6730962648297895892,\\\"failed\\\":1377369303677394036,\\\"current\\\":2815600716155490149,\\\"time_in_millis\\\":4749928717069878078},\\\"VUhgpl\\\":{\\\"count\\\":3717510488892177678,\\\"failed\\\":1992931601272599185,\\\"current\\\":1602144517740795455,\\\"time_in_millis\\\":5024801847977556710},\\\"VsGKMjcAzx\\\":{\\\"count\\\":808934796663208600,\\\"failed\\\":3401450683966434021,\\\"current\\\":6969597073717924841,\\\"time_in_millis\\\":8654365181565516280},\\\"VyGXbHRG\\\":{\\\"count\\\":3468914867852088430,\\\"failed\\\":8796167029223585061,\\\"current\\\":3220051990910976853,\\\"time_in_millis\\\":5792670516172169200},\\\"XCVkU\\\":{\\\"count\\\":2843770803189585405,\\\"failed\\\":1431242634002150877,\\\"current\\\":5477077696949210892,\\\"time_in_millis\\\":2308579856768971691},\\\"YnZt\\\":{\\\"count\\\":6156096442015581220,\\\"failed\\\":383387544790662239,\\\"current\\\":6971333972792620111,\\\"time_in_millis\\\":3430257960908091827},\\\"ZuEPjOG\\\":{\\\"count\\\":7835549956662939919,\\\"failed\\\":927520329443278421,\\\"current\\\":8022822858207470631,\\\"time_in_millis\\\":5455263436689247914},\\\"aXgSSRwxrK\\\":{\\\"count\\\":8878272391759125920,\\\"failed\\\":549971697328830036,\\\"current\\\":8757033808560870939,\\\"time_in_millis\\\":688071555645059961},\\\"amnIwgPL\\\":{\\\"count\\\":5591526729593173364,\\\"failed\\\":7057654540231343424,\\\"current\\\":1696110744659172422,\\\"time_in_millis\\\":7707575573671360741},\\\"bgnbjNJN\\\":{\\\"count\\\":5306047848763634976,\\\"failed\\\":5187226411454883010,\\\"current\\\":4279804480516305149,\\\"time_in_millis\\\":8476028651596182850},\\\"bmsXnWhggM\\\":{\\\"count\\\":5532719673062213666,\\\"failed\\\":6617368133845424362,\\\"current\\\":1048230611846416734,\\\"time_in_millis\\\":3202767396389237068},\\\"cLRXJuq\\\":{\\\"count\\\":3068473238928089376,\\\"failed\\\":6994861124738850746,\\\"current\\\":6249685185560211547,\\\"time_in_millis\\\":5230556867060084554},\\\"cqzzqaOdf\\\":{\\\"count\\\":2027859019566808101,\\\"failed\\\":1891777291417375171,\\\"current\\\":2183506135949173147,\\\"time_in_millis\\\":5132048269790432108},\\\"cvdLWf\\\":{\\\"count\\\":3848771896051515436,\\\"failed\\\":558111178217471013,\\\"current\\\":2547617013138060345,\\\"time_in_millis\\\":29648579685149581},\\\"czrsvdsw\\\":{\\\"count\\\":4085964597903305436,\\\"failed\\\":2077533467890482711,\\\"current\\\":8279133678506839315,\\\"time_in_millis\\\":4291215113222242635},\\\"dnZsyhk\\\":{\\\"count\\\":6684078794589086765,\\\"failed\\\":2171675026266030358,\\\"current\\\":2762091404038124900,\\\"time_in_millis\\\":8097618536818436772},\\\"eJeIYHh\\\":{\\\"count\\\":5947622624952093234,\\\"failed\\\":3401812060471942132,\\\"current\\\":7983987739266906171,\\\"time_in_millis\\\":3234688086726996895},\\\"eYRUmop\\\":{\\\"count\\\":2291893720554288741,\\\"failed\\\":818183985773111108,\\\"current\\\":3308512021862142565,\\\"time_in_millis\\\":8001752777297913627},\\\"fkkmfxKcv\\\":{\\\"count\\\":5572551389047259142,\\\"failed\\\":6501379303602304244,\\\"current\\\":2814706001433975947,\\\"time_in_millis\\\":7990752472404378778},\\\"flimQczLnT\\\":{\\\"count\\\":823038793205727109,\\\"failed\\\":8104911017225485341,\\\"current\\\":477940131587803296,\\\"time_in_millis\\\":2007523939441148599},\\\"gXMqOxcP\\\":{\\\"count\\\":2150913468655555272,\\\"failed\\\":5983529952036420969,\\\"current\\\":663735990101575841,\\\"time_in_millis\\\":3754512565681331139},\\\"gZY\\\":{\\\"count\\\":3528027611470195054,\\\"failed\\\":7347861366555759995,\\\"current\\\":611555107815665674,\\\"time_in_millis\\\":7641899981619935404},\\\"goiWHHVqTq\\\":{\\\"count\\\":7679856378632265292,\\\"failed\\\":3410032066685384938,\\\"current\\\":8601350184901102986,\\\"time_in_millis\\\":8688664639254017949},\\\"kBRr\\\":{\\\"count\\\":9655572072849223,\\\"failed\\\":5692944611551515282,\\\"current\\\":1548016335481487036,\\\"time_in_millis\\\":8401422635582671938},\\\"kLgiKW\\\":{\\\"count\\\":2302108847593769412,\\\"failed\\\":7935239620935363859,\\\"current\\\":1149602335856443843,\\\"time_in_millis\\\":4436025020520535167},\\\"kliDDIzp\\\":{\\\"count\\\":6713748644127844242,\\\"failed\\\":6431741348489559331,\\\"current\\\":3690127526386605538,\\\"time_in_millis\\\":8667399779356392249},\\\"mKvOaen\\\":{\\\"count\\\":2813153745087181885,\\\"failed\\\":6760099064542791590,\\\"current\\\":6739311099180893152,\\\"time_in_millis\\\":4475488242342846445},\\\"nJd\\\":{\\\"count\\\":7651408037633669592,\\\"failed\\\":9133189317808401712,\\\"current\\\":4433279042442488333,\\\"time_in_millis\\\":5111505399280544765},\\\"nnjECWtVAv\\\":{\\\"count\\\":7910059433575076929,\\\"failed\\\":1056612762120898564,\\\"current\\\":4992672137969096427,\\\"time_in_millis\\\":6671666433909435203},\\\"oNLo\\\":{\\\"count\\\":1359871977772767940,\\\"failed\\\":6438491644859268143,\\\"current\\\":511049583186210936,\\\"time_in_millis\\\":3400210520578142853},\\\"okrngQA\\\":{\\\"count\\\":5137763527900776009,\\\"failed\\\":7005362975446752319,\\\"current\\\":8218887852168128327,\\\"time_in_millis\\\":4529725013455010040},\\\"pHT\\\":{\\\"count\\\":3360007503076749136,\\\"failed\\\":1265884418861985384,\\\"current\\\":6557549828377503689,\\\"time_in_millis\\\":6780545132107519416},\\\"pZUFn\\\":{\\\"count\\\":4018676604623720569,\\\"failed\\\":628459990965445266,\\\"current\\\":7451670151334498397,\\\"time_in_millis\\\":8200837991610244656},\\\"pqW\\\":{\\\"count\\\":6431070272295923083,\\\"failed\\\":4086527187328714335,\\\"current\\\":4862730294609960272,\\\"time_in_millis\\\":2669032895978123081},\\\"pylNHRbU\\\":{\\\"count\\\":5495993487147527418,\\\"failed\\\":5906137798881127509,\\\"current\\\":5668173508451095423,\\\"time_in_millis\\\":4937776150065169160},\\\"qeIVwX\\\":{\\\"count\\\":6317251187733644970,\\\"failed\\\":7374659623322604433,\\\"current\\\":2124209041615779528,\\\"time_in_millis\\\":911501166709210801},\\\"tJB\\\":{\\\"count\\\":8120272237031785824,\\\"failed\\\":2597011185579691885,\\\"current\\\":7380444799269710118,\\\"time_in_millis\\\":4034784478157182795},\\\"tzaehR\\\":{\\\"count\\\":5079848921281489015,\\\"failed\\\":4862764219805430777,\\\"current\\\":5933749136780108097,\\\"time_in_millis\\\":8875162579183301589},\\\"uKUsqBDs\\\":{\\\"count\\\":1171118977167484156,\\\"failed\\\":4125275219277654974,\\\"current\\\":5093090388838515507,\\\"time_in_millis\\\":8934543325673830743},\\\"und\\\":{\\\"count\\\":6614574321680615157,\\\"failed\\\":5206055383275953904,\\\"current\\\":2970961801013222669,\\\"time_in_millis\\\":2302822050383913599},\\\"yXfM\\\":{\\\"count\\\":252542093803976158,\\\"failed\\\":967757483564470352,\\\"current\\\":5873541629823706674,\\\"time_in_millis\\\":4737103845189100439}}}}\"\r\n     but: was \"{\\\"ingest\\\":{\\\"number_of_pipelines\\\":7,\\\"processor_stats\\\":{\\\"BVnswuwET\\\":{\\\"count\\\":8558306664820333374,\\\"failed\\\":5046051171408668009,\\\"current\\\":3041919542172151635,\\\"time_in_millis\\\":3129450618830012446},\\\"BdTwsnFxBG\\\":{\\\"count\\\":8354636182310660703,\\\"failed\\\":6647292735810865695,\\\"current\\\":5140100942953055163,\\\"time_in_millis\\\":1361194147241593116},\\\"BoFewhD\\\":{\\\"count\\\":6727844367904381552,\\\"failed\\\":6079720951270125336,\\\"current\\\":157078052097980021,\\\"time_in_millis\\\":4198910094422190385},\\\"CjtvCfnueM\\\":{\\\"count\\\":876468025915048140,\\\"failed\\\":8769109119428512815,\\\"current\\\":847669326027042311,\\\"time_in_millis\\\":4759865986751273886},\\\"Cyo\\\":{\\\"count\\\":8322591501624407743,\\\"failed\\\":5286825427117829480,\\\"current\\\":1890873076557166901,\\\"time_in_millis\\\":418527843717457735},\\\"DyJLN\\\":{\\\"count\\\":2667321485076778001,\\\"failed\\\":5560288020925949601,\\\"current\\\":1210303103985344714,\\\"time_in_millis\\\":1637821456779809146},\\\"EmX\\\":{\\\"count\\\":8458108606767741115,\\\"failed\\\":2710713392935296393,\\\"current\\\":5623962890690706975,\\\"time_in_millis\\\":5604691397842882373},\\\"GRNfWWviUr\\\":{\\\"count\\\":4785823293613268664,\\\"failed\\\":2189749109116749775,\\\"current\\\":6890013979443992512,\\\"time_in_millis\\\":6630994969425544509},\\\"HcQRPm\\\":{\\\"count\\\":8533424724567725945,\\\"failed\\\":4711058884626492286,\\\"current\\\":3731816581543283798,\\\"time_in_millis\\\":4163466983183525856},\\\"IGUC\\\":{\\\"count\\\":6539132842802389302,\\\"failed\\\":7055401806851091327,\\\"current\\\":3640411474552441860,\\\"time_in_millis\\\":4043949451211748761},\\\"IMrZuu\\\":{\\\"count\\\":8385246298769471417,\\\"failed\\\":3755327382987138040,\\\"current\\\":6958582781482617159,\\\"time_in_millis\\\":7372080347055073193},\\\"IfUs\\\":{\\\"count\\\":1643475851909208334,\\\"failed\\\":1997739261998842837,\\\"current\\\":8872948356901025391,\\\"time_in_millis\\\":9052270018843535482},\\\"NiUeJn\\\":{\\\"count\\\":6611448893731182665,\\\"failed\\\":1106279437573266352,\\\"current\\\":5153381073648049851,\\\"time_in_millis\\\":317600429369050876},\\\"PQdGrNEOX\\\":{\\\"count\\\":677625012402003567,\\\"failed\\\":6423727160593273277,\\\"current\\\":158523069022058758,\\\"time_in_millis\\\":7856047952745928054},\\\"QnYZBSDI\\\":{\\\"count\\\":7841319989006198906,\\\"failed\\\":9057517984397810444,\\\"current\\\":5715356336430666525,\\\"time_in_millis\\\":3061777352606594767},\\\"RePtM\\\":{\\\"count\\\":8155459631091111667,\\\"failed\\\":4634038489791983185,\\\"current\\\":2714240716311079725,\\\"time_in_millis\\\":1591993766655559365},\\\"RxTgufA\\\":{\\\"count\\\":2047801574797932502,\\\"failed\\\":4960353384630529654,\\\"current\\\":8593265923866299946,\\\"time_in_millis\\\":8640188377871305272},\\\"STVzHb\\\":{\\\"count\\\":1227789633850898445,\\\"failed\\\":8505107874246476029,\\\"current\\\":6729352113673199927,\\\"time_in_millis\\\":8778009954392025577},\\\"SaJUOhXD\\\":{\\\"count\\\":702487755878867426,\\\"failed\\\":4301116027928797482,\\\"current\\\":346730027709775485,\\\"time_in_millis\\\":8639894516942078063},\\\"TKxqJ\\\":{\\\"count\\\":6378994562921484917,\\\"failed\\\":3810791421382457274,\\\"current\\\":5508599683847415655,\\\"time_in_millis\\\":6122680672422535956},\\\"TfqoGbfOog\\\":{\\\"count\\\":2118963749787841005,\\\"failed\\\":328993806773970145,\\\"current\\\":8189547843242769489,\\\"time_in_millis\\\":7259874487458485593},\\\"ThAfbV\\\":{\\\"count\\\":6730962648297895892,\\\"failed\\\":1377369303677394036,\\\"current\\\":2815600716155490149,\\\"time_in_millis\\\":4749928717069878078},\\\"VUhgpl\\\":{\\\"count\\\":3717510488892177678,\\\"failed\\\":1992931601272599185,\\\"current\\\":1602144517740795455,\\\"time_in_millis\\\":5024801847977556710},\\\"VsGKMjcAzx\\\":{\\\"count\\\":808934796663208600,\\\"failed\\\":3401450683966434021,\\\"current\\\":6969597073717924841,\\\"time_in_millis\\\":8654365181565516280},\\\"VyGXbHRG\\\":{\\\"count\\\":3468914867852088430,\\\"failed\\\":8796167029223585061,\\\"current\\\":3220051990910976853,\\\"time_in_millis\\\":5792670516172169200},\\\"XCVkU\\\":{\\\"count\\\":2843770803189585405,\\\"failed\\\":1431242634002150877,\\\"current\\\":5477077696949210892,\\\"time_in_millis\\\":2308579856768971691},\\\"YnZt\\\":{\\\"count\\\":6156096442015581220,\\\"failed\\\":383387544790662239,\\\"current\\\":6971333972792620111,\\\"time_in_millis\\\":3430257960908091827},\\\"ZuEPjOG\\\":{\\\"count\\\":7835549956662939919,\\\"failed\\\":927520329443278421,\\\"current\\\":8022822858207470631,\\\"time_in_millis\\\":5455263436689247914},\\\"aXgSSRwxrK\\\":{\\\"count\\\":8878272391759125920,\\\"failed\\\":549971697328830036,\\\"current\\\":8757033808560870939,\\\"time_in_millis\\\":688071555645059961},\\\"amnIwgPL\\\":{\\\"count\\\":5591526729593173364,\\\"failed\\\":7057654540231343424,\\\"current\\\":1696110744659172422,\\\"time_in_millis\\\":7707575573671360741},\\\"bgnbjNJN\\\":{\\\"count\\\":5306047848763634976,\\\"failed\\\":5187226411454883010,\\\"current\\\":4279804480516305149,\\\"time_in_millis\\\":8476028651596182850},\\\"bmsXnWhggM\\\":{\\\"count\\\":5532719673062213666,\\\"failed\\\":6617368133845424362,\\\"current\\\":1048230611846416734,\\\"time_in_millis\\\":3202767396389237068},\\\"cLRXJuq\\\":{\\\"count\\\":3068473238928089376,\\\"failed\\\":6994861124738850746,\\\"current\\\":6249685185560211547,\\\"time_in_millis\\\":5230556867060084554},\\\"cqzzqaOdf\\\":{\\\"count\\\":2027859019566808101,\\\"failed\\\":1891777291417375171,\\\"current\\\":2183506135949173147,\\\"time_in_millis\\\":5132048269790432108},\\\"cvdLWf\\\":{\\\"count\\\":3848771896051515436,\\\"failed\\\":558111178217471013,\\\"current\\\":2547617013138060345,\\\"time_in_millis\\\":29648579685149581},\\\"czrsvdsw\\\":{\\\"count\\\":4085964597903305436,\\\"failed\\\":2077533467890482711,\\\"current\\\":8279133678506839315,\\\"time_in_millis\\\":4291215113222242635},\\\"dnZsyhk\\\":{\\\"count\\\":6684078794589086765,\\\"failed\\\":2171675026266030358,\\\"current\\\":2762091404038124900,\\\"time_in_millis\\\":8097618536818436772},\\\"eJeIYHh\\\":{\\\"count\\\":5947622624952093234,\\\"failed\\\":3401812060471942132,\\\"current\\\":7983987739266906171,\\\"time_in_millis\\\":3234688086726996895},\\\"eYRUmop\\\":{\\\"count\\\":2291893720554288741,\\\"failed\\\":818183985773111108,\\\"current\\\":3308512021862142565,\\\"time_in_millis\\\":8001752777297913627},\\\"fkkmfxKcv\\\":{\\\"count\\\":5572551389047259142,\\\"failed\\\":6501379303602304244,\\\"current\\\":2814706001433975947,\\\"time_in_millis\\\":7990752472404378778},\\\"flimQczLnT\\\":{\\\"count\\\":823038793205727109,\\\"failed\\\":8104911017225485341,\\\"current\\\":477940131587803296,\\\"time_in_millis\\\":2007523939441148599},\\\"gXMqOxcP\\\":{\\\"count\\\":2150913468655555272,\\\"failed\\\":5983529952036420969,\\\"current\\\":663735990101575841,\\\"time_in_millis\\\":3754512565681331139},\\\"gZY\\\":{\\\"count\\\":4279966618686806279,\\\"failed\\\":-3213079704328176381,\\\"current\\\":2124344903036782413,\\\"time_in_millis\\\":-1747908275740096686},\\\"goiWHHVqTq\\\":{\\\"count\\\":7679856378632265292,\\\"failed\\\":3410032066685384938,\\\"current\\\":8601350184901102986,\\\"time_in_millis\\\":8688664639254017949},\\\"kBRr\\\":{\\\"count\\\":9655572072849223,\\\"failed\\\":5692944611551515282,\\\"current\\\":1548016335481487036,\\\"time_in_millis\\\":8401422635582671938},\\\"kLgiKW\\\":{\\\"count\\\":2302108847593769412,\\\"failed\\\":7935239620935363859,\\\"current\\\":1149602335856443843,\\\"time_in_millis\\\":4436025020520535167},\\\"kliDDIzp\\\":{\\\"count\\\":6713748644127844242,\\\"failed\\\":6431741348489559331,\\\"current\\\":3690127526386605538,\\\"time_in_millis\\\":8667399779356392249},\\\"mKvOaen\\\":{\\\"count\\\":2813153745087181885,\\\"failed\\\":6760099064542791590,\\\"current\\\":6739311099180893152,\\\"time_in_millis\\\":4475488242342846445},\\\"nJd\\\":{\\\"count\\\":7651408037633669592,\\\"failed\\\":9133189317808401712,\\\"current\\\":4433279042442488333,\\\"time_in_millis\\\":5111505399280544765},\\\"nnjECWtVAv\\\":{\\\"count\\\":7910059433575076929,\\\"failed\\\":1056612762120898564,\\\"current\\\":4992672137969096427,\\\"time_in_millis\\\":6671666433909435203},\\\"oNLo\\\":{\\\"count\\\":1359871977772767940,\\\"failed\\\":6438491644859268143,\\\"current\\\":511049583186210936,\\\"time_in_millis\\\":3400210520578142853},\\\"okrngQA\\\":{\\\"count\\\":5137763527900776009,\\\"failed\\\":7005362975446752319,\\\"current\\\":8218887852168128327,\\\"time_in_millis\\\":4529725013455010040},\\\"pHT\\\":{\\\"count\\\":3360007503076749136,\\\"failed\\\":1265884418861985384,\\\"current\\\":6557549828377503689,\\\"time_in_millis\\\":6780545132107519416},\\\"pZUFn\\\":{\\\"count\\\":4018676604623720569,\\\"failed\\\":628459990965445266,\\\"current\\\":7451670151334498397,\\\"time_in_millis\\\":8200837991610244656},\\\"pqW\\\":{\\\"count\\\":6431070272295923083,\\\"failed\\\":4086527187328714335,\\\"current\\\":4862730294609960272,\\\"time_in_millis\\\":2669032895978123081},\\\"pylNHRbU\\\":{\\\"count\\\":5495993487147527418,\\\"failed\\\":5906137798881127509,\\\"current\\\":5668173508451095423,\\\"time_in_millis\\\":4937776150065169160},\\\"qeIVwX\\\":{\\\"count\\\":6317251187733644970,\\\"failed\\\":7374659623322604433,\\\"current\\\":2124209041615779528,\\\"time_in_millis\\\":911501166709210801},\\\"tJB\\\":{\\\"count\\\":8120272237031785824,\\\"failed\\\":2597011185579691885,\\\"current\\\":7380444799269710118,\\\"time_in_millis\\\":4034784478157182795},\\\"tzaehR\\\":{\\\"count\\\":5079848921281489015,\\\"failed\\\":4862764219805430777,\\\"current\\\":5933749136780108097,\\\"time_in_millis\\\":8875162579183301589},\\\"uKUsqBDs\\\":{\\\"count\\\":1171118977167484156,\\\"failed\\\":4125275219277654974,\\\"current\\\":5093090388838515507,\\\"time_in_millis\\\":8934543325673830743},\\\"und\\\":{\\\"count\\\":6614574321680615157,\\\"failed\\\":5206055383275953904,\\\"current\\\":2970961801013222669,\\\"time_in_millis\\\":2302822050383913599},\\\"yXfM\\\":{\\\"count\\\":252542093803976158,\\\"failed\\\":967757483564470352,\\\"current\\\":5873541629823706674,\\\"time_in_millis\\\":4737103845189100439}}}}\"\r\n```\r\n\r\nThe difference is very hard to read, which is something we might want to address. Using a diff tool, the error is:\r\nExpected:\r\n```\r\n\"gZY\\\":{\\\"count\\\":3528027611470195054,\\\"failed\\\":7347861366555759995,\\\"current\\\":611555107815665674,\\\"time_in_millis\\\":7641899981619935404}\r\n```\r\nActual:\r\n```\r\n\"gZY\\\":{\\\"count\\\":4279966618686806279,\\\"failed\\\":-3213079704328176381,\\\"current\\\":2124344903036782413,\\\"time_in_millis\\\":-1747908275740096686}\r\n```\r\n\r\nReproducible with:\r\n```\r\n./gradlew ':server:test' --tests \"org.elasticsearch.action.admin.cluster.stats.ClusterStatsNodesTests.testIngestStats\" \\\r\n  -Dtests.seed=1C33F4DADA278134 \\\r\n  -Dtests.security.manager=true \\\r\n  -Dtests.locale=ar-AE \\\r\n  -Dtests.timezone=Asia/Ulan_Bator \\\r\n  -Dcompiler.java=13\r\n```\r\n\r\nBuild scan available at https://gradle-enterprise.elastic.co/s/7x2ct6yywkw3o\r\n\r\nLikely introduced by https://github.com/elastic/elasticsearch/pull/48485",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50507",
+        "assignees": [
+            "martijnvg"
+        ],
+        "labels": [
+            ":Core/Infra/Stats",
+            ">test-failure",
+            ":Distributed/Ingest Node",
+            "v7.6.0",
+            "v8.0.0-alpha1"
+        ],
+        "issue_closed_at": "2020-01-06T14:37:02.000Z",
+        "fix_commit_hash": "9a7e9b8158815a1e0a9b96341fc6ee308d7e1435",
+        "commit_type": "pr",
+        "commit_message": "Fix ingest stats test bug. (#50653)\n\nThis test code fixes a serialization test bug:\r\nhttps://gradle-enterprise.elastic.co/s/7x2ct6yywkw3o\r\n\r\nRarely stats for the same processor are generated and\r\nthe production code then sums up these stats. However\r\nthe test code wasn't summing up in that case,\r\nwhich caused inconsistencies between the actual and expected results.\r\n\r\nCloses #50507",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50653",
+        "earliest_issue_date": "2019-12-27T11:45:41Z",
+        "predicted_class": "bug",
+        "bic": [
+            "523cb23e02f1db3470fcbd725645e99fd21f2589"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50688,
+        "issue_title": "[DOCS] Different layout for the components of SQL REST API page",
+        "issue_body": "I noticed recently (may have been like this for some time though) that there is a rather big difference between 6.7 and 6.8 documentation when it comes to a specific page. _There may be other inconsistencies like this one, but haven't checked the rest of the SQL documentation yet_.\r\n\r\nIn SQL REST API page, [in 6.7 there is basically a single page](https://www.elastic.co/guide/en/elasticsearch/reference/6.7/sql-rest.html) where users can choose from the right hand side the anchor or sub-title where they want to quickly jump to. For example, [Paginating through a large response](https://www.elastic.co/guide/en/elasticsearch/reference/6.7/sql-rest.html#sql-pagination) starts with\r\n\r\n> Using the example above, one can continue to the next page by sending back the cursor field.\r\n\r\nWhich makes sense, since the previous sub-title showed a `fetch_size` usage example.\r\nIn 6.8 though, the same [SQL REST API page](https://www.elastic.co/guide/en/elasticsearch/reference/6.8/sql-pagination.html) has its own page and there is no \"example above\" which looks weird.",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50688",
+        "assignees": [
+            "jrodewig"
+        ],
+        "labels": [
+            ">docs",
+            ":Analytics/SQL"
+        ],
+        "issue_closed_at": "2020-01-07T15:17:55.000Z",
+        "fix_commit_hash": "a5b6242aa523c36cb4943fd8b643dababa2b3e66",
+        "commit_type": "pr",
+        "commit_message": "[DOCS] Update SQL REST API pages for new structure (#50690)\n\n#43007 restructured the SQL REST API docs so they display across several pages.\r\n\r\nThis updates up a reference that assumes a single page in the \"Paginating through a large response\" section. It also reformats a tip for the Kibana console.\r\n\r\nCloses #50688",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50690",
+        "earliest_issue_date": "2019-12-30T22:23:25Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50539,
+        "issue_title": "NPE when having two \"should\" sub-queries with one has_parent w/ inner_hits",
+        "issue_body": "<!-- Bug report -->\r\n\r\n**Elasticsearch version** (`bin/elasticsearch --version`):\r\nVersion: 6.8.2, Build: oss/tar/b506955/2019-07-24T15:24:41.545295Z, JVM: 1.8.0_232\r\n\r\n**Plugins installed**: \r\n\"repository-azure\",  \"repository-gcs\", \"repository-hdfs\", \"repository-s3\"\r\n\r\n\r\n**JVM version** (`java -version`):\r\n\r\nopenjdk version \"1.8.0_232\"\r\nOpenJDK Runtime Environment (build 1.8.0_232-8u232-b09-0ubuntu1~18.04.1-b09)\r\nOpenJDK 64-Bit Server VM (build 25.232-b09, mixed mode\r\n\r\n**OS version** (`uname -a` if on a Unix-like system):\r\nLinux george-P51 4.15.0-72-generic #81-Ubuntu SMP Tue Nov 26 12:20:02 UTC 2019 x86_64 x86_64 x86_64 GNU/Linux\r\n\r\n\r\n**Description of the problem including expected versus actual behavior**:\r\njava.lang.NullPointerException is thrown when having a bool query with two should sub-queries and when only one of them have \"has_parent\" with \"inner_hits\".\r\n\r\n**Steps to reproduce**:\r\n\r\n```\r\ncurl -X PUT \"localhost:9200/my_index\"\r\n\r\ncurl -X PUT \"localhost:9200/my_index/_mapping/_doc\" -H 'Content-Type: application/json' -d'\r\n{\r\n  \"properties\": {\r\n    \"entity_type\": {\r\n      \"type\": \"keyword\"\r\n    },\r\n    \"my_join_field\": {\r\n      \"type\": \"join\",\r\n      \"relations\": {\r\n        \"question\": [\"answer\"],\r\n        \"person\": [\"phone\"]\r\n      }\r\n    }\r\n  }\r\n}\r\n'\r\n\r\ncurl -X PUT \"localhost:9200/my_index/_doc/1?refresh\" -H 'Content-Type: application/json' -d'\r\n{\r\n  \"text\": \"This is a question\",\r\n  \"my_join_field\": {\r\n    \"name\": \"question\"\r\n  },\r\n  \"entity_type\": \"question\"\r\n}\r\n'\r\n\r\ncurl -X PUT \"localhost:9200/my_index/_doc/2?routing=1&refresh\" -H 'Content-Type: application/json' -d'\r\n{\r\n  \"text\": \"This is an answer\",\r\n  \"my_join_field\": {\r\n    \"name\": \"answer\", \r\n    \"parent\": \"1\" \r\n  },\r\n  \"entity_type\": \"answer\"\r\n}\r\n'\r\n\r\ncurl -X PUT \"localhost:9200/my_index/_doc/3?refresh\" -H 'Content-Type: application/json' -d'\r\n{\r\n  \"text\": \"This is a person\",\r\n  \"my_join_field\": {\r\n    \"name\": \"person\"\r\n  },\r\n  \"entity_type\": \"person\"\r\n}\r\n'\r\n\r\ncurl -X PUT \"localhost:9200/my_index/_doc/4?routing=3&refresh\" -H 'Content-Type: application/json' -d'\r\n{\r\n  \"text\": \"This is an phone\",\r\n  \"my_join_field\": {\r\n    \"name\": \"phone\", \r\n    \"parent\": \"3\" \r\n  },\r\n  \"entity_type\": \"phone\"\r\n}\r\n'\r\n\r\ncurl -X GET \"localhost:9200/my_index/_search?pretty\" -H 'Content-Type: application/json' -d'\r\n{\r\n  \"query\": {\r\n    \"bool\": {\r\n      \"should\": [\r\n        {\r\n          \"term\": {\r\n            \"entity_type\": \"person\"\r\n          }\r\n        },\r\n        {\r\n          \"bool\": {\r\n            \"filter\": [\r\n              {\r\n                \"term\": {\r\n                  \"entity_type\": \"answer\"\r\n                }\r\n              },\r\n              {\r\n                \"bool\": {\r\n                  \"should\": [\r\n                    {\r\n                      \"has_parent\": {\r\n                        \"query\": {\r\n                          \"match_all\": {}\r\n                        },\r\n                        \"parent_type\": \"question\",\r\n                        \"inner_hits\": {\r\n                          \"name\": \"inner_hit\"\r\n                        }\r\n                      }\r\n                    }\r\n                  ]\r\n                }\r\n              }\r\n            ]\r\n          }\r\n        }\r\n      ]\r\n    }\r\n  }\r\n}\r\n'\r\n```\r\n\r\n**Provide logs (if relevant)**:\r\n```\r\n[2019-12-31T10:51:12,807][DEBUG][o.e.a.s.TransportSearchAction] [mtFKkTf] [20] Failed to execute fetch phase\r\norg.elasticsearch.transport.RemoteTransportException: [mtFKkTf][127.0.0.1:9300][indices:data/read/search[phase/fetch/id]]\r\nCaused by: java.lang.NullPointerException\r\n\tat org.elasticsearch.index.mapper.IdFieldMapper$IdFieldType.termsQuery(IdFieldMapper.java:152) ~[elasticsearch-6.8.2.jar:6.8.2]\r\n\tat org.elasticsearch.index.mapper.IdFieldMapper$IdFieldType.termQuery(IdFieldMapper.java:128) ~[elasticsearch-6.8.2.jar:6.8.2]\r\n\tat org.elasticsearch.join.query.ParentChildInnerHitContextBuilder$JoinFieldInnerHitSubContext.topDocs(ParentChildInnerHitContextBuilder.java:159) ~[?:?]\r\n\tat org.elasticsearch.search.fetch.subphase.InnerHitsFetchSubPhase.hitsExecute(InnerHitsFetchSubPhase.java:53) ~[elasticsearch-6.8.2.jar:6.8.2]\r\n\tat org.elasticsearch.search.fetch.FetchPhase.execute(FetchPhase.java:175) ~[elasticsearch-6.8.2.jar:6.8.2]\r\n\tat org.elasticsearch.search.SearchService.lambda$executeFetchPhase$3(SearchService.java:541) ~[elasticsearch-6.8.2.jar:6.8.2]\r\n\tat org.elasticsearch.search.SearchService$3.doRun(SearchService.java:381) [elasticsearch-6.8.2.jar:6.8.2]\r\n\tat org.elasticsearch.common.util.concurrent.AbstractRunnable.run(AbstractRunnable.java:37) [elasticsearch-6.8.2.jar:6.8.2]\r\n\tat org.elasticsearch.common.util.concurrent.TimedRunnable.doRun(TimedRunnable.java:41) [elasticsearch-6.8.2.jar:6.8.2]\r\n\tat org.elasticsearch.common.util.concurrent.ThreadContext$ContextPreservingAbstractRunnable.doRun(ThreadContext.java:751) [elasticsearch-6.8.2.jar:6.8.2]\r\n\tat org.elasticsearch.common.util.concurrent.AbstractRunnable.run(AbstractRunnable.java:37) [elasticsearch-6.8.2.jar:6.8.2]\r\n\tat java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149) [?:1.8.0_232]\r\n\tat java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624) [?:1.8.0_232]\r\n\tat java.lang.Thread.run(Thread.java:748) [?:1.8.0_232]\r\n```",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50539",
+        "assignees": [
+            "mayya-sharipova"
+        ],
+        "labels": [
+            ":Search/Search DO NOT USE"
+        ],
+        "issue_closed_at": "2020-01-07T17:20:10.000Z",
+        "fix_commit_hash": "0131ec47a8eb2f7de2140509d042deecaaa4b6ef",
+        "commit_type": "pr",
+        "commit_message": "Fix NPE bug inner_hits (#50709)\n\nWhen there several subqueries on different relations of the join field,\r\nand only one of subqueries is using inner_hits, NPE occurs.\r\nThis PR prevents NPE error.\r\n\r\nCloses #50539",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50709",
+        "earliest_issue_date": "2019-12-31T16:00:46Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50554,
+        "issue_title": "Reload search analyzers does not work correctly with multiplexer filter (showstopper)",
+        "issue_body": "<!-- Bug report -->\r\n\r\n**Elasticsearch version**: Version: 7.5.1\r\n\r\n**Plugins installed**: []\r\n\r\n**JVM version**: 13.0.1\r\n\r\n**OS version**: Windows 10 Pro\r\n\r\n**Description of the problem including expected versus actual behavior**: When the synonym_graph filter is not used directly in an analyzer but is included in multiplexer filter (for example to allow combination with word_delimiter_graph), _reload_search_analyzers does not correctly find and reload appropriate analyzer.\r\n\r\n**Steps to reproduce**:\r\n\r\n 1. Create index\r\n```\r\nPUT /my_index\r\n{\r\n  \"settings\": {\r\n    \"index\": {\r\n      \"analysis\": {\r\n        \"analyzer\": {\r\n          \"my_synonyms_only\": {\r\n            \"tokenizer\": \"whitespace\",\r\n            \"filter\": [\r\n              \"synonym\"\r\n            ]\r\n          },\r\n          \"my_synonyms\": {\r\n            \"tokenizer\": \"whitespace\",\r\n            \"filter\": [\r\n              \"multiplexer\"\r\n            ]\r\n          }\r\n        },\r\n        \"filter\": {\r\n          \"synonym\": {\r\n            \"type\": \"synonym_graph\",\r\n            \"synonyms_path\": \"analysis/synonyms.txt\",\r\n            \"updateable\": true\r\n          },\r\n          \"delimiter\": {\r\n            \"type\": \"word_delimiter_graph\",\r\n            \"preserve_original\": true\r\n          },\r\n          \"multiplexer\": {\r\n            \"type\": \"multiplexer\",\r\n            \"filters\": [\r\n              \"delimiter\",\r\n              \"synonym\"\r\n            ]\r\n          }\r\n        }\r\n      }\r\n    }\r\n  }\r\n}\r\n```\r\n 2. Try to reload search analyzers\r\n```\r\nPOST /my_index/_reload_search_analyzers\r\n```\r\n\r\n 3. Only the analyzer which uses synonym filter directly is updated. Analyzer with multiplexer is not.\r\n```\r\n  \"reload_details\" : [\r\n    {\r\n      \"index\" : \"my_index\",\r\n      \"reloaded_analyzers\" : [\r\n        \"my_synonyms_only\"\r\n      ],\r\n      \"reloaded_node_ids\" : [\r\n        \"ex70i64yRtar5gMPncOUTw\"\r\n      ]\r\n    }\r\n  ]\r\n```\r\n**4.  I would expect the my_synonyms analyzer to be reloaded also**\r\n\r\n\r\n\r\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50554",
+        "assignees": [
+            "cbuescher"
+        ],
+        "labels": [
+            ":Search Relevance/Analysis",
+            "Team:Search Relevance"
+        ],
+        "issue_closed_at": "2020-01-08T17:25:01.000Z",
+        "fix_commit_hash": "4b366a4cbb43b6d29bc63613307888622a9188a3",
+        "commit_type": "pr",
+        "commit_message": "Make Multiplexer inherit filter chains analysis mode (#50662)\n\nCurrently, if an updateable synonym filter is included in a multiplexer filter, it is not reloaded via the \r\n_reload_search_analyzers because the multiplexer itself doesn't pass on the analysis mode of the \r\nfilters it contains, so its not recognized as \"updateable\" in itself. Instead we can check and merge\r\nthe AnalysisMode settings of all filters in the multiplexer and use the resulting mode (e.g. search-time\r\nonly) for the multiplexer itself, thus making any synonym filters contained in it reloadable. \r\nThis, of course, will also make the analyzers using the multiplexer be usable at search-time only.\r\n\r\nCloses #50554",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50662",
+        "earliest_issue_date": "2020-01-02T14:49:31Z",
+        "predicted_class": "bug",
+        "bic": [
+            "7559bab501f5cbc42e164b1de9de85f729bad00e"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50560,
+        "issue_title": "Correction to Realm chains documentation for 7.x",
+        "issue_body": "I noticed that there is a discrepancy in the Realm chains documentation for 7.x here: https://www.elastic.co/guide/en/elasticsearch/reference/7.5/realm-chains.html\r\n\r\nThe example on that page uses the \"type\" parameter to specify the realm types, but this has been deprecated in 7.x per: https://www.elastic.co/guide/en/elasticsearch/reference/current/breaking-changes-7.0.html#include-realm-type-in-setting\r\n\r\nRequesting that the example provided be updated to show the correct configuration format for 7.x with the type parameter removed. Thank you!\r\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50560",
+        "assignees": [],
+        "labels": [
+            ">docs",
+            ":Security/Authentication"
+        ],
+        "issue_closed_at": "2020-01-14T17:00:27.000Z",
+        "fix_commit_hash": "fd33eb0d12ab7e51ea6bc5a9e0c06c30f31513a9",
+        "commit_type": "pr",
+        "commit_message": "[DOCS] Fix realm chains example (#50568)",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50568",
+        "earliest_issue_date": "2020-01-02T15:57:16Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50600,
+        "issue_title": "composite and terms aggregations behave differently on `ip` fields",
+        "issue_body": "TL;DR `composite` aggs behave differently than `terms` agg when there is an index in the pattern that matches the prefix of the other indices that does NOT have a mapped field matching the aggregated field. They behave the same if the \"prefix index\" has the field, but it is indexed as the wrong type.\r\n\r\nAssume we have the following indices\r\n```\r\nPUT test_index-0001\r\n{\r\n  \"mappings\": {\r\n    \"properties\": {\r\n      \"ip\": {\r\n        \"type\": \"ip\"\r\n      }\r\n    }\r\n  }\r\n}\r\n\r\nPUT test_index-0002\r\n{\r\n  \"mappings\": {\r\n    \"properties\": {\r\n      \"ip\": {\r\n        \"type\": \"ip\"\r\n      }\r\n    }\r\n  }\r\n}\r\n\r\nPUT test_index-0001/_doc/1\r\n{\r\n  \"ip\": \"10.2.1.1\"\r\n}\r\nPUT test_index-0002/_doc/1\r\n{\r\n  \"ip\": \"10.1.1.2\"\r\n}\r\n```\r\n\r\nLets add a new index that does not have an `ip` field\r\n```\r\nPUT test_index-0003\r\n{\r\n  \"mappings\": {\r\n    \"properties\": {\r\n      \"somefield\": {\r\n        \"type\": \"ip\"\r\n      }\r\n    }\r\n  }\r\n}\r\n```\r\n\r\nComposite aggs behaves as follows (as of 7.5).\r\n```\r\nGET test_index-0001,test_index-0002,test_index*/_search?size=0\r\n{\r\n  \"aggs\": {\r\n    \"composite_ips\": {\r\n      \"composite\": {\r\n        \"sources\": [\r\n          {\r\n            \"ip\": {\r\n              \"terms\": {\r\n                \"field\": \"ip\"\r\n              }\r\n            }\r\n          }\r\n        ]\r\n      }\r\n    }\r\n  }\r\n}\r\n>\r\n\"aggregations\" : {\r\n    \"composite_ips\" : {\r\n      \"after_key\" : {\r\n        \"ip\" : \"10.2.1.1\"\r\n      },\r\n      \"buckets\" : [\r\n        {\r\n          \"key\" : {\r\n            \"ip\" : \"10.1.1.2\"\r\n          },\r\n          \"doc_count\" : 1\r\n        },\r\n        {\r\n          \"key\" : {\r\n            \"ip\" : \"10.2.1.1\"\r\n          },\r\n          \"doc_count\" : 1\r\n        }\r\n      ]\r\n    }\r\n  }\r\n```\r\n\r\nBut if the index that is added is instead:\r\n```\r\nPUT test_index\r\n{\r\n  \"mappings\": {\r\n    \"properties\": {\r\n      \"somefield\": {\r\n        \"type\": \"ip\"\r\n      }\r\n    }\r\n  }\r\n}\r\n```\r\nThe following is returned from the same composite agg (image for readability)\r\n<img width=\"322\" alt=\"image\" src=\"https://user-images.githubusercontent.com/4357155/71724665-11658e00-2dff-11ea-9bdf-8e677c96c846.png\">\r\n\r\nNote the difference with a plain `terms` agg\r\n```\r\nGET test_index-0001,test_index-0002,test_index*/_search?size=0\r\n{\r\n  \"aggs\": {\r\n    \"term_ips\": {\r\n      \"terms\": {\r\n        \"field\": \"ip\"\r\n      }\r\n    }\r\n  }\r\n}\r\n>\r\n\"aggregations\" : {\r\n    \"term_ips\" : {\r\n      \"doc_count_error_upper_bound\" : 0,\r\n      \"sum_other_doc_count\" : 0,\r\n      \"buckets\" : [\r\n        {\r\n          \"key\" : \"10.1.1.2\",\r\n          \"doc_count\" : 1\r\n        },\r\n        {\r\n          \"key\" : \"10.2.1.1\",\r\n          \"doc_count\" : 1\r\n        }\r\n      ]\r\n    }\r\n  }\r\n```\r\n\r\nNOTE: if the `test_index` has the following mapping, composite aggs and terms behave the ***SAME*** (showing raw bytes instead of human readable strings)\r\n```\r\nDELETE test_index\r\nPUT test_index\r\n{\r\n  \"mappings\": {\r\n    \"properties\": {\r\n      \"ip\": {\r\n        \"type\": \"ip\"\r\n      }\r\n    }\r\n  }\r\n}\r\n\r\nGET test_index-0001,test_index-0002,test_index*/_search?size=0\r\n{\r\n  \"aggs\": {\r\n    \"term_ips\": {\r\n      \"terms\": {\r\n        \"field\": \"ip\"\r\n      }\r\n    }\r\n  }\r\n}\r\n```\r\n(image for readability)\r\n<img width=\"323\" alt=\"image\" src=\"https://user-images.githubusercontent.com/4357155/71724876-e4fe4180-2dff-11ea-8906-7a7c424792d5.png\">\r\n\r\n\r\nRelated issues/PRs:\r\n*  https://github.com/elastic/elasticsearch/issues/17705\r\n* https://github.com/elastic/elasticsearch/pull/18408\r\n* https://github.com/elastic/elasticsearch/pull/18003",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50600",
+        "assignees": [
+            "nik9000"
+        ],
+        "labels": [
+            ">bug",
+            ":Analytics/Aggregations"
+        ],
+        "issue_closed_at": "2020-01-10T20:12:41.000Z",
+        "fix_commit_hash": "5a76fac29eed487f11cf644f8690cc63f8a1e32b",
+        "commit_type": "pr",
+        "commit_message": "Fix format problem in composite of unmapped (#50869)\n\nWhen a composite aggregation is reduced using the results from an\r\nindex that has one of the fields unmapped we were throwing away the\r\nformatter. This is mildly annoying, except in the case of IP addresses\r\nwhich were coming out as non-utf-8-characters. And tripping assertions.\r\n\r\nThis carefully preserves the formatter from the working bucket.\r\n\r\nCloses #50600",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50869",
+        "earliest_issue_date": "2020-01-03T13:09:57Z",
+        "predicted_class": "bug",
+        "bic": [
+            "804a5042e7f6e6f3060685cfe801119b3538cf18"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50613,
+        "issue_title": "[ML] Result document IDs are not sufficiently unique",
+        "issue_body": "* In order to ensure we don't get duplicate results if a job does the same work multiple times (for example after failing over from one node to another), our results documents have IDs generated from their contents, such that if two identical results are indexed the second will overwrite the first and we won't get a duplicate\r\n* Since we cannot literally have the document ID be the whole result, because the document IDs are limited to 512 bytes and the result could contain more data than this, we create an ID using a formula that we thought was likely to avoid ID collisions for different results\r\n  * In particular, since by/over/partition field values can be long, the document ID includes a combination of the hashes of these values, plus the total length - the assumption was that it would be unlikely for there to be a hash collision unless the total length was different\r\n* Unfortunately, some by/over/partition values do produce hash collisions for identical total lengths of by/over/partition field values.  An example is:\r\n  * by field value = L018, over field value = null, partition field value = 128\r\n  * by field value = L017, over field value = null, partition field value = 228\r\n  * Both produce a hash of -2073230751\r\n\r\nMore variation is needed in the document IDs.  However, before making the change an analysis of the possibilities for duplicate documents caused by the change is required.  We need to consider all the places where we're assuming that duplicate results will overwrite one another and the likelihood of occurrence.\r\n\r\nThe problem affects at least model plot, forecast and anomaly record results.  Other types of results, for example, influencer results, contain a hash of just one string.  We should consider consistency in the way IDs are created across the different types.",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50613",
+        "assignees": [
+            "droberts195"
+        ],
+        "labels": [
+            ">bug",
+            ":ml"
+        ],
+        "issue_closed_at": "2020-01-07T10:23:41.000Z",
+        "fix_commit_hash": "1adf4c27d3bd7cb09c6420fdbaa1197542c1117b",
+        "commit_type": "pr",
+        "commit_message": "[ML] Improve uniqueness of result document IDs (#50644)\n\nSwitch from a 32 bit Java hash to a 128 bit Murmur hash for\r\ncreating document IDs from by/over/partition field values.\r\nThe 32 bit Java hash was not sufficiently unique, and could\r\nproduce identical numbers for relatively common combinations\r\nof by/partition field values such as L018/128 and L017/228.\r\n\r\nFixes #50613",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50644",
+        "earliest_issue_date": "2020-01-03T15:58:23Z",
+        "predicted_class": "bug",
+        "bic": [
+            "f74e6801422d32390de1039e5ba98485e4e11087"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50631,
+        "issue_title": "RPM update to 7.5.1 prevents start of elasticsearch",
+        "issue_body": "Platform: Redhat EL 7.7 (systemd)\r\nPrevious ES package:  elasticsearch-7.4.2-1.x86_64\r\nUpgraded ES package: elasticsearch-7.5.1-1.x86_64\r\n\r\nES forum post at\r\nhttps://discuss.elastic.co/t/elasticsearch-7-5-1-rpm-update-prevents-restart-of-service/213636\r\n\r\nmade me look into things more.\r\n\r\nAfter the upgrade and host reboot, the ES service would not start and gave the error\r\n\r\nException in thread \"main\" org.elasticsearch.bootstrap.BootstrapException: org.elasticsearch.cli.UserException: unable to create temporary keystore at [/etc/elasticsearch/elasticsearch.keystore.tmp], write permissions required for [/etc/elasticsearch] or run [elasticsearch-keystore upgrade]\r\n\r\nI can confirm that there is a \"posttrans scriptlet\" in the RPM used used during the upgrade and that the scriptlet containes the commands to perform the keystore upgrade, and that this scriptet was run at the time of the update (we upgrade automatically starting at 04:00)\r\n\r\n% ls -al /etc/elasticsearch/.elasticsearch.keystore.initial_md5sum\r\n-rw-r--r--    1 root          elasticsearch     0 Jan  1 04:34 .elasticsearch.keystore.initial_md5sum\r\n\r\nAdding group write permissions to the /etc/elasticsearch directory permitted the service to start, which create or rewrote the keystore file.\r\n\r\n% ls -al /etc/elasticsearch/elasticsearch.keystore\r\n-rw-rw----    1 elasticsearch elasticsearch   199 Jan  2 14:57 elasticsearch.keystore\r\n\r\nTwo things I note\r\n\r\n1. The posttrans scriptlet sets the owner:group of the keystore file to root:elasticsearch however, after the service started the file is owned by elasticsearch:elasticsearch\r\n\r\n2. The md5sum output file is of size 0, which indicates to me that the posttrans scriptlet failed to create the initial keystore file, or perhaps ran the \"else\" clause of the posttrans scriptlet which only created the md5sum file.\r\n\r\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50631",
+        "assignees": [
+            "williamrandolph"
+        ],
+        "labels": [
+            ":Delivery/Packaging",
+            "Team:Delivery"
+        ],
+        "issue_closed_at": "2020-02-14T19:41:30.000Z",
+        "fix_commit_hash": "da09dc27e8339d7d5865029a40be587a8fde8313",
+        "commit_type": "pr",
+        "commit_message": "Always set default ES_PATH_CONF for package scriptlets (#51827)\n\n* Set default ES_PATH_CONF for package scriptlets\r\n\r\nOur packages use scriptlets to create or update the Elasticsearch\r\nkeystore as necessary when installing or upgrading an Elasticsearch\r\npackage. If these scriptlets don't work as expected, Elasticsearch may\r\ntry and fail to create or upgrade the keystore at startup time. This\r\nwill prevent Elasticsearch from starting up at all.\r\n\r\nThese scriptlets use the Elasticsearch keystore command-line tools. Like\r\nmost of our command-line tools, the keystore tools will by default get\r\ntheir value for ES_PATH_CONF from a system configuration file:\r\n/etc/sysconfig/elasticsearch for RPMs, /etc/default/elasticsearch for\r\ndebian packages. Previously, if the user removed ES_PATH_CONF from that\r\nsystem configuration file (perhaps thinking that it is obsolete when\r\nthe same variables is also defined in the systemd unit file), the\r\nkeystore command-line tools would fail. Scriptlet errors do not seem to\r\ncause the installation to fail, and for RPMs the error message is easy\r\nto miss in command output.\r\n\r\nThis commit adds a line of bash to scriptlets that will set ES_PATH_CONF\r\nto a default when ES_PATH_CONF is unset, rather than only when the\r\nsystem configuration file is missing.",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/51827",
+        "earliest_issue_date": "2020-01-04T20:57:57Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50646,
+        "issue_title": "[CI] CCRIndexLifecycleI#testAliasReplicatedOnShrink failure",
+        "issue_body": "Failure:\r\n\r\n```\r\nREPRODUCE WITH: ./gradlew ':x-pack:plugin:ilm:qa:multi-cluster:follow-clusterRunner' --tests \"org.elasticsearch.xpack.ilm.CCRIndexLifecycleIT.testAliasReplicatedOnShrink\" -Dtests.seed=850B7F52C725229E -Dtests.security.manager=true -Dtests.locale=sk -Dtests.timezone=America/Argentina/San_Juan -Dcompiler.java=13 | \u00a0\r\n-- | --\r\n\u00a0 | 2> java.lang.NullPointerException | \u00a0\r\n\u00a0 | at __randomizedtesting.SeedInfo.seed([850B7F52C725229E:294A5C2615BC78D3]:0) | \u00a0\r\n\u00a0 | at org.elasticsearch.xpack.ilm.CCRIndexLifecycleIT.getIndexSetting(CCRIndexLifecycleIT.java:745) | \u00a0\r\n\u00a0 | at org.elasticsearch.xpack.ilm.CCRIndexLifecycleIT.lambda$testAliasReplicatedOnShrink$14(CCRIndexLifecycleIT.java:333) | \u00a0\r\n\u00a0 | at org.elasticsearch.test.ESTestCase.assertBusy(ESTestCase.java:867) | \u00a0\r\n\u00a0 | at org.elasticsearch.test.ESTestCase.assertBusy(ESTestCase.java:852) | \u00a0\r\n\u00a0 | at org.elasticsearch.xpack.ilm.CCRIndexLifecycleIT.testAliasReplicatedOnShrink(CCRIndexLifecycleIT.java:333)\r\n```\r\n\r\nThis didn't reproduce for me.\r\n\r\nBuild url: https://gradle-enterprise.elastic.co/s/xeap7hbuag3ym/console-log?anchor=3952",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50646",
+        "assignees": [],
+        "labels": [
+            ">test-failure",
+            ":Data Management/ILM+SLM"
+        ],
+        "issue_closed_at": "2020-01-15T16:45:44.000Z",
+        "fix_commit_hash": "082d26594b2291195013f0901bcdeb90eb563225",
+        "commit_type": "pr",
+        "commit_message": "Guard against null settings in CCRIndexLifecycleIT (#51008)\n\nIt's possible that the index could return no settings and thus throw a\r\n`NullPointerException`.\r\n\r\nI wasn't able to reproduce the original issue, but this should guard\r\nagainst in the future.\r\n\r\nResolves #50646",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/51008",
+        "earliest_issue_date": "2020-01-06T10:18:41Z",
+        "predicted_class": "bug",
+        "bic": [
+            "a3030c51e272bff2e62244c1bdce5f93afd1932f"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50650,
+        "issue_title": "[CI] DeterministicTaskQueueTests testDelayVariabilityAppliesToFutureTasks failure",
+        "issue_body": "A reproducible \ud83d\ude00 \ud83d\ude80 failure \r\n\r\n```\r\nExpected: a value greater than <30093L>\r\n     but: <30093L> was equal to <30093L>\r\n\tat __randomizedtesting.SeedInfo.seed([77FFBE38059F01FE:BF8D2A0D6AD532C4]:0)\r\n\tat org.hamcrest.MatcherAssert.assertThat(MatcherAssert.java:18)\r\n\tat org.junit.Assert.assertThat(Assert.java:956)\r\n\tat org.junit.Assert.assertThat(Assert.java:923)\r\n\tat org.elasticsearch.cluster.coordination.DeterministicTaskQueueTests.testDelayVariabilityAppliesToFutureTasks(DeterministicTaskQueueTests.java:391)\r\n```\r\n\r\n```\r\n./gradlew ':test:framework:test' --tests \"org.elasticsearch.cluster.coordination.DeterministicTaskQueueTests.testDelayVariabilityAppliesToFutureTasks\" \\\r\n  -Dtests.seed=77FFBE38059F01FE \\\r\n  -Dtests.security.manager=true \\\r\n  -Dbuild.snapshot=false \\\r\n  -Dtests.jvm.argline=\"-Dbuild.snapshot=false\" \\\r\n  -Dtests.locale=de-AT \\\r\n  -Dtests.timezone=Indian/Cocos \\\r\n  -Dcompiler.java=13\r\n``` \r\n\r\nThis failure is from the release tests so you need to strip out the `build.snapshot` arguments to run locally \r\n\r\n```\r\n./gradlew ':test:framework:test' --tests \"org.elasticsearch.cluster.coordination.DeterministicTaskQueueTests.testDelayVariabilityAppliesToFutureTasks\" \\\r\n  -Dtests.seed=77FFBE38059F01FE \\\r\n  -Dtests.security.manager=true \\\r\n  -Dtests.locale=de-AT \\\r\n  -Dtests.timezone=Indian/Cocos \\\r\n  -Dcompiler.java=13\r\n```\r\n\r\nhttps://elasticsearch-ci.elastic.co/job/elastic+elasticsearch+master+release-tests/759/console\r\nhttps://gradle-enterprise.elastic.co/s/v2uphlvq6mfcy\r\n\r\nThis is not the only failure in the last month\r\n\r\nhttps://gradle-enterprise.elastic.co/s/hktmftom75xq4/tests/gxcvz7yrpp5ao-izuimkclptjz6\r\nhttps://gradle-enterprise.elastic.co/s/qur4cy2ldrjjq/tests/gxcvz7yrpp5ao-izuimkclptjz6\r\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50650",
+        "assignees": [
+            "DaveCTurner"
+        ],
+        "labels": [
+            ">test-failure",
+            ":Distributed/Cluster Coordination"
+        ],
+        "issue_closed_at": "2020-01-07T09:02:35.000Z",
+        "fix_commit_hash": "0ae2e2326bffc580f16298818b0ec5953f1a8e83",
+        "commit_type": "pr",
+        "commit_message": "Fix testDelayVariabilityAppliesToFutureTasks (#50667)\n\nThis test seems to be bogus as it was confusing a nominal execution time with a\r\ndelay (i.e. an elapsed time). This commit reworks the test to address this.\r\n\r\nFixes #50650",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50667",
+        "earliest_issue_date": "2020-01-06T11:43:45Z",
+        "predicted_class": "bug",
+        "bic": [
+            "a127805b4a6c44741db36c1abf567945dc61e640"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50651,
+        "issue_title": "ML test errors with AssertingRandom",
+        "issue_body": "https://elasticsearch-ci.elastic.co/job/elastic+elasticsearch+master+multijob-unix-compatibility/os=sles-12&&immutable/496/console\r\nhttps://gradle-enterprise.elastic.co/s/ggiermd5izfvs/tests/lf2lfu4ufazso-numqxpqxfbj2o\r\n\r\n`AssertingRandom` throws an `IllegalStateException` when the random is used by a different thread to the one it was created in. The exception then takes the node down causing the test to fail.  \r\n\r\n\r\n```\r\njava.lang.IllegalStateException: This Random was created for/by another thread (Thread[TEST-BasicDistributedJobsIT.testFailOverBasics_withDataFeeder-seed#[7B64EE984D68EA0C],5,TGRP-BasicDistributedJobsIT]). Random instances must not be shared (acquire per-thread). Current thread: Thread[elasticsearch[node_t0][ml_datafeed][T#1],5,TGRP-BasicDistributedJobsIT]\r\n\tat com.carrotsearch.randomizedtesting.AssertingRandom.checkValid(AssertingRandom.java:152) ~[randomizedtesting-runner-2.7.4.jar:?]\r\n\tat com.carrotsearch.randomizedtesting.AssertingRandom.nextInt(AssertingRandom.java:86) ~[randomizedtesting-runner-2.7.4.jar:?]\r\n\tat org.elasticsearch.xpack.ml.utils.persistence.ResultsPersisterService.bulkIndexWithRetry(ResultsPersisterService.java:121) ~[main/:?]\r\n\tat org.elasticsearch.xpack.ml.utils.persistence.ResultsPersisterService.indexWithRetry(ResultsPersisterService.java:82) ~[main/:?]\r\n\tat org.elasticsearch.xpack.ml.job.persistence.JobResultsPersister$Persistable.persist(JobResultsPersister.java:399) ~[main/:?]\r\n\tat org.elasticsearch.xpack.ml.job.persistence.JobResultsPersister.persistDatafeedTimingStats(JobResultsPersister.java:363) ~[main/:?]\r\n\tat org.elasticsearch.xpack.ml.datafeed.DatafeedTimingStatsReporter.flush(DatafeedTimingStatsReporter.java:104) [main/:?]\r\n\tat org.elasticsearch.xpack.ml.datafeed.DatafeedTimingStatsReporter.flushIfDifferSignificantly(DatafeedTimingStatsReporter.java:96) [main/:?]\r\n\tat org.elasticsearch.xpack.ml.datafeed.DatafeedTimingStatsReporter.reportSearchDuration(DatafeedTimingStatsReporter.java:64) [main/:?]\r\n\tat org.elasticsearch.xpack.ml.datafeed.extractor.chunked.ChunkedDataExtractor$DataSummaryFactory.newAggregatedDataSummary(ChunkedDataExtractor.java:233) [main/:?]\r\n\tat org.elasticsearch.xpack.ml.datafeed.extractor.chunked.ChunkedDataExtractor$DataSummaryFactory.buildDataSummary(ChunkedDataExtractor.java:202) [main/:?]\r\n\tat org.elasticsearch.xpack.ml.datafeed.extractor.chunked.ChunkedDataExtractor.setUpChunkedSearch(ChunkedDataExtractor.java:118) [main/:?]\r\n\tat org.elasticsearch.xpack.ml.datafeed.extractor.chunked.ChunkedDataExtractor.next(ChunkedDataExtractor.java:111) [main/:?]\r\n\tat org.elasticsearch.xpack.ml.datafeed.DatafeedJob.run(DatafeedJob.java:343) [main/:?]\r\n\tat org.elasticsearch.xpack.ml.datafeed.DatafeedJob.runLookBack(DatafeedJob.java:146) [main/:?]\r\n\tat org.elasticsearch.xpack.ml.datafeed.DatafeedManager$Holder.executeLookBack(DatafeedManager.java:408) [main/:?]\r\n\tat org.elasticsearch.xpack.ml.datafeed.DatafeedManager$2.doRun(DatafeedManager.java:176) [main/:?]\r\n\tat org.elasticsearch.common.util.concurrent.AbstractRunnable.run(AbstractRunnable.java:37) [elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n\tat java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:515) [?:?]\r\n\tat java.util.concurrent.FutureTask.run(FutureTask.java:264) [?:?]\r\n\tat org.elasticsearch.common.util.concurrent.ThreadContext$ContextPreservingRunnable.run(ThreadContext.java:629) [elasticsearch-8.0.0-SNAPSHOT.jar:8.0.0-SNAPSHOT]\r\n\tat java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1128) [?:?]\r\n\tat java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:628) [?:?]\r\n\tat java.lang.Thread.run(Thread.java:834) [?:?]\r\nCaused by: com.carrotsearch.randomizedtesting.StackTraceHolder: Original allocation stack for this Random (allocated by Thread[TEST-BasicDistributedJobsIT.testFailOverBasics_withDataFeeder-seed#[7B64EE984D68EA0C],5,TGRP-BasicDistributedJobsIT])\r\n\tat java.lang.Thread.getStackTrace(Thread.java:1606) ~[?:?]\r\n\tat com.carrotsearch.randomizedtesting.AssertingRandom.<init>(AssertingRandom.java:40) ~[randomizedtesting-runner-2.7.4.jar:?]\r\n\tat com.carrotsearch.randomizedtesting.Randomness.<init>(Randomness.java:28) ~[randomizedtesting-runner-2.7.4.jar:?]\r\n\tat com.carrotsearch.randomizedtesting.Randomness.<init>(Randomness.java:35) ~[randomizedtesting-runner-2.7.4.jar:?]\r\n\tat com.carrotsearch.randomizedtesting.RandomizedRunner$5.evaluate(RandomizedRunner.java:823) ~[randomizedtesting-runner-2.7.4.jar:?]\r\n\tat com.carrotsearch.randomizedtesting.RandomizedRunner$6.evaluate(RandomizedRunner.java:883) ~[randomizedtesting-runner-2.7.4.jar:?]\r\n\tat com.carrotsearch.randomizedtesting.RandomizedRunner$7.evaluate(RandomizedRunner.java:894) ~[randomizedtesting-runner-2.7.4.jar:?]\r\n\tat org.apache.lucene.util.AbstractBeforeAfterRule$1.evaluate(AbstractBeforeAfterRule.java:45) ~[lucene-test-framework-8.4.0-snapshot-08b8d116f8f.jar:8.4.0-snapshot-08b8d116f8f 08b8d116f8ffacf35a6b05ff4d37f2263b712347 - ivera - 2019-12-12 10:52:54]\r\n\tat com.carrotsearch.randomizedtesting.rules.StatementAdapter.evaluate(StatementAdapter.java:36) ~[randomizedtesting-runner-2.7.4.jar:?]\r\n\tat org.apache.lucene.util.TestRuleStoreClassName$1.evaluate(TestRuleStoreClassName.java:41) ~[lucene-test-framework-8.4.0-snapshot-08b8d116f8f.jar:8.4.0-snapshot-08b8d116f8f 08b8d116f8ffacf35a6b05ff4d37f2263b712347 - ivera - 2019-12-12 10:52:54]\r\n\tat com.carrotsearch.randomizedtesting.rules.NoShadowingOrOverridesOnMethodsRule$1.evaluate(NoShadowingOrOverridesOnMethodsRule.java:40) ~[randomizedtesting-runner-2.7.4.jar:?]\r\n\tat com.carrotsearch.randomizedtesting.rules.NoShadowingOrOverridesOnMethodsRule$1.evaluate(NoShadowingOrOverridesOnMethodsRule.java:40) ~[randomizedtesting-runner-2.7.4.jar:?]\r\n\tat com.carrotsearch.randomizedtesting.rules.StatementAdapter.evaluate(StatementAdapter.java:36) ~[randomizedtesting-runner-2.7.4.jar:?]\r\n\tat com.carrotsearch.randomizedtesting.rules.StatementAdapter.evaluate(StatementAdapter.java:36) ~[randomizedtesting-runner-2.7.4.jar:?]\r\n\tat org.apache.lucene.util.TestRuleAssertionsRequired$1.evaluate(TestRuleAssertionsRequired.java:53) ~[lucene-test-framework-8.4.0-snapshot-08b8d116f8f.jar:8.4.0-snapshot-08b8d116f8f 08b8d116f8ffacf35a6b05ff4d37f2263b712347 - ivera - 2019-12-12 10:52:54]\r\n\tat org.apache.lucene.util.TestRuleMarkFailure$1.evaluate(TestRuleMarkFailure.java:47) ~[lucene-test-framework-8.4.0-snapshot-08b8d116f8f.jar:8.4.0-snapshot-08b8d116f8f 08b8d116f8ffacf35a6b05ff4d37f2263b712347 - ivera - 2019-12-12 10:52:54]\r\n\tat org.apache.lucene.util.TestRuleIgnoreAfterMaxFailures$1.evaluate(TestRuleIgnoreAfterMaxFailures.java:64) ~[lucene-test-framework-8.4.0-snapshot-08b8d116f8f.jar:8.4.0-snapshot-08b8d116f8f 08b8d116f8ffacf35a6b05ff4d37f2263b712347 - ivera - 2019-12-12 10:52:54]\r\n\tat org.apache.lucene.util.TestRuleIgnoreTestSuites$1.evaluate(TestRuleIgnoreTestSuites.java:54) ~[lucene-test-framework-8.4.0-snapshot-08b8d116f8f.jar:8.4.0-snapshot-08b8d116f8f 08b8d116f8ffacf35a6b05ff4d37f2263b712347 - ivera - 2019-12-12 10:52:54]\r\n\tat com.carrotsearch.randomizedtesting.rules.StatementAdapter.evaluate(StatementAdapter.java:36) ~[randomizedtesting-runner-2.7.4.jar:?]\r\n\tat com.carrotsearch.randomizedtesting.ThreadLeakControl$StatementRunner.run(ThreadLeakControl.java:368) ~[randomizedtesting-runner-2.7.4.jar:?]\r\n\t... 1 more\r\n```\r\n\r\n\r\nDoes not reproduce\r\n```\r\n./gradlew ':x-pack:plugin:ml:internalClusterTest' --tests \"org.elasticsearch.xpack.ml.integration.BasicDistributedJobsIT.testFailOverBasics_withDataFeeder\" \\\r\n  -Dtests.seed=7B64EE984D68EA0C \\\r\n  -Dtests.security.manager=true \\\r\n  -Dtests.locale=fi \\\r\n  -Dtests.timezone=Africa/Johannesburg \\\r\n  -Dcompiler.java=13\r\n```",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50651",
+        "assignees": [],
+        "labels": [
+            ">test-failure",
+            ":ml"
+        ],
+        "issue_closed_at": "2020-01-06T20:41:58.000Z",
+        "fix_commit_hash": "c06b492f038b21dc0f9d3828d917cead7b6d8817",
+        "commit_type": "pr",
+        "commit_message": "[ML] construct new random generator on each persistence call (#50657)\n\nSharing a random generator may cause test failures as non-threadsafe random generators are periodically utilized in tests (see: https://github.com/elastic/elasticsearch/issues/50651)\r\n\r\nThis change constructs a calls `Randomness.get()` within the  `bulkIndexWithRetry` method so that the returned `Random` object is only used in a single thread. Before, the member variable could have been used between threads, which caused test failures.",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50657",
+        "earliest_issue_date": "2020-01-06T13:04:41Z",
+        "predicted_class": "bug",
+        "bic": [
+            "5c3dd571a5126e84a2820d892fc63958f49fa91b"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50654,
+        "issue_title": "InternalEngineTests testRecoverFromHardDeletesIndex failure",
+        "issue_body": "```\r\norg.elasticsearch.index.engine.InternalEngineTests > testRecoverFromHardDeletesIndex FAILED\r\n    java.lang.AssertionError: Operation not found seq# [16], global checkpoint [59], retention policy [0], maxSeqNo [65], translog op [Index{id='12', seqNo=16, primaryTerm=647288508455157647, version=16, autoGeneratedIdTimestamp=-1}]\r\n        at __randomizedtesting.SeedInfo.seed([C54FB26E3EA917B1:101D892A1EE75753]:0)\r\n        at org.junit.Assert.fail(Assert.java:88)\r\n        at org.elasticsearch.index.engine.EngineTestCase.assertConsistentHistoryBetweenTranslogAndLuceneIndex(EngineTestCase.java:1105)\r\n        at org.elasticsearch.index.engine.InternalEngineTests.testRecoverFromHardDeletesIndex(InternalEngineTests.java:5489)\r\n```\r\n\r\nhttps://elasticsearch-ci.elastic.co/job/elastic+elasticsearch+master+multijob-unix-compatibility/os=oraclelinux-7&&immutable/496/console\r\nhttps://gradle-enterprise.elastic.co/s/fk25he4qu3rye\r\n\r\nAnother win for reproducibility:\r\n```\r\n./gradlew ':server:test' --tests \"org.elasticsearch.index.engine.InternalEngineTests.testRecoverFromHardDeletesIndex\" \\\r\n  -Dtests.seed=C54FB26E3EA917B1 \\\r\n  -Dtests.security.manager=true \\\r\n  -Dtests.locale=fr \\\r\n  -Dtests.timezone=Indian/Antananarivo \\\r\n  -Dcompiler.java=13\r\n```\r\n\r\nPossibly related to #50517 ",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50654",
+        "assignees": [
+            "dnhatn"
+        ],
+        "labels": [
+            ">test-failure",
+            ":Distributed/Engine",
+            "v8.0.0-alpha1"
+        ],
+        "issue_closed_at": "2020-01-06T16:17:30.000Z",
+        "fix_commit_hash": "c2a3eda5676e671f80f994943d0dfea3e36f967d",
+        "commit_type": "pr",
+        "commit_message": "Fix testRecoverFromHardDeletesIndex (#50663)\n\nWe need to create a hard-deletes engine in the test with soft-deletes \r\ndisabled; otherwise, we the min_retained_seqno will be calculated\r\nincorrectly.\r\n\r\nCloses #50654",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50663",
+        "earliest_issue_date": "2020-01-06T13:47:10Z",
+        "predicted_class": "bug",
+        "bic": [
+            "424ed93e38b0aadb6dec17c0544602e71f77bd45"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50658,
+        "issue_title": "[CI] WatcherConcreteIndexTests testCanUseAnyConcreteIndexName failure",
+        "issue_body": "```\r\nwatch was triggered on [0] schedulers, expected [1]\r\nExpected: a value equal to or greater than <1L>\r\n     but: <0L> was less than <1L>\r\n\r\nat __randomizedtesting.SeedInfo.seed([17F8D0FFA17B00BE:302289683F89D2CB]:0)\r\nat org.hamcrest.MatcherAssert.assertThat(MatcherAssert.java:18)\r\nat org.junit.Assert.assertThat(Assert.java:956)\r\nat org.elasticsearch.xpack.watcher.test.AbstractWatcherIntegrationTestCase$TimeWarp.trigger(AbstractWatcherIntegrationTestCase.java:600)\r\nat org.elasticsearch.xpack.watcher.test.AbstractWatcherIntegrationTestCase$TimeWarp.trigger(AbstractWatcherIntegrationTestCase.java:585)\r\nat org.elasticsearch.xpack.watcher.WatcherConcreteIndexTests.testCanUseAnyConcreteIndexName(WatcherConcreteIndexTests.java:47)\r\n```\r\n\r\nhttps://elasticsearch-ci.elastic.co/job/elastic+elasticsearch+master+release-tests/760/console\r\nhttps://gradle-enterprise.elastic.co/s/eaphkxcjw4fea\r\n\r\nDoes not reproduce:\r\n```\r\n./gradlew ':x-pack:plugin:watcher:test' --tests \"org.elasticsearch.xpack.watcher.WatcherConcreteIndexTests.testCanUseAnyConcreteIndexName\" \\\r\n  -Dtests.seed=17F8D0FFA17B00BE \\\r\n  -Dtests.security.manager=true \\\r\n  -Dbuild.snapshot=false \\\r\n  -Dtests.jvm.argline=\"-Dbuild.snapshot=false\" \\\r\n  -Dtests.locale=es-PY \\\r\n  -Dtests.timezone=EAT \\\r\n  -Dcompiler.java=13\r\n```",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50658",
+        "assignees": [
+            "martijnvg"
+        ],
+        "labels": [
+            ">test-failure",
+            ":Distributed/Watcher"
+        ],
+        "issue_closed_at": "2020-01-09T08:05:06.000Z",
+        "fix_commit_hash": "5031e4733d6130191b58ed2aef25760d99995fc6",
+        "commit_type": "commit",
+        "commit_message": "Wrap triggering of a watch inside an assertBusy(...) invocation\n\nThis test replaces the watch index after watcher got started.\nThis triggers watches being reloaded and while this happens the\ntrigger engine is paused, which disallows watches from being\ntriggered. At this time there are no watches in the .watches\nindex and I think this is just unlucky timing.\n\nReloading of watches happens in the background and\nthe watch state can be started when that happens.\nFor normal schedule trigger engines this is not an issue,\nbecause watches that are meant to be triggered are triggered\nwhen the engine triggers the next time. However for the\nmock scheduled trigger engine this is different,\nbecause watches are triggered programatically and\nthere is no retry in this test.\n\nI think just adding `timeWarp().trigger(\"mywatch\");` inside\na `assertBusy(...)`` is the right fix here.  If it fails\nbecause the mock schedule trigger engine is paused then\nthe test will try again. In the mean time the the watches\ncan be reloaded, which then resumes the mock scheduled trigger engine.\n\nCloses #50658",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/5031e4733d6130191b58ed2aef25760d99995fc6",
+        "earliest_issue_date": "2020-01-06T14:35:49Z",
+        "predicted_class": "bug",
+        "bic": [
+            "ff61badcb884003acca2e53413d1c0ee04f50066"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50660,
+        "issue_title": "[CI] RelocationIT testRelocationEstablishedPeerRecoveryRetentionLeases failure",
+        "issue_body": "```\r\njava.lang.AssertionError: \r\nAllocated on new node: node_t3\r\nExpected: is <true>\r\n     but: was <false>\r\n\r\nat __randomizedtesting.SeedInfo.seed([F2359E39E52623FA:328593C56CC98FC5]:0)\r\nat org.hamcrest.MatcherAssert.assertThat(MatcherAssert.java:18)\r\nat org.junit.Assert.assertThat(Assert.java:956)\r\nat org.elasticsearch.test.ESIntegTestCase.assertAllShardsOnNodes(ESIntegTestCase.java:2045)\r\nat org.elasticsearch.recovery.RelocationIT.lambda$testRelocationEstablishedPeerRecoveryRetentionLeases$13(RelocationIT.java:637)\r\nat org.elasticsearch.test.ESTestCase.assertBusy(ESTestCase.java:904)\r\nat org.elasticsearch.test.ESTestCase.assertBusy(ESTestCase.java:877)\r\nat org.elasticsearch.recovery.RelocationIT.testRelocationEstablishedPeerRecoveryRetentionLeases(RelocationIT.java:637)\r\n```\r\n\r\nhttps://elasticsearch-ci.elastic.co/job/elastic+elasticsearch+7.x+matrix-java-periodic/ES_BUILD_JAVA=openjdk13,ES_RUNTIME_JAVA=corretto8,nodes=general-purpose/433/console\r\nhttps://gradle-enterprise.elastic.co/s/bnjckkmcp4zcs\r\n\r\nThere a have been a few occurrences of this failure all the 7.x branch\r\n\r\nhttps://gradle-enterprise.elastic.co/s/eycc3fznn6y2k\r\nhttps://gradle-enterprise.elastic.co/s/2ahivt5b2mlwq\r\nhttps://gradle-enterprise.elastic.co/s/qgilyttuh5izi\r\n\r\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50660",
+        "assignees": [
+            "dnhatn"
+        ],
+        "labels": [
+            ">test-failure",
+            ":Distributed/Recovery",
+            "v7.6.0"
+        ],
+        "issue_closed_at": "2020-01-06T18:30:09.000Z",
+        "fix_commit_hash": "c9e0ce83abc2e25ce9cf8a3953e468a7d1537be1",
+        "commit_type": "pr",
+        "commit_message": "Fix testRelocationEstablishedPeerRecoveryRetentionLeases (#50673)\n\nThe redNodes are calculated incorrectly.\r\n\r\nCloses #50660",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/50673",
+        "earliest_issue_date": "2020-01-06T15:06:47Z",
+        "predicted_class": "bug",
+        "bic": [
+            "d02afccd98338d17fae2f2166dcb550e95fb1db7"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50670,
+        "issue_title": "Dynamic mapping updates are unboundedly parallel",
+        "issue_body": "Before 7.2.0 dynamic mapping updates would block a `write` thread waiting for the master to acknowledge the new mapping. In #39793 we moved to an asynchronous model, freeing up the `write` thread to carry on with other indexing tasks.\r\n\r\nOne feature of the pre-7.2.0 blocking approach was that the number of `write` threads is limited and this limits the number of parallel dynamic mapping updates pending on the master. The asynchronous model has no such limit and may send a very large number of dynamic mapping updates in a short time since the shard bulks are processed much faster. Furthermore, many indexing operations may require the same mapping update but since they are now generated much more quickly it may be that many of the mapping updates sent to the master are duplicates.\r\n\r\nRelated [discussion thread](https://discuss.elastic.co/t/performance-degradation-after-upgrading-from-v6-3-2-to-v7-4-2/213466/5?u=davidturner).",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50670",
+        "assignees": [
+            "ywelsch"
+        ],
+        "labels": [
+            ">bug",
+            ":Distributed/CRUD"
+        ],
+        "issue_closed_at": "2020-01-15T14:50:08.000Z",
+        "fix_commit_hash": "bfbbd73dab8ba0da1fb78193629833d4ddc584de",
+        "commit_type": "pr",
+        "commit_message": "Block too many concurrent mapping updates (#51038)\n\nEnsures that there are not too many concurrent dynamic mapping updates going out from the\r\ndata nodes to the master.\r\n\r\nCloses #50670",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/51038",
+        "earliest_issue_date": "2020-01-06T16:49:14Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 50716,
+        "issue_title": "vectors/10_dense_vector_basic/Deprecated function signature fails on 7.x",
+        "issue_body": "Build: https://gradle-enterprise.elastic.co/s/khl2jslp4kl76\r\n\r\nREPRODUCE WITH: \r\n./gradlew ':x-pack:plugin:integTestRunner' --tests \"org.elasticsearch.xpack.test.rest.XPackRestIT.test {p0=vectors/10_dense_vector_basic/Deprecated function signature}\" -Dtests.seed=F523C89C12CE161 -Dtests.security.manager=true -Dtests.locale=de-GR -Dtests.timezone=Pacific/Ponape -Dcompiler.java=13 -Druntime.java=8 -Dtests.rest.blacklist=getting_started/10_monitor_cluster_health/*\r\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/50716",
+        "assignees": [
+            "mayya-sharipova"
+        ],
+        "labels": [
+            ">test-failure",
+            ":Search Relevance/Vectors",
+            "Team:Search Relevance"
+        ],
+        "issue_closed_at": "2020-01-29T21:25:02.000Z",
+        "fix_commit_hash": "c9679c08006217781d471b52fbc27a6dbb307abe",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Always use one shard in vector REST tests. (#51643)\n\nThis PR tries to address the intermittent vector test failures on 7.x by making\r\nsure we create indices with one shard.\r\n\r\nThe fix is based on this theory as to what's happening:\r\n* On 7.x, the default number of shards is 1, but in REST tests we randomly use\r\n2 in order to cover the multiple shards case. In the failing test run, we use 2\r\nshards and all documents end up on only one shard.\r\n* During a search, the response from the empty shard doesn't produce\r\ndeprecation warnings because  we never try to execute the script. If not all\r\nshard responses contain the warning headers, then certain deprecation warnings\r\ncan be lost (due to the bug described in #33936).\r\n\r\nAddresses #50716.\r\nRelates to #50061.",
+        "closer_url": null,
+        "earliest_issue_date": "2020-01-07T20:16:18Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    }
+]

@@ -1,0 +1,1152 @@
+[
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1564,
+        "issue_title": "Cluster metadata files destroyed when using blob store gateway causing data loss",
+        "issue_body": "I am using ElasticSearch v0.18.5 with the S3 shared storage gateway. Last night, I restarted my single-node cluster; when it came back up, all indexes were lost (no shards or metadata.)\n\nThe debug logs are below. ES shuts down at 21:36:16,783 and starts up at 21:36:45,830. Both before and after shutdown, there are multiple threads running Gateway#write()(elasticsearch/modules/elasticsearch/src/main/java/org/elasticsearch/gateway/shared/SharedStorageGateway.java). In the blob storage implementation (elasticsearch/modules/elasticsearch/src/main/java/org/elasticsearch/gateway/blobstore/BlobStoreGateway.java), after the metadata write is complete, all metadata files other than the one just written are deleted. Before the crash, the threads each write their own metadata file and then delete the others', which causes the cluster to start up with no metadata after the crash (causing index loss.) After the crash, the two threads write to the same metadata file.\n\n<pre>\nroot@aws-e1b-12:/md/elasticsearch/app/elasticsearch-0.18.5/logs# egrep \"(to gateway|metadata%2F|metadata found|stopping|initializing)\" dev.log.2011-12-21 | grep \" 21:3\" | head -26\n[2011-12-21 21:34:13,468][DEBUG][gateway.s3               ] [aws-e1b-12.xxxxxxxx.net] writing to gateway org.elasticsearch.gateway.shared.SharedStorageGateway$2@2547c6ef ...\n[2011-12-21 21:34:13,471][INFO ][com.amazonaws.request    ] Sending Request: PUT http://xxxxxxxx-app-dev-es.s3.amazonaws.com /dev%2Fmetadata%2Fmetadata-914 Headers: (Content-Length: 109057, Content-Type: application/octet-stream, ) \n[2011-12-21 21:34:13,636][DEBUG][gateway.s3               ] [aws-e1b-12.xxxxxxxx.net] writing to gateway org.elasticsearch.gateway.shared.SharedStorageGateway$2@ab78020 ...\n[2011-12-21 21:34:13,641][INFO ][com.amazonaws.request    ] Sending Request: PUT http://xxxxxxxx-app-dev-es.s3.amazonaws.com /dev%2Fmetadata%2Fmetadata-914 Headers: (Content-Length: 109223, Content-Type: application/octet-stream, ) \n[2011-12-21 21:34:13,747][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /dev%2Fmetadata%2Fmetadata-913 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2011-12-21 21:34:13,769][DEBUG][gateway.s3               ] [aws-e1b-12.xxxxxxxx.net] wrote to gateway org.elasticsearch.gateway.shared.SharedStorageGateway$2@ab78020, took 133ms\n[2011-12-21 21:34:13,854][DEBUG][gateway.s3               ] [aws-e1b-12.xxxxxxxx.net] writing to gateway org.elasticsearch.gateway.shared.SharedStorageGateway$2@5b8b8615 ...\n[2011-12-21 21:34:13,857][INFO ][com.amazonaws.request    ] Sending Request: PUT http://xxxxxxxx-app-dev-es.s3.amazonaws.com /dev%2Fmetadata%2Fmetadata-916 Headers: (Content-Length: 111257, Content-Type: application/octet-stream, ) \n[2011-12-21 21:34:14,026][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /dev%2Fmetadata%2Fmetadata-914 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2011-12-21 21:34:14,045][DEBUG][gateway.s3               ] [aws-e1b-12.xxxxxxxx.net] wrote to gateway org.elasticsearch.gateway.shared.SharedStorageGateway$2@5b8b8615, took 191ms\n[2011-12-21 21:34:15,451][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /dev%2Fmetadata%2Fmetadata-916 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2011-12-21 21:34:15,472][DEBUG][gateway.s3               ] [aws-e1b-12.xxxxxxxx.net] wrote to gateway org.elasticsearch.gateway.shared.SharedStorageGateway$2@2547c6ef, took 2s\n[2011-12-21 21:36:16,783][INFO ][node                     ] [aws-e1b-12.xxxxxxxx.net] {0.18.5}[2514]: stopping ...\n[2011-12-21 21:36:45,830][INFO ][node                     ] [aws-e1b-12.xxxxxxxx.net] {0.18.5}[30336]: initializing ...\n[2011-12-21 21:36:49,640][DEBUG][gateway.s3               ] [aws-e1b-12.xxxxxxxx.net] Latest metadata found at index [-1]\n[2011-12-21 21:36:53,510][DEBUG][gateway.s3               ] [aws-e1b-12.xxxxxxxx.net] writing to gateway org.elasticsearch.gateway.shared.SharedStorageGateway$2@2ef9748f ...\n[2011-12-21 21:36:53,653][INFO ][com.amazonaws.request    ] Sending Request: PUT http://xxxxxxxx-app-dev-es.s3.amazonaws.com /dev%2Fmetadata%2Fmetadata-0 Headers: (Content-Length: 43, Content-Type: application/octet-stream, ) \n[2011-12-21 21:36:53,776][DEBUG][gateway.s3               ] [aws-e1b-12.xxxxxxxx.net] wrote to gateway org.elasticsearch.gateway.shared.SharedStorageGateway$2@2ef9748f, took 266ms\n[2011-12-21 21:37:37,034][DEBUG][gateway.s3               ] [aws-e1b-12.xxxxxxxx.net] writing to gateway org.elasticsearch.gateway.shared.SharedStorageGateway$2@161e14f0 ...\n[2011-12-21 21:37:37,084][DEBUG][gateway.s3               ] [aws-e1b-12.xxxxxxxx.net] writing to gateway org.elasticsearch.gateway.shared.SharedStorageGateway$2@b5a191e ...\n[2011-12-21 21:37:37,775][INFO ][com.amazonaws.request    ] Sending Request: PUT http://xxxxxxxx-app-dev-es.s3.amazonaws.com /dev%2Fmetadata%2Fmetadata-1 Headers: (Content-Length: 210, Content-Type: application/octet-stream, ) \n[2011-12-21 21:37:37,781][INFO ][com.amazonaws.request    ] Sending Request: PUT http://xxxxxxxx-app-dev-es.s3.amazonaws.com /dev%2Fmetadata%2Fmetadata-1 Headers: (Content-Length: 376, Content-Type: application/octet-stream, ) \n[2011-12-21 21:37:37,861][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /dev%2Fmetadata%2Fmetadata-0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2011-12-21 21:37:37,872][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /dev%2Fmetadata%2Fmetadata-0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2011-12-21 21:37:37,878][DEBUG][gateway.s3               ] [aws-e1b-12.xxxxxxxx.net] wrote to gateway org.elasticsearch.gateway.shared.SharedStorageGateway$2@161e14f0, took 844ms\n[2011-12-21 21:37:37,887][DEBUG][gateway.s3               ] [aws-e1b-12.xxxxxxxx.net] wrote to gateway org.elasticsearch.gateway.shared.SharedStorageGateway$2@b5a191e, took 802ms\nroot@aws-e1b-12:/md/elasticsearch/app/elasticsearch-0.18.5/logs# \n</pre>\n\n\nI can provide additional logs if needed. Thank you!\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1564",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0.RC1",
+            "v0.18.7"
+        ],
+        "issue_closed_at": "2011-12-22T18:42:48.000Z",
+        "fix_commit_hash": "3d9e87201e52a2595c14a8dec3313c9595151a50",
+        "commit_type": "commit",
+        "commit_message": "Cluster metadata files destroyed when using blob store gateway causing data loss, closes #1564,",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/3d9e87201e52a2595c14a8dec3313c9595151a50",
+        "earliest_issue_date": "2011-12-22T17:29:00Z",
+        "predicted_class": "bug",
+        "bic": [
+            "d054c8c14ed12ca6c3c2591fe69aa092e5af69ae"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1569,
+        "issue_title": "Java API: ScriptSortBuilder does not pass the lang used",
+        "issue_body": "",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1569",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0.RC1",
+            "v0.18.7"
+        ],
+        "issue_closed_at": "2011-12-25T16:37:51.000Z",
+        "fix_commit_hash": "038d91d13400fa50e3c509b4a22f79df7feda8db",
+        "commit_type": "commit",
+        "commit_message": "Java API: ScriptSortBuilder does not pass the lang used, closes #1569.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/038d91d13400fa50e3c509b4a22f79df7feda8db",
+        "earliest_issue_date": "2011-12-25T16:37:24Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1575,
+        "issue_title": "Two different indexes with the same nested object name causing ArrayIndexOutOfBoundsException",
+        "issue_body": "If two different mappings are created within an index that both have a nested object with the same name an ArrayIndexOutOfBoundsException can occur during searches.  See this gist to reproduce: https://gist.github.com/1528898\n\nThe gist creates an index called main with two mappings alpha and bravo.  Alpha and bravo both have a nested object called charlies.  The gist indexes two alphas and a bravo.  Only the bravo has a nested document.  When searching for an alpha using a nested query an ArrayIndexOutOfBoundsException can occur.  This error only occurs if the alpha was indexed before the bravo.\n\nThis issue is related to the group discussion here: https://groups.google.com/group/elasticsearch/browse_thread/thread/486e7568f82c216a \n\nThe stack trace for the exception:\n\n```\norg.elasticsearch.search.query.QueryPhaseExecutionException: [main][1]: query[filtered(ConstantScore(org.elasticsearch.common.lucene.search.AndFilter@91837b24))->FilterCacheFilterWrapper(_type:alpha)],from[0],size[10]: Query Failed [Failed to execute main query]\n    at org.elasticsearch.search.query.QueryPhase.execute(QueryPhase.java:221)\n    at org.elasticsearch.search.SearchService.executeQueryPhase(SearchService.java:238)\n    at org.elasticsearch.search.action.SearchServiceTransportAction.sendExecuteQuery(SearchServiceTransportAction.java:134)\n    at org.elasticsearch.action.search.type.TransportSearchQueryThenFetchAction$AsyncAction.sendExecuteFirstPhase(TransportSearchQueryThenFetchAction.java:80)\n    at org.elasticsearch.action.search.type.TransportSearchTypeAction$BaseAsyncAction.performFirstPhase(TransportSearchTypeAction.java:205)\n    at org.elasticsearch.action.search.type.TransportSearchTypeAction$BaseAsyncAction.performFirstPhase(TransportSearchTypeAction.java:192)\n    at org.elasticsearch.action.search.type.TransportSearchTypeAction$BaseAsyncAction$2.run(TransportSearchTypeAction.java:178)\n    at java.util.concurrent.ThreadPoolExecutor$Worker.runTask(ThreadPoolExecutor.java:886)\n    at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:908)\n    at java.lang.Thread.run(Thread.java:680)\nCaused by: java.lang.ArrayIndexOutOfBoundsException: -1\n    at org.apache.lucene.util.OpenBitSetIterator.advance(OpenBitSetIterator.java:166)\n    at org.elasticsearch.common.lucene.docset.AndDocIdSet$AndDocIdSetIterator.advance(AndDocIdSet.java:127)\n    at org.apache.lucene.search.DeletionAwareConstantScoreQuery$DeletionConstantScorer.advance(DeletionAwareConstantScoreQuery.java:91)\n    at org.apache.lucene.search.FilteredQuery$2.score(FilteredQuery.java:157)\n    at org.apache.lucene.search.IndexSearcher.search(IndexSearcher.java:581)\n    at org.elasticsearch.search.internal.ContextIndexSearcher.search(ContextIndexSearcher.java:199)\n    at org.apache.lucene.search.IndexSearcher.search(IndexSearcher.java:445)\n    at org.apache.lucene.search.IndexSearcher.search(IndexSearcher.java:426)\n    at org.apache.lucene.search.IndexSearcher.search(IndexSearcher.java:342)\n    at org.apache.lucene.search.IndexSearcher.search(IndexSearcher.java:330)\n    at org.elasticsearch.search.query.QueryPhase.execute(QueryPhase.java:217)\n    ... 9 more\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1575",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0.RC1",
+            "v0.18.7"
+        ],
+        "issue_closed_at": "2011-12-28T20:20:19.000Z",
+        "fix_commit_hash": "bb63d38a659dcb5711f4ab4d1db22bd0f4c2bc52",
+        "commit_type": "commit",
+        "commit_message": "Two different indexes with the same nested object name causing ArrayIndexOutOfBoundsException, closes #1575.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/bb63d38a659dcb5711f4ab4d1db22bd0f4c2bc52",
+        "earliest_issue_date": "2011-12-28T18:12:08Z",
+        "predicted_class": "bug",
+        "bic": [
+            "42edd0c8647e505fb511a415fb19e70f74b26ab9"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1582,
+        "issue_title": "S3 blob storage gateway: deleting an index named x destroys data for any index with name beginning with x",
+        "issue_body": "Thank you for your help in issue #1564. I am using ElasticSearch v0.18.5 with the S3 shared storage gateway and have been experiencing index data loss: after a restart, some indexes will appear with correct mappings but zero documents.\n\nIt looks like this happens because deleting an index named \"x\" causes ES to remove all keys with prefix \n\"clustername/indicies/x\" which includes data for any index whose name begins with \"x\". It should only remove keys with prefix \"clustername/indicies/x/\".\n\nTo reproduce:\n\n<pre>\n$ curl -XPUT 'http://localhost:9200/x/'\n{\"ok\":true,\"acknowledged\":true}\n$ curl -XPUT 'http://localhost:9200/x2/'\n{\"ok\":true,\"acknowledged\":true}\n$ curl -XPOST 'http://localhost:9200/x/_gateway/snapshot'\n{\"ok\":true,\"_shards\":{\"total\":5,\"successful\":4,\"failed\":0}}\n$ curl -XPOST 'http://localhost:9200/x2/_gateway/snapshot'\n{\"ok\":true,\"_shards\":{\"total\":5,\"successful\":5,\"failed\":0}}\n$ curl -XDELETE 'http://localhost:9200/x/'\n{\"ok\":true,\"acknowledged\":true}\n</pre>\n\n\nAfter restarting and restoring from the gateway, x2 should have zero documents. After the DELETE request is sent, ES deletes the commit data for index x2:\n\n<pre>\n[2012-01-02 14:53:00,664][INFO ][com.amazonaws.request    ] Sending Request: GET http://xxxxxxxx-app-dev-es.s3.amazonaws.com / Parameters: (prefix: es-amalgam-20111025/indices/x, ) Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n...\n[2012-01-02 14:53:00,954][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Findices%2Fx2%2F4%2Fcommit-0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n</pre>\n\n\nThe full logs for the DELETE request are below:\n\n<pre>\n[2012-01-02 14:53:00,405][DEBUG][cluster.service          ] [aws-e1b-8.xxxxxxxx.net] processing [delete-index [x]]: execute\n[2012-01-02 14:53:00,405][INFO ][cluster.metadata         ] [aws-e1b-8.xxxxxxxx.net] [x] deleting index\n[2012-01-02 14:53:00,409][DEBUG][cluster.service          ] [aws-e1b-8.xxxxxxxx.net] cluster state updated, version [220], source [delete-index [x]]\n[2012-01-02 14:53:00,409][DEBUG][river.cluster            ] [aws-e1b-8.xxxxxxxx.net] processing [reroute_rivers_node_changed]: execute\n[2012-01-02 14:53:00,409][DEBUG][river.cluster            ] [aws-e1b-8.xxxxxxxx.net] processing [reroute_rivers_node_changed]: no change in cluster_state\n[2012-01-02 14:53:00,410][DEBUG][indices.cluster          ] [aws-e1b-8.xxxxxxxx.net] [x] deleting index\n[2012-01-02 14:53:00,410][DEBUG][indices                  ] [aws-e1b-8.xxxxxxxx.net] deleting Index [x]\n[2012-01-02 14:53:00,410][DEBUG][index.service            ] [aws-e1b-8.xxxxxxxx.net] [x] deleting shard_id [0]\n[2012-01-02 14:53:00,410][DEBUG][index.service            ] [aws-e1b-8.xxxxxxxx.net] [x] deleting shard_id [1]\n[2012-01-02 14:53:00,411][DEBUG][index.service            ] [aws-e1b-8.xxxxxxxx.net] [x] deleting shard_id [2]\n[2012-01-02 14:53:00,411][DEBUG][index.shard.service      ] [aws-e1b-8.xxxxxxxx.net] [x][0] state: [STARTED]->[CLOSED], reason [deleting index]\n[2012-01-02 14:53:00,411][DEBUG][index.shard.service      ] [aws-e1b-8.xxxxxxxx.net] [x][1] state: [STARTED]->[CLOSED], reason [deleting index]\n[2012-01-02 14:53:00,411][DEBUG][index.shard.service      ] [aws-e1b-8.xxxxxxxx.net] [x][2] state: [STARTED]->[CLOSED], reason [deleting index]\n[2012-01-02 14:53:00,411][INFO ][com.amazonaws.request    ] Sending Request: GET http://xxxxxxxx-app-dev-es.s3.amazonaws.com / Parameters: (prefix: es-amalgam-20111025/indices/x/1, ) Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,412][DEBUG][index.service            ] [aws-e1b-8.xxxxxxxx.net] [x] deleting shard_id [3]\n[2012-01-02 14:53:00,412][DEBUG][index.service            ] [aws-e1b-8.xxxxxxxx.net] [x] deleting shard_id [4]\n[2012-01-02 14:53:00,412][DEBUG][index.shard.service      ] [aws-e1b-8.xxxxxxxx.net] [x][3] state: [STARTED]->[CLOSED], reason [deleting index]\n[2012-01-02 14:53:00,413][INFO ][com.amazonaws.request    ] Sending Request: GET http://xxxxxxxx-app-dev-es.s3.amazonaws.com / Parameters: (prefix: es-amalgam-20111025/indices/x/0, ) Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,413][DEBUG][index.shard.service      ] [aws-e1b-8.xxxxxxxx.net] [x][4] state: [STARTED]->[CLOSED], reason [deleting index]\n[2012-01-02 14:53:00,414][INFO ][com.amazonaws.request    ] Sending Request: GET http://xxxxxxxx-app-dev-es.s3.amazonaws.com / Parameters: (prefix: es-amalgam-20111025/indices/x/2, ) Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,415][INFO ][com.amazonaws.request    ] Sending Request: GET http://xxxxxxxx-app-dev-es.s3.amazonaws.com / Parameters: (prefix: es-amalgam-20111025/indices/x/3, ) Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,415][INFO ][com.amazonaws.request    ] Sending Request: GET http://xxxxxxxx-app-dev-es.s3.amazonaws.com / Parameters: (prefix: es-amalgam-20111025/indices/x/4, ) Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,432][INFO ][com.amazonaws.request    ] Received successful response: 200, AWS Request ID: 1CF9DDBE56ACAE52\n[2012-01-02 14:53:00,432][DEBUG][indices.memory           ] [aws-e1b-8.xxxxxxxx.net] recalculating shard indexing buffer (reason=removed_shard[x][4]), total is [1gb] with [5] active shards, each shard set to [225.1mb]\n[2012-01-02 14:53:00,437][INFO ][com.amazonaws.request    ] Received successful response: 200, AWS Request ID: 5439E48D1C6C66E3\n[2012-01-02 14:53:00,437][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Findices%2Fx%2F0%2F__0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,456][INFO ][com.amazonaws.request    ] Received successful response: 204, AWS Request ID: D5F6AEE4C87331BA\n[2012-01-02 14:53:00,456][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Findices%2Fx%2F0%2Fcommit-0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,465][INFO ][com.amazonaws.request    ] Received successful response: 200, AWS Request ID: 4C3580B5A6536906\n[2012-01-02 14:53:00,465][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Findices%2Fx%2F3%2F__0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,480][INFO ][com.amazonaws.request    ] Received successful response: 200, AWS Request ID: E4C5A1CD3FCC0A51\n[2012-01-02 14:53:00,480][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Findices%2Fx%2F2%2F__0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,483][INFO ][com.amazonaws.request    ] Received successful response: 204, AWS Request ID: BFE115230486752E\n[2012-01-02 14:53:00,483][DEBUG][indices.memory           ] [aws-e1b-8.xxxxxxxx.net] recalculating shard indexing buffer (reason=removed_shard[x][0]), total is [1gb] with [5] active shards, each shard set to [225.1mb]\n[2012-01-02 14:53:00,494][INFO ][com.amazonaws.request    ] Received successful response: 204, AWS Request ID: 9E9CE9A22BFF2209\n[2012-01-02 14:53:00,494][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Findices%2Fx%2F3%2Fcommit-0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,500][INFO ][com.amazonaws.request    ] Received successful response: 204, AWS Request ID: ACAC04C51612FE27\n[2012-01-02 14:53:00,500][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Findices%2Fx%2F2%2Fcommit-0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,517][INFO ][com.amazonaws.request    ] Received successful response: 204, AWS Request ID: EFBA0DA2BAB7D65E\n[2012-01-02 14:53:00,517][DEBUG][indices.memory           ] [aws-e1b-8.xxxxxxxx.net] recalculating shard indexing buffer (reason=removed_shard[x][2]), total is [1gb] with [5] active shards, each shard set to [225.1mb]\n[2012-01-02 14:53:00,518][INFO ][com.amazonaws.request    ] Received successful response: 204, AWS Request ID: DA077754B6C41906\n[2012-01-02 14:53:00,518][DEBUG][indices.memory           ] [aws-e1b-8.xxxxxxxx.net] recalculating shard indexing buffer (reason=removed_shard[x][3]), total is [1gb] with [5] active shards, each shard set to [225.1mb]\n[2012-01-02 14:53:00,626][INFO ][com.amazonaws.request    ] Received successful response: 200, AWS Request ID: C97B12628A245B67\n[2012-01-02 14:53:00,626][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Findices%2Fx%2F1%2F__0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,643][INFO ][com.amazonaws.request    ] Received successful response: 204, AWS Request ID: C444D05B9C2526EC\n[2012-01-02 14:53:00,643][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Findices%2Fx%2F1%2Fcommit-0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,662][INFO ][com.amazonaws.request    ] Received successful response: 204, AWS Request ID: A2EC73D53CEF11B5\n[2012-01-02 14:53:00,663][DEBUG][indices.memory           ] [aws-e1b-8.xxxxxxxx.net] recalculating shard indexing buffer (reason=removed_shard[x][1]), total is [1gb] with [5] active shards, each shard set to [225.1mb]\n[2012-01-02 14:53:00,664][INFO ][com.amazonaws.request    ] Sending Request: GET http://xxxxxxxx-app-dev-es.s3.amazonaws.com / Parameters: (prefix: es-amalgam-20111025/indices/x, ) Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,701][INFO ][com.amazonaws.request    ] Received successful response: 200, AWS Request ID: 126AAAFACB6B9E52\n[2012-01-02 14:53:00,701][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Findices%2Fx2%2F0%2F__0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,719][INFO ][com.amazonaws.request    ] Received successful response: 204, AWS Request ID: AE11CA882DC3B5F2\n[2012-01-02 14:53:00,720][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Findices%2Fx2%2F0%2Fcommit-0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,747][INFO ][com.amazonaws.request    ] Received successful response: 204, AWS Request ID: 611EB0181D55BE54\n[2012-01-02 14:53:00,747][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Findices%2Fx2%2F1%2F__0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,769][INFO ][com.amazonaws.request    ] Received successful response: 204, AWS Request ID: 756ACDD05674B387\n[2012-01-02 14:53:00,769][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Findices%2Fx2%2F1%2Fcommit-0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,789][INFO ][com.amazonaws.request    ] Received successful response: 204, AWS Request ID: F840A4C6AC34606D\n[2012-01-02 14:53:00,789][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Findices%2Fx2%2F2%2F__0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,811][INFO ][com.amazonaws.request    ] Received successful response: 204, AWS Request ID: D7CDEDD29EBC7D61\n[2012-01-02 14:53:00,812][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Findices%2Fx2%2F2%2Fcommit-0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,833][INFO ][com.amazonaws.request    ] Received successful response: 204, AWS Request ID: 9617334FDC66FB23\n[2012-01-02 14:53:00,833][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Findices%2Fx2%2F3%2F__0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,904][INFO ][com.amazonaws.request    ] Received successful response: 204, AWS Request ID: E7B2AC2C2DFE2ED6\n[2012-01-02 14:53:00,904][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Findices%2Fx2%2F3%2Fcommit-0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,926][INFO ][com.amazonaws.request    ] Received successful response: 204, AWS Request ID: A47D9D007502212A\n[2012-01-02 14:53:00,926][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Findices%2Fx2%2F4%2F__0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,954][INFO ][com.amazonaws.request    ] Received successful response: 204, AWS Request ID: 38EC545C47C99D65\n[2012-01-02 14:53:00,954][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Findices%2Fx2%2F4%2Fcommit-0 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:00,974][INFO ][com.amazonaws.request    ] Received successful response: 204, AWS Request ID: A709CE7D578AAF0B\n[2012-01-02 14:53:00,981][DEBUG][gateway.s3               ] [aws-e1b-8.xxxxxxxx.net] writing to gateway org.elasticsearch.gateway.shared.SharedStorageGateway$2@3d761403 ...\n[2012-01-02 14:53:00,984][DEBUG][cluster.service          ] [aws-e1b-8.xxxxxxxx.net] processing [delete-index [x]]: done applying updated cluster_state\n[2012-01-02 14:53:00,984][INFO ][com.amazonaws.request    ] Sending Request: PUT http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Fmetadata%2Fmetadata-2455 Headers: (Content-Length: 77420, Content-Type: application/octet-stream, ) \n[2012-01-02 14:53:01,057][INFO ][com.amazonaws.request    ] Received successful response: 200, AWS Request ID: BAD343B536EDE0F7\n[2012-01-02 14:53:01,057][INFO ][com.amazonaws.request    ] Sending Request: GET http://xxxxxxxx-app-dev-es.s3.amazonaws.com / Parameters: (prefix: es-amalgam-20111025/metadata/, ) Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:01,105][INFO ][com.amazonaws.request    ] Received successful response: 200, AWS Request ID: 34F9E73651ADB6CD\n[2012-01-02 14:53:01,105][INFO ][com.amazonaws.request    ] Sending Request: DELETE http://xxxxxxxx-app-dev-es.s3.amazonaws.com /es-amalgam-20111025%2Fmetadata%2Fmetadata-2454 Headers: (Content-Type: application/x-www-form-urlencoded; charset=utf-8, ) \n[2012-01-02 14:53:01,131][INFO ][com.amazonaws.request    ] Received successful response: 204, AWS Request ID: 75732598971E7A5F\n[2012-01-02 14:53:01,131][DEBUG][gateway.s3               ] [aws-e1b-8.xxxxxxxx.net] wrote to gateway org.elasticsearch.gateway.shared.SharedStorageGateway$2@3d761403, took 150ms\n</pre>\n\n\nI can provide additional logs if needed. Thank you!\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1582",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.18.7"
+        ],
+        "issue_closed_at": "2012-01-02T21:08:03.000Z",
+        "fix_commit_hash": "0782af2add17ed14da74ed16a041eed9311acee6",
+        "commit_type": "commit",
+        "commit_message": "S3 blob storage gateway: deleting an index named x destroys data for any index with name beginning with x, closes #1582.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/0782af2add17ed14da74ed16a041eed9311acee6",
+        "earliest_issue_date": "2012-01-02T15:08:08Z",
+        "predicted_class": "bug",
+        "bic": [
+            "1fccaf06e995528112ab85dd209fcd7e9736a374"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1586,
+        "issue_title": "TTL does not respect routing when expiring (deleting) documents",
+        "issue_body": "",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1586",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0.RC1",
+            "v0.18.7"
+        ],
+        "issue_closed_at": "2012-01-04T18:37:22.000Z",
+        "fix_commit_hash": "1b68f99449c5723a86d722beeec2276351d77fa9",
+        "commit_type": "commit",
+        "commit_message": "TTL does not respect routing when expiring (deleting) documents, closes #1586",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/1b68f99449c5723a86d722beeec2276351d77fa9",
+        "earliest_issue_date": "2012-01-04T18:33:50Z",
+        "predicted_class": "bug",
+        "bic": [
+            "65aad2da1ec0dfe763e5aa354f7de929dfd4e673"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1589,
+        "issue_title": "No master (startup / minimum_master_node) / not recovered blocks should cause proper failures on operations",
+        "issue_body": "When there is no master node yet elected (or got into this state because of minimum master nodes), or the cluster has not recovered yet, a proper failure should be raised on all actions. Rest status code should be `503`.\n## Original Request:\n\nWhen a node in a cluster reboots, there is a brief period of time while that node is searching for a master that that node can 404, even if `discovery.zen.minimum_master_nodes` equals 2:\n\n```\n% sudo service elasticsearch restart\n...\ntime passes\n...\n% curl http://localhost:9200/index/type/id\n{\"error\":\"IndexMissingException[[index] missing]\",\"status\":404}\n% curl http://localhost:9200/_cluster/health\n{\"error\" : \"MasterNotDiscoveredException[]\", \"status\" : 500}\n```\n\nSince this is the same error message you get when the there's actually no index, I need to check with /_cluster/health to see if the cluster is in this startup phase to tell if this is a temporary error or not. It'd be preferable if instead elasticsearch could just raise a separate error so I don't need to do that.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1589",
+        "assignees": [],
+        "labels": [
+            ">enhancement",
+            "v0.19.0.RC1"
+        ],
+        "issue_closed_at": "2012-01-06T21:39:19.000Z",
+        "fix_commit_hash": "ec8b7c3e233703b7eb4908fae74c3c38c0cd9d82",
+        "commit_type": "commit",
+        "commit_message": "No master (startup / minimum_master_node) / not recovered blocks should cause proper failures on operations, closes #1589.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/ec8b7c3e233703b7eb4908fae74c3c38c0cd9d82",
+        "earliest_issue_date": "2012-01-05T16:14:34Z",
+        "predicted_class": "bug",
+        "bic": [
+            "be6e18cb3652da731d9877af48d77fd261207334"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1592,
+        "issue_title": "Bulk API does delete item does not respect routing associated with an alias",
+        "issue_body": "This results in a broadcast delete, which is a shame, not really a problem though....\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1592",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0.RC1"
+        ],
+        "issue_closed_at": "2012-01-06T21:39:01.000Z",
+        "fix_commit_hash": "96ad77bfa6f4f366c374f000e7e42264c5284ada",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "[9.2] Add `max_batch_size` setting to EIS sparse service settings (#141185) (#141341)\n\nAdds a new setting `max_batch_size` to the sparse service settings\nfor EIS. The setting allows values of [1, 512]. The default value remains `16`.\n\nTweaking this setting can help users improve performance.\n\nRelates #1592\n\n(cherry picked from commit 01ace3927df065f1caf090653404f29688e8103a)",
+        "closer_url": null,
+        "earliest_issue_date": "2012-01-06T21:01:18Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1610,
+        "issue_title": "Plugin loading broken",
+        "issue_body": "Commit 38e8727a89e88c533191196a5bad4bb6af6a6f81 appears to have broken plugin loading, specifically the change to PluginsService.java. Are plugins required to be packaged differently now? Tested with lang-python and head. If I revert the change to PluginsService.java, they load fine.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1610",
+        "assignees": [],
+        "labels": [],
+        "issue_closed_at": "2012-01-15T15:20:21.000Z",
+        "fix_commit_hash": "9bdef666cb5fd0aeee5083d5f92ce127a51e1a15",
+        "commit_type": "commit",
+        "commit_message": "Plugin loading broken, closes #1610.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/9bdef666cb5fd0aeee5083d5f92ce127a51e1a15",
+        "earliest_issue_date": "2012-01-15T02:35:47Z",
+        "predicted_class": "bug",
+        "bic": [
+            "38e8727a89e88c533191196a5bad4bb6af6a6f81"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1615,
+        "issue_title": "/_status doc count of index wrong",
+        "issue_body": "we have an index with about 5*10^9 docs, when calling /_status the indices.<name>.docs.num_docs and max_doc returns a wrong value. looks like an overflow somewhere\n\nwhen calling /<idx_name>/_stats,  the number of docs is right. in _all.primaries.docs.count\n\nto reproduce add about 2*10^9 docs to an index\n\nthis issue also affects the index display in elasticsearch-head\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1615",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0.RC1"
+        ],
+        "issue_closed_at": "2012-01-16T11:48:41.000Z",
+        "fix_commit_hash": "bddea0917030021cd3224e5cb9150a251cae1bd1",
+        "commit_type": "commit",
+        "commit_message": "/_status doc count of index wrong, closes #1615.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/bddea0917030021cd3224e5cb9150a251cae1bd1",
+        "earliest_issue_date": "2012-01-16T08:33:34Z",
+        "predicted_class": "bug",
+        "bic": [
+            "aa078788f9eeb1c87d83805a5865e8424b2ef252"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1617,
+        "issue_title": "0.18.7 Failure exception while executing a valid query after an invalid query",
+        "issue_body": "Hi,\nI created a gist which explains the problem.\nhttps://gist.github.com/1626815\n\nFirst I inserted a document. Then, I search with an invalid query.  For subsequent valid search request ES returns a failure message as written in gist.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1617",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0.RC1",
+            "v0.18.8"
+        ],
+        "issue_closed_at": "2012-01-18T13:08:45.000Z",
+        "fix_commit_hash": "64358948eff4e3b75134dc9e2776e9dc5a39e156",
+        "commit_type": "commit",
+        "commit_message": "Failure exception while executing a valid query after an invalid query, closes #1617.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/64358948eff4e3b75134dc9e2776e9dc5a39e156",
+        "earliest_issue_date": "2012-01-17T14:36:14Z",
+        "predicted_class": "bug",
+        "bic": [
+            "9f44c93a25d722ed14f3ce77023fd93c0880b976"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1623,
+        "issue_title": "index.recovery.initial_shards is not being taken into account",
+        "issue_body": "The initial_shards recovery for local gateway that can be set per index is not being taken into account. Note,  `gateway.local.initial_shards` works (but is set on the node configuration).\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1623",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0.RC1",
+            "v0.18.8"
+        ],
+        "issue_closed_at": "2012-01-18T21:02:22.000Z",
+        "fix_commit_hash": "d95783b158329f2ab3e0f09b111f52c5cfe0a6a8",
+        "commit_type": "commit",
+        "commit_message": "index.recovery.initial_shards is not being taken into account, closes #1623.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/d95783b158329f2ab3e0f09b111f52c5cfe0a6a8",
+        "earliest_issue_date": "2012-01-18T20:48:48Z",
+        "predicted_class": "bug",
+        "bic": [
+            "6e8c7c41fea0c8963340d2df7e1ca8396e464f78"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1626,
+        "issue_title": "Removing a node with TRACE logging enabled causes cluster state not to be properly updated",
+        "issue_body": "",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1626",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0.RC1"
+        ],
+        "issue_closed_at": "2012-01-19T13:42:32.000Z",
+        "fix_commit_hash": "a1a30226caaef4667cb7d85a4702ecf6a6bb0703",
+        "commit_type": "commit",
+        "commit_message": "Removing a node with TRACE logging enabled causes cluster state not to be properly updated, closes #1626.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/a1a30226caaef4667cb7d85a4702ecf6a6bb0703",
+        "earliest_issue_date": "2012-01-19T13:16:35Z",
+        "predicted_class": "bug",
+        "bic": [
+            "4180a7f73ab4d32f001a1d0bdc17aebd3073be76"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1628,
+        "issue_title": "_open and _close does not resolve aliases",
+        "issue_body": "The _open and _close endpoints don't work on aliases:\n- http://localhost:9200/my_idx/_open works fine\n- http://localhost:9200/my_alias/_open does not work\n\nThis should be trivial to fix as the _status call works fine on both indices and aliases.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1628",
+        "assignees": [],
+        "labels": [
+            ">enhancement",
+            "v0.19.0.RC1"
+        ],
+        "issue_closed_at": "2012-01-23T00:05:05.000Z",
+        "fix_commit_hash": "9d99c54e2ce928e613f290737b9569a44f79cf5a",
+        "commit_type": "commit",
+        "commit_message": "_open and _close does not resolve aliases, closes #1628.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/9d99c54e2ce928e613f290737b9569a44f79cf5a",
+        "earliest_issue_date": "2012-01-21T08:30:40Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1647,
+        "issue_title": "Terms Facet sorting does not handle null values properly with new JDK 7 sorting",
+        "issue_body": "",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1647",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0.RC1"
+        ],
+        "issue_closed_at": "2012-01-29T16:17:46.000Z",
+        "fix_commit_hash": "b2a333269834ecb4c9336452ef8f7086f1c70db2",
+        "commit_type": "commit",
+        "commit_message": "Terms Facet sorting does not handle null values properly with new JDK 7 sorting, closes #1647.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/b2a333269834ecb4c9336452ef8f7086f1c70db2",
+        "earliest_issue_date": "2012-01-29T16:04:17Z",
+        "predicted_class": "bug",
+        "bic": [
+            "352cb74f960fe9d0c91cd44fa61474625e960e03"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1651,
+        "issue_title": "Cluster Allocation: cluster.routing.allocation.allow_rebalance does not allow for rebalancing on relocating shard",
+        "issue_body": "The setting `cluster.routing.allocation.allow_rebalance` (defaults to `indices_all_active` means wait till the shards are active till we start rebalancing. This helps with allocating all indices before starting rebalance.\n\nCurrently though, it does not take rebalancing shard into account, meaning that once a single shard is moving (rebalanced), it will not allow for any other shard to be moved around. This effectively disables the `cluster.routing.allocation.cluster_concurrent_rebalance` setting (defaults to 2) by allowing for a single shard to rebalance and until its done, none will be allowed.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1651",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0.RC1"
+        ],
+        "issue_closed_at": "2012-01-29T23:58:58.000Z",
+        "fix_commit_hash": "f6deb4597094ac46ad862f1c5817db66c40c6dea",
+        "commit_type": "commit",
+        "commit_message": "Cluster Allocation: cluster.routing.allocation.allow_rebalance does not allow for rebalancing on relocating shard, closes #1651.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/f6deb4597094ac46ad862f1c5817db66c40c6dea",
+        "earliest_issue_date": "2012-01-29T23:47:49Z",
+        "predicted_class": "bug",
+        "bic": [
+            "70c334ec01afa90ee92ee8d8c6571aaf6757ff7b"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1663,
+        "issue_title": "Query DSL: query_string/field/text do not fail when an invalid analyzer is provided",
+        "issue_body": "",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1663",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0.RC1"
+        ],
+        "issue_closed_at": "2012-02-05T11:07:12.000Z",
+        "fix_commit_hash": "5b62c2ae26e541e50800b31f5f1e9a14419cbf7b",
+        "commit_type": "commit",
+        "commit_message": "Query DSL: query_string/field/text do not fail when an invalid analyzer is provided, closes #1663.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/5b62c2ae26e541e50800b31f5f1e9a14419cbf7b",
+        "earliest_issue_date": "2012-02-05T11:06:30Z",
+        "predicted_class": "bug",
+        "bic": [
+            "010b910333ee16f18b2a2ec81579bc2c3d9a0614"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1686,
+        "issue_title": "Transport buffer overrun can happen because of byte buffer reading optimization introduced in 0.19.0.RC1",
+        "issue_body": "",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1686",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0.RC2"
+        ],
+        "issue_closed_at": "2012-02-08T22:15:18.000Z",
+        "fix_commit_hash": "278e5d3a430289b82a6c8a4ed560f3ec96691939",
+        "commit_type": "commit",
+        "commit_message": "Transport buffer overrun can happen because of byte buffer reading optimization introduced in 0.19.0.RC1, closes #1686.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/278e5d3a430289b82a6c8a4ed560f3ec96691939",
+        "earliest_issue_date": "2012-02-08T22:13:21Z",
+        "predicted_class": "bug",
+        "bic": [
+            "abfc57076201b9976bc51c336a8ec161cf8de7c9"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1698,
+        "issue_title": "Indices query should accept alias names",
+        "issue_body": "If you pass an alias name to an indices query, instead of the real index name, then the `no_match_query` is applied instead of the `query`\n\nI think that the `indices` key should be able to accept aliases and expand these to the real index names before executing.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1698",
+        "assignees": [],
+        "labels": [
+            ">enhancement",
+            "v0.19.0.RC3"
+        ],
+        "issue_closed_at": "2012-02-17T13:04:02.000Z",
+        "fix_commit_hash": "7bd87e12a2a1c4a9ff9f986b42b9afefdd177964",
+        "commit_type": "commit",
+        "commit_message": "Indices query should accept alias names, closes #1698.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/7bd87e12a2a1c4a9ff9f986b42b9afefdd177964",
+        "earliest_issue_date": "2012-02-13T19:44:44Z",
+        "predicted_class": "bug",
+        "bic": [
+            "b2b608f9dc8f622d5a2dd5f50e116fefbf8e1f36"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1702,
+        "issue_title": "Retrieving byte type stored field fails",
+        "issue_body": "If you write a single java.lang.Byte type via json, it can't be read back.\n\nThe following error occurs:\nFailed to execute phase [query_fetch], total failure; shardFailures {RemoteTransportException[[Spot][inet[/192.168.0.124:9300]][search/phase/query+fetch]]; nested: IOException[Can't write type [class java.lang.Byte]]; }\n## \n## The following code produces the error:\n\nIndex-Mapping (template)\n...\n \"ct\" : {\n                    \"type\" : \"byte\",\n                    \"store\" : \"yes\",\n                    \"index\" : \"no\"\n}\n## ...\n## Writing the document:\n\nXContentBuilder jsonB = jsonBuilder();\njsonB.startObject();\n...\njsonB.field(\"ct\", (byte)5);\njsonB.endObject();\n...\nes.getClient().prepareIndex(INDEX_DOCUMENTS, \"document\",uid).setSource(jsonB).execute().actionGet();\n\n---\n## Reading back:\n\nQueryBuilder b = QueryBuilders.queryString(str).defaultOperator(Operator.OR).allowLeadingWildcard(false).useDisMax(true); \nSearchRequestBuilder request = es.getClient().prepareSearch(INDEX_DOCUMENTS)\n                    .setSearchType(SearchType.DFS_QUERY_THEN_FETCH)\n                    .addFields(\"ct\")\n                    .setFrom(n).setSize(limit)\n                    .setQuery(b);\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1702",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0.RC3"
+        ],
+        "issue_closed_at": "2012-02-15T13:28:09.000Z",
+        "fix_commit_hash": "e1cca9000603b164cc70ff25534381e5df2a8220",
+        "commit_type": "commit",
+        "commit_message": "Retrieving byte type stored field fails, closes #1702.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/e1cca9000603b164cc70ff25534381e5df2a8220",
+        "earliest_issue_date": "2012-02-15T09:33:05Z",
+        "predicted_class": "bug",
+        "bic": [
+            "8285ffe22175bf4592e79bb881a6451741ccdac8"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1704,
+        "issue_title": "Search: When using `_all` for types, field name/type resolution might fail",
+        "issue_body": "",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1704",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0.RC3"
+        ],
+        "issue_closed_at": "2012-02-15T13:50:30.000Z",
+        "fix_commit_hash": "d8f18dd812f48c67b84ee6c8aaff3e9d84afc100",
+        "commit_type": "commit",
+        "commit_message": "Search: When using `_all` for types, field name/type resolution might fail, closes #1704.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/d8f18dd812f48c67b84ee6c8aaff3e9d84afc100",
+        "earliest_issue_date": "2012-02-15T13:41:25Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1709,
+        "issue_title": "top_children query returns no results when child field has the same name as a nested field as a nested field in the parent mapping",
+        "issue_body": "What reproduces the problem is when you have a field, say, \"body\", in the child type, and you're searching on that field in `top_children`. If the parent type also has a nested field with the name \"body\", then the `top_children` query will return no results; the same `has_child` query/filter does return results.\n\nHere's a reduction (or [download](https://gist.github.com/1846196)):\n\n```\ncurl -XDELETE localhost:9200/test?pretty=true\necho \"\"\ncurl -XPUT localhost:9200/test?pretty=true\necho \"\"\ncurl -XPUT localhost:9200/test/parent/_mapping?pretty=true -d '{\"parent\":{\"properties\":{\"name\":{\"type\":\"string\",\"index\":\"analyzed\"},\"notes\":{\"properties\":{\"body\":{\"type\":\"string\"}}}}}}'\necho \"\"\ncurl -XPUT localhost:9200/test/child/_mapping?pretty=true -d '{\"child\":{\"_parent\":{\"type\":\"parent\"}, \"properties\":{\"body\":{\"type\":\"string\",\"index\":\"analyzed\"}}}}'\necho \"\"\ncurl -XPUT localhost:9200/test/parent/1?pretty=true -d \"{\\\"name\\\":\\\"parent document\\\"}\"\necho \"\"\ncurl -XPOST 'localhost:9200/test/child/_create?parent=1&pretty=true&refresh=true' -d '{\"body\":\"pizza monster\"}'\necho \"\"\ncurl -XGET localhost:9200/test/parent/_search?pretty=true -d '{\"query\":{\"top_children\":{\"type\":\"child\",\"query\":{\"query_string\":{\"query\":\"pizza monster\",\"fields\":[\"body\"]}}}}}'\necho \"\"\ncurl -XGET localhost:9200/test/parent/_search?pretty=true -d '{\"query\":{\"has_child\":{\"type\":\"child\",\"query\":{\"query_string\":{\"query\":\"pizza monster\",\"fields\":[\"body\"]}}}}}'\necho \"\"\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1709",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0.RC3"
+        ],
+        "issue_closed_at": "2012-02-19T13:13:22.000Z",
+        "fix_commit_hash": "94d64c0be430057e93565e4a36515a38858d35c0",
+        "commit_type": "commit",
+        "commit_message": "top_children query returns no results when child field has the same name as a nested field as a nested field in the parent mapping, closes #1709.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/94d64c0be430057e93565e4a36515a38858d35c0",
+        "earliest_issue_date": "2012-02-16T16:22:11Z",
+        "predicted_class": "bug",
+        "bic": [
+            "54437c1bd3125c1e5cddbd1cad4a26fca03c002b"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1717,
+        "issue_title": "Failed shards allocation can \"poison\" allocation and might cause not allocating other shards",
+        "issue_body": "Its pretty rare, but might happen, specifically when having many indices (and many shards) and if some shards fail, it might end in a poison state where failed shards are retried and because of shards concurrent initialization limits per node, the same might be attempted to start each time.\n\nObviously, it would be great to have something that identified that a specific shard has failed on all its different replicas, and then throttle its attempted allocation to a later time, but thats a different issue.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1717",
+        "assignees": [],
+        "labels": [
+            ">enhancement",
+            "v0.19.0.RC3"
+        ],
+        "issue_closed_at": "2012-02-17T22:20:08.000Z",
+        "fix_commit_hash": "dfdd4e7394b60cf3f0e5336d91882d5d9317437f",
+        "commit_type": "commit",
+        "commit_message": "Failed shards allocation can \"poison\" allocation and might cause not allocating other shards, closes #1717.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/dfdd4e7394b60cf3f0e5336d91882d5d9317437f",
+        "earliest_issue_date": "2012-02-17T22:11:34Z",
+        "predicted_class": "bug",
+        "bic": [
+            "3028d5a7a16cd9ccb28f1a364ac2c1d762a6e6de"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1724,
+        "issue_title": "Real time get on a stored _size field does not return its value",
+        "issue_body": "",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1724",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0"
+        ],
+        "issue_closed_at": "2012-02-21T16:10:02.000Z",
+        "fix_commit_hash": "7ff12a5bd96847db625e5d008ea5cd7040cca735",
+        "commit_type": "commit",
+        "commit_message": "Real time get on a stored _size field does not return its value, closes #1724.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/7ff12a5bd96847db625e5d008ea5cd7040cca735",
+        "earliest_issue_date": "2012-02-21T16:08:26Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1725,
+        "issue_title": "query never returns",
+        "issue_body": "When executing a boolean query that contains a constant score query filter, the query appears to lock up elasticsearch or lucene and never return a response.  Details how to reproduce can be found in the following gist:\n\nhttps://gist.github.com/1860568\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1725",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0"
+        ],
+        "issue_closed_at": "2012-02-21T23:50:31.000Z",
+        "fix_commit_hash": "31b793591ea4dd4c60088d9185fb66a3f7ae293e",
+        "commit_type": "commit",
+        "commit_message": "query never returns, closes #1725.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/31b793591ea4dd4c60088d9185fb66a3f7ae293e",
+        "earliest_issue_date": "2012-02-21T20:22:53Z",
+        "predicted_class": "bug",
+        "bic": [
+            "bbd63f0ffef611842315044f4275a341ce7110cf"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1727,
+        "issue_title": "Translog Flush: When disabling flush and enabling it again, scheduled flush stops executing",
+        "issue_body": "Also, fix wrong warn logging on scheduled flush if we can't do it on the shard, and allow for \"-1\" settings on flush paramaters to disable them.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1727",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ">enhancement",
+            "v0.19.0"
+        ],
+        "issue_closed_at": "2012-02-22T13:01:06.000Z",
+        "fix_commit_hash": "0ef2afb855cf93f8781caee056426ad643f1d58a",
+        "commit_type": "commit",
+        "commit_message": "Translog Flush: When disabling flush and enabling it again, scheduled flush stops executing, closes #1727.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/0ef2afb855cf93f8781caee056426ad643f1d58a",
+        "earliest_issue_date": "2012-02-22T12:56:08Z",
+        "predicted_class": "bug",
+        "bic": [
+            "ebd95b7eb80cb89dfc4c9567a00cca715f4e999b"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1736,
+        "issue_title": "msearch should accept a leading \\n",
+        "issue_body": "This query, with  a `\\n` at the start of the request body, throws an error:\n\n```\ncurl -XGET 'http://127.0.0.1:9200/_all/_msearch?pretty=1'  -d '\n{\"index\":\"bar\"}\n{}\n'\n{\n  \"responses\" : [ {\n    \"error\" : \"SearchPhaseExecutionException[Failed to execute phase [query], total failure; shardFailures {[M13f_44ASzCtykP8D-y-Og][geonames_temp][0]: SearchParseException[[geonames_temp][0]: from[-1],size[-1]: Parse Failure [Failed to parse source [{\\\"index\\\":\\\"bar\\\"}]]]; nested: SearchParseException[[geonames_temp][0]: from[-1],size[-1]: Parse Failure [No parser for element [index]]]; }{[M13f_44ASzCtykP8D-y-Og][iannounce_object_1329422272][3]: SearchParseException[[iannounce_object_1329422272][3]: from[-1],size[-1]: Parse Failure [Failed to parse source [{\\\"index\\\":\\\"bar\\\"}]]]; nested: SearchParseException[[iannounce_object_1329422272][3]: from[-1],size[-1]: Parse Failure [No parser for element [index]]]; }{[M13f_44ASzCtykP8D-y-Og][foo][4]: SearchParseException[[foo][4]: from[-1],size[-1]: Parse Failure [Failed to parse source [{\\\"index\\\":\\\"bar\\\"}]]]; nested: SearchParseException[[foo][4]: from[-1],size[-1]: Parse Failure [No parser for element [index]]]; }{[M13f_44ASzCtykP8D-y-Og][geonames_1329424673][0]: SearchParseException[[geonames_1329424673][0]: from[-1],size[-1]: Parse Failure [Failed to parse source [{\\\"index\\\":\\\"bar\\\"}]]]; nested: SearchParseException[[geonames_1329424673][0]: from[-1],size[-1]: Parse Failure [No parser for element [index]]]; }{[M13f_44ASzCtykP8D-y-Og][foo][1]: SearchParseException[[foo][1]: from[-1],size[-1]: Parse Failure [Failed to parse source [{\\\"index\\\":\\\"bar\\\"}]]]; nested: SearchParseException[[foo][1]: from[-1],size[-1]: Parse Failure [No parser for element [index]]]; }{[M13f_44ASzCtykP8D-y-Og][iannounce_object_1329422272][2]: SearchParseException[[iannounce_object_1329422272][2]: from[-1],size[-1]: Parse Failure [Failed to parse source [{\\\"index\\\":\\\"bar\\\"}]]]; nested: SearchParseException[[iannounce_object_1329422272][2]: from[-1],size[-1]: Parse Failure [No parser for element [index]]]; }{[M13f_44ASzCtykP8D-y-Og][iannounce_object_1329422272][1]: SearchParseException[[iannounce_object_1329422272][1]: from[-1],size[-1]: Parse Failure [Failed to parse source [{\\\"index\\\":\\\"bar\\\"}]]]; nested: SearchParseException[[iannounce_object_1329422272][1]: from[-1],size[-1]: Parse Failure [No parser for element [index]]]; }{[M13f_44ASzCtykP8D-y-Og][foo][0]: SearchParseException[[foo][0]: from[-1],size[-1]: Parse Failure [Failed to parse source [{\\\"index\\\":\\\"bar\\\"}]]]; nested: SearchParseException[[foo][0]: from[-1],size[-1]: Parse Failure [No parser for element [index]]]; }]\"\n  } ]\n}\n```\n\nBut the same format for `bulk` is accepted.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1736",
+        "assignees": [],
+        "labels": [
+            ">enhancement",
+            "v0.19.0"
+        ],
+        "issue_closed_at": "2012-02-26T22:27:55.000Z",
+        "fix_commit_hash": "c72772e621dcb939378f515f7b2b6a7cd112706e",
+        "commit_type": "commit",
+        "commit_message": "msearch should accept a leading \\n, closes #1736.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/c72772e621dcb939378f515f7b2b6a7cd112706e",
+        "earliest_issue_date": "2012-02-24T11:59:38Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1740,
+        "issue_title": "Orderly shutdown with unicast discovery might cause the shutdown node to still be part of the election process",
+        "issue_body": "Relates to #1730 and #1731.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1740",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0"
+        ],
+        "issue_closed_at": "2012-02-27T09:56:12.000Z",
+        "fix_commit_hash": "43e45a111cd0405758a30a7cf666cf0466955346",
+        "commit_type": "commit",
+        "commit_message": "Orderly shutdown with unicast discovery might cause the shutdown node to still be part of the election process, closes #1740.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/43e45a111cd0405758a30a7cf666cf0466955346",
+        "earliest_issue_date": "2012-02-27T09:54:55Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1745,
+        "issue_title": "wrong exit value in startup script",
+        "issue_body": "The startup script returns 1 when started with no \"-p\" option.\n\n``` bash\n  else\n        exec \"$JAVA\" $JAVA_OPTS $ES_JAVA_OPTS $es_parms -cp $ES_CLASSPATH $props \\\n                    org.elasticsearch.bootstrap.ElasticSearch <&- &\n\n        [ ! -z \"$pidpath\" ] && printf '%d' $! > \"$pidpath\"\n    fi\n\n    return $?\n```\n\nThe return value of exec should be stored. Then checked.\nOnly then optional writing of the pid should be done.\n- Tom\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1745",
+        "assignees": [
+            "spinscale"
+        ],
+        "labels": [],
+        "issue_closed_at": "2013-08-23T11:21:50.000Z",
+        "fix_commit_hash": "2b03bc83a40e470c977564195f6dcc2c208710d1",
+        "commit_type": "commit",
+        "commit_message": "Dont write pidfile twice on startup\n\nThere is no need to write the pidfile in the bin/elasticsearchshell script\nas this happens already in the java code.\n\nAlso cleaning up the bin/elasticsearch shell script a bit (no need to return\nan error code when exec is called, as this forks and exits the shell script\nimmediately).\n\nCloses #3529\nCloses #1745",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/2b03bc83a40e470c977564195f6dcc2c208710d1",
+        "earliest_issue_date": "2012-02-29T09:37:58Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1749,
+        "issue_title": "NullPointerException when asking for null valued json field when fetching search request",
+        "issue_body": "https://gist.github.com/1933431\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1749",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0"
+        ],
+        "issue_closed_at": "2012-02-29T14:43:37.000Z",
+        "fix_commit_hash": "1f6f81d840420b32a1cfb22ff9002b39316e2f1b",
+        "commit_type": "commit",
+        "commit_message": "NullPointerException when asking for null valued json field when fetching search request, closes #1749.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/1f6f81d840420b32a1cfb22ff9002b39316e2f1b",
+        "earliest_issue_date": "2012-02-29T14:43:00Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1751,
+        "issue_title": "Multi level parent/child mapping and search fails",
+        "issue_body": "https://gist.github.com/1941432\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1751",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.19.0"
+        ],
+        "issue_closed_at": "2012-03-01T12:24:07.000Z",
+        "fix_commit_hash": "feaccee24660191e0d85ae0be80afb5a183ce769",
+        "commit_type": "commit",
+        "commit_message": "Multi level parent/child mapping and search fails, closes #1751.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/feaccee24660191e0d85ae0be80afb5a183ce769",
+        "earliest_issue_date": "2012-03-01T12:23:31Z",
+        "predicted_class": "bug",
+        "bic": [
+            "e639ffbc935b00b3d017931022548382676f92bf"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1754,
+        "issue_title": "Special host config notation `_[interfaceName]_` might fail to resolve the host address",
+        "issue_body": "",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1754",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.0.RC1",
+            "v0.19.1"
+        ],
+        "issue_closed_at": "2012-03-02T14:59:01.000Z",
+        "fix_commit_hash": "f6fc390f7a491f2d4f89bf05d47b5226f7833497",
+        "commit_type": "commit",
+        "commit_message": "Special host config notation `_[interfaceName]_` might fail to resolve the host address, closes #1754.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/f6fc390f7a491f2d4f89bf05d47b5226f7833497",
+        "earliest_issue_date": "2012-03-02T14:58:36Z",
+        "predicted_class": "bug",
+        "bic": [
+            "437eda6b5ba3d1a83141b26fcd6d1d49402da850"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1765,
+        "issue_title": "Init script in Debian package ignores some options in elasticsearch.yml",
+        "issue_body": "In the line\u2026\n\n```\nDAEMON_OPTS=\"-p $PID_FILE -Des.config=$CONF_FILE -Des.path.home=$ES_HOME -Des.path.logs=$LOG_DIR -Des.path.data=$DATA_DIR -Des.path.work=$WORK_DIR -Des.path.conf=$CONF_DIR\"\n```\n\n\u2026in `/etc/init.d/elasticsearch`, several options, like es.path.data, get paved over by the defaults from `/etc/default/elasticsearch` or by env vars. Any `path.data` option in `elasticsearch.yml` is ignored.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1765",
+        "assignees": [],
+        "labels": [
+            ">enhancement",
+            "v0.20.0.RC1",
+            "v0.19.5"
+        ],
+        "issue_closed_at": "2012-06-11T11:50:05.000Z",
+        "fix_commit_hash": "53be815e223de22d0df2bc6bc5145d34ef0da180",
+        "commit_type": "commit",
+        "commit_message": "Init script in Debian package ignores some options in elasticsearch.yml, closes #1765.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/53be815e223de22d0df2bc6bc5145d34ef0da180",
+        "earliest_issue_date": "2012-03-07T04:24:55Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1770,
+        "issue_title": "RemoteTransportException on _analyze request to specific index",
+        "issue_body": "When routing an `_analyze` request to a specific index, we'll see a `RemoteTransportException` intermittently:\n\n```\n{\n  \"error\" : \"RemoteTransportException[[Wiccan][inet[/10.60.121.149:9301]][indices/analyze/s]]; nested: IOException[Expected handle header, got [101]]; \",\n  \"status\" : 500\n}\n```\n\nWe were able to reproduce with the following cluster characteristics:\n- `index.number_of_shards` set to 1\n- At least three nodes in the cluster\n\nSending the analyze request to all three nodes, at least one of them will fail.\n\nHere's a full reduction ([download](https://raw.github.com/gist/2001546/9fe1435ec53ea298eb83d3e9d40d290427e1c537/analyzer-error.sh)):\n\n``` bash\npkill -f $(pwd)\nfor i in {0..2}\ndo\n    bin/elasticsearch\ndone\necho -n \"waiting for cluster to come up\"\nuntil curl -s localhost:9200/_cluster/health?wait_for_status=green > /dev/null\ndo\n    echo -n '.'\n    sleep 1\ndone\necho ''\n\ncurl -XDELETE localhost:9200?pretty=true\necho ''\ncurl -XPUT localhost:9200/test?pretty=true -d '{\"index\":{\"number_of_shards\":1}}'\necho ''\nsleep 5\nfor i in {0..2}\ndo\n    curl \"localhost:920$i/test/_analyze?pretty=true&text=test\"\n    echo ''\ndone\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1770",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.0.RC1",
+            "v0.19.1"
+        ],
+        "issue_closed_at": "2012-03-08T19:11:10.000Z",
+        "fix_commit_hash": "3789983c7a6fa4e734530e2bb9f09fed17336ebd",
+        "commit_type": "commit",
+        "commit_message": "RemoteTransportException on _analyze request to specific index, closes #1770.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/3789983c7a6fa4e734530e2bb9f09fed17336ebd",
+        "earliest_issue_date": "2012-03-08T15:45:50Z",
+        "predicted_class": "bug",
+        "bic": [
+            "55d8d0d9c63fb8dcde923cf37b94d6485f47eec0"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1772,
+        "issue_title": "Closing a shard can cause a search/stats request that tries to acquire a handle to search while its closing to spin",
+        "issue_body": "",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1772",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.0.RC1",
+            "v0.19.1"
+        ],
+        "issue_closed_at": "2012-03-09T00:00:53.000Z",
+        "fix_commit_hash": "7cc9108192addcd858c351ac9c4ce4977c3b1ef6",
+        "commit_type": "commit",
+        "commit_message": "Closing a shard can cause a search/stats request that tries to acquire a handle to search while its closing to spin, closes #1772.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/7cc9108192addcd858c351ac9c4ce4977c3b1ef6",
+        "earliest_issue_date": "2012-03-08T23:56:21Z",
+        "predicted_class": "bug",
+        "bic": [
+            "b3337c312765e51cec7bde5883bbc0a08f56fb65"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1773,
+        "issue_title": "mlt_field doesn't support boost",
+        "issue_body": "In 0.19 I'm getting an error saying that the mlt_field query doesn't support the `boost` param, eg:\n\n```\ncurl -XGET 'http://127.0.0.1:9200/iannounce_object/_search?pretty=1'  -d '\n{\n   \"query\" : {\n      \"mlt_field\" : {\n         \"name_keywords\" : {\n            \"max_query_terms\" : \"100\",\n            \"min_doc_freq\" : \"1\",\n            \"boost\" : 3,\n            \"like_text\" : \"Joe Bloggs\",\n            \"min_term_freq\" : \"1\",\n            \"percent_terms_to_match\" : 0.3\n         }\n      }\n   }\n}\n'\n```\n\nBut according to the docs, it does: http://www.elasticsearch.org/guide/reference/query-dsl/mlt-query.html\n\nWhich is correct?\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1773",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.0.RC1",
+            "v0.19.1"
+        ],
+        "issue_closed_at": "2012-03-10T18:50:39.000Z",
+        "fix_commit_hash": "d9963926dcad7669f1aff213128061a0ded5c505",
+        "commit_type": "commit",
+        "commit_message": "mlt_field doesn't support boost, closes #1773.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/d9963926dcad7669f1aff213128061a0ded5c505",
+        "earliest_issue_date": "2012-03-09T10:32:36Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1793,
+        "issue_title": "When `node.data` is set to `false`, the upgrade shards process from 0.18 fails",
+        "issue_body": "It shouldn't really go through it..., but it still does, and fails because no data is configured.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1793",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.0.RC1",
+            "v0.19.1"
+        ],
+        "issue_closed_at": "2012-03-18T09:55:40.000Z",
+        "fix_commit_hash": "d25c4cc91407a80a2b7052ea9e1a96bbcf7f1f5a",
+        "commit_type": "commit",
+        "commit_message": "When `node.data` is set to `false`, the upgrade shards process from 0.18 fails, closes #1793.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/d25c4cc91407a80a2b7052ea9e1a96bbcf7f1f5a",
+        "earliest_issue_date": "2012-03-18T09:55:14Z",
+        "predicted_class": "bug",
+        "bic": [
+            "e0508809cb08e7e03cc0a53bc7f77f9b08daeaee"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1794,
+        "issue_title": "Get/MultiGet API with no type provided and doc does not exists causes a failure",
+        "issue_body": "This happens because the type is not properly serialized back, where if the doc does not exists, the type to return is `null`, since we did not get it in the request...\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1794",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.18.8",
+            "v0.20.0.RC1",
+            "v0.19.1"
+        ],
+        "issue_closed_at": "2012-03-18T10:06:20.000Z",
+        "fix_commit_hash": "6ab1c9e4426b19af26db98eaf7ca3bc2084b07c3",
+        "commit_type": "commit",
+        "commit_message": "Get/MultiGet API with no type provided and doc does not exists causes a failure, closes #1794.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/6ab1c9e4426b19af26db98eaf7ca3bc2084b07c3",
+        "earliest_issue_date": "2012-03-18T10:05:39Z",
+        "predicted_class": "bug",
+        "bic": [
+            "32b64fc9a364a9e2a2ff3ff0deb0faaf46893a95"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1795,
+        "issue_title": "Java API for require_field_match ",
+        "issue_body": "require_field_match can be set to true which will cause a field to be highlighted only if a query matched that field. false means that terms are highlighted on all requested fields regardless if the query matches specifically on them.\n\nCurrently, elasticsearch does not support java api to set require_field_match field in highlight.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1795",
+        "assignees": [],
+        "labels": [
+            ">enhancement",
+            "v0.20.0.RC1",
+            "v0.19.1"
+        ],
+        "issue_closed_at": "2012-03-20T09:42:24.000Z",
+        "fix_commit_hash": "a5af2519edb34c269b17425f718be8b6d0d9c6eb",
+        "commit_type": "commit",
+        "commit_message": "Java API for require_field_match, closes #1795.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/a5af2519edb34c269b17425f718be8b6d0d9c6eb",
+        "earliest_issue_date": "2012-03-19T03:21:00Z",
+        "predicted_class": "bug",
+        "bic": [
+            "77f873fdf1c0dbe490cb0105fe36e1a4e3846f51"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1807,
+        "issue_title": "Index Update Settings API does not update settings in real time",
+        "issue_body": "Settings are still updated, but the process that applies them in real time stopped working...\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1807",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.0.RC1",
+            "v0.19.2"
+        ],
+        "issue_closed_at": "2012-03-22T18:16:18.000Z",
+        "fix_commit_hash": "365c29b902fc41488faaa39fd60100f6865c5b96",
+        "commit_type": "commit",
+        "commit_message": "Index Update Settings API does not update settings in real time, closes #1807.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/365c29b902fc41488faaa39fd60100f6865c5b96",
+        "earliest_issue_date": "2012-03-22T18:15:34Z",
+        "predicted_class": "bug",
+        "bic": [
+            "e06de6b24c6f8531bd85de2707cd05dd4c7d8051"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1814,
+        "issue_title": "Java API: Calling SearchHit#sourceAsString will not decompress the source to convert it to string",
+        "issue_body": "",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1814",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.0.RC1",
+            "v0.19.2"
+        ],
+        "issue_closed_at": "2012-03-27T12:57:39.000Z",
+        "fix_commit_hash": "a76d914cfa4c4ff2a866b8f1539c5cb3ef48afbb",
+        "commit_type": "commit",
+        "commit_message": "Java API: Calling SearchHit#sourceAsString will not decompress the source to convert it to string, closes #1814.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/a76d914cfa4c4ff2a866b8f1539c5cb3ef48afbb",
+        "earliest_issue_date": "2012-03-27T12:50:59Z",
+        "predicted_class": "bug",
+        "bic": [
+            "656c3989de79e0367113ddae10ba1032a057c67c"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1816,
+        "issue_title": "Indexing a document in smile format and getting it through REST in json format fails",
+        "issue_body": "The automatic conversion from smile to json fails to properly parse the input\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1816",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.0.RC1",
+            "v0.19.2"
+        ],
+        "issue_closed_at": "2012-03-28T10:03:58.000Z",
+        "fix_commit_hash": "f9eeb372112dda10187f6e1394b23088c02eca0b",
+        "commit_type": "commit",
+        "commit_message": "Indexing a document in smile format and getting it through REST in json format fails, closes #1816.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/f9eeb372112dda10187f6e1394b23088c02eca0b",
+        "earliest_issue_date": "2012-03-28T10:02:55Z",
+        "predicted_class": "bug",
+        "bic": [
+            "86e17eae2ca524904ecb4ac0d078a11f987259ba"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1828,
+        "issue_title": "Getting _settings or _mapping for non-existing index returns 200 OK",
+        "issue_body": "When doing a request for index settings or mapping, when the index does not exist, ES returns a `200 OK` response:\n\n```\n$ curl -i localhost:9200/NOTEXISTING/_mapping\nHTTP/1.1 200 OK\nContent-Type: application/json; charset=UTF-8\nContent-Length: 2\n\n{}\n\n$ curl -i localhost:9200/NOTEXISTING/_settings\nHTTP/1.1 200 OK\nContent-Type: application/json; charset=UTF-8\nContent-Length: 2\n\n{}\n```\n\nIt should return an error response, such as `404 Not Found`.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1828",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.0.RC1",
+            "v0.19.2"
+        ],
+        "issue_closed_at": "2012-04-03T11:35:18.000Z",
+        "fix_commit_hash": "009731c9e741f8977f5a1eb3c9539c4acb60b92b",
+        "commit_type": "commit",
+        "commit_message": "Getting _settings or _mapping for non-existing index returns 200 OK, closes #1828.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/009731c9e741f8977f5a1eb3c9539c4acb60b92b",
+        "earliest_issue_date": "2012-04-01T17:26:23Z",
+        "predicted_class": "bug",
+        "bic": [
+            "ee5bfba52f0d79879c3df2c5cdaaafbdfa9c5a49"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1833,
+        "issue_title": "requesting fields=_timestamp,_source won't return _source",
+        "issue_body": "```\n\ncurl -XDELETE 'http://127.0.0.1:9200/twitter'\ncurl -XPUT 'http://127.0.0.1:9200/twitter'\ncurl -XPUT 'http://127.0.0.1:9200/twitter/user/_mapping?pretty=1'  -d '\n{\n   \"user\" : {\n      \"_timestamp\" : {\n         \"store\" : 1,\n         \"enabled\" : 1\n      },\n      \"_source\" : {\n         \"compress\" : true\n      },\n      \"dynamic\" : false,\n      \"properties\" : {\n         \"nickname\" : {\n            \"index\" : \"not_analyzed\",\n            \"store\" : \"yes\",\n            \"type\" : \"string\"\n         },\n         \"name\" : {\n            \"index\" : \"not_analyzed\",\n            \"store\" : \"yes\",\n            \"type\" : \"string\"\n         },\n         \"updated\" : {\n            \"store\" : \"yes\",\n            \"type\" : \"date\"\n         }\n      }\n   }\n}\n'\n\n# [Mon Apr  2 18:30:21 2012] Response:\n# {\n#    \"ok\" : true,\n#    \"acknowledged\" : true\n# }\n\n# [Mon Apr  2 18:30:21 2012] Protocol: http, Server: 192.168.1.65:9900\ncurl -XPUT 'http://127.0.0.1:9200/twitter/user/mo?pretty=1&refresh=true'  -d '\n{\n   \"nickname\" : \"mo\",\n   \"name\" : \"Moritz Onken\",\n   \"updated\" : \"2012-04-02T16:30:21\"\n}\n'\n\n# [Mon Apr  2 18:30:22 2012] Response:\n# {\n#    \"ok\" : true,\n#    \"_index\" : \"twitter\",\n#    \"_id\" : \"mo\",\n#    \"_type\" : \"user\",\n#    \"_version\" : 1\n# }\n\nok 2 - Put mo ok\n# [Mon Apr  2 18:30:22 2012] Protocol: http, Server: 192.168.1.65:9900\ncurl -XPOST 'http://127.0.0.1:9200/twitter/user/_search?pretty=1&version=1'  -d '\n{\n   \"fields\" : [\n      \"_source\",\n      \"_timestamp\"\n   ],\n   \"query\" : {\n      \"match_all\" : {}\n   },\n   \"size\" : 1\n}\n'\n\n# [Mon Apr  2 18:30:22 2012] Response:\n# {\n#    \"hits\" : {\n#       \"hits\" : [\n#          {\n#             \"_score\" : 1,\n#             \"fields\" : {\n#                \"_timestamp\" : 1333384221848\n#             },\n#             \"_index\" : \"twitter\",\n#             \"_id\" : \"mo\",\n#             \"_type\" : \"user\",\n#             \"_version\" : 1\n#          }\n#       ],\n#       \"max_score\" : 1,\n#       \"total\" : 1\n#    },\n#    \"timed_out\" : false,\n#    \"_shards\" : {\n#       \"failed\" : 0,\n#       \"successful\" : 1,\n#       \"total\" : 1\n#    },\n#    \"took\" : 83\n# }\n```\n\nThe `_source` is not being returned. This used to work in 0.18.6. This is 0.19.1.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1833",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.0.RC1",
+            "v0.19.2"
+        ],
+        "issue_closed_at": "2012-04-03T09:49:05.000Z",
+        "fix_commit_hash": "2c4f7d1fc3eb8e1dce6df8e5418e23ed88e96c8c",
+        "commit_type": "commit",
+        "commit_message": "requesting fields=_timestamp,_source won't return _source, closes #1833.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/2c4f7d1fc3eb8e1dce6df8e5418e23ed88e96c8c",
+        "earliest_issue_date": "2012-04-02T16:34:25Z",
+        "predicted_class": "bug",
+        "bic": [
+            "9a13763315e8da781bf7f7b6e12c8819f9271513"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1834,
+        "issue_title": "Disabling deletion of all indices does not work when using _all",
+        "issue_body": "Setting action.disable_delete_all_indices: true only works for '/', not '_all':\n\nroot@staging-es-r01:/opt/elastic_search# curl -XDELETE 'http://staging-es-r01:9200/'\n{\"error\":\"ElasticSearchIllegalArgumentException[deleting all indices is disabled]\",\"status\":400}\n\nroot@staging-es-r01:/opt/elastic_search# curl -XDELETE 'http://staging-es-r01:9200/_all/'\n{\"ok\":true,\"acknowledged\":true}\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1834",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.0.RC1",
+            "v0.19.2"
+        ],
+        "issue_closed_at": "2012-04-03T09:33:09.000Z",
+        "fix_commit_hash": "b3866689fa1fe9ad85dbd17b287d53757a2d7764",
+        "commit_type": "commit",
+        "commit_message": "Disabling deletion of all indices does not work when using _all, closes #1834.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/b3866689fa1fe9ad85dbd17b287d53757a2d7764",
+        "earliest_issue_date": "2012-04-02T16:42:51Z",
+        "predicted_class": "bug",
+        "bic": [
+            "8fd28320e4589dea2bab316844b06cb7fff36973"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1839,
+        "issue_title": "Relocation of shards causes bulk indexing client to hang",
+        "issue_body": "I have set up 4 big servers (lots of cores, lots of disks, lots of ram) - each running an elasticsearch node.\nOne client reads rows from a database and continuously submits indexing requests to the cluster. Indexing requests are bundled into bulk requests with 2500 indexing requests.\nThe index has 32 shards.\nMy client is using the Java client API.\n\nSo far so good.\n\nI just wanted to know what happens, if I shutdown a node and restart it again.\nShutdown works fine (except: see below).\nRestart works fine...\nUntil the cluster starts to relocate shards.\n\nWhen a bulk request \"hits\" a shard being relocated, the cliend hangs forever.\n\nI have tried several networking settings, transport client vs. node client - nothing helped.\n\nOne thing fixed the issue for me:\nPreviously, the code was:\n\n```\n            Client client = (TransportClient)...\n            BulkRequestBuilder bulk = client.prepareBulk();\n            for ( 1 to 2500 ) {\n                IndexRequestBuilder request = buildIndexingRequest();\n                request = request.setReplicationType(ReplicationType.ASYNC); // no effect\n                bulk.add(request);\n            }\n            BulkResponse response;\n            response = bulk.execute().actionGet(); // <--- RETURNS NEVER, IF SHARD IS RELOCATED\n            if (response != null && response.hasFailures()) {\n                // some error handling...\n            }\n```\n\nWhen I use actionGet(timeout) with a timeout, the method throws a ElasticSearchTimeoutException in such a situation and I can submit the bulk request again.\n\n```\n                    while (true) {\n                        try {\n                            response = bulk.execute().actionGet(getRetryTimeout()); // <--- TIMES OUT, IF SHARD IS RELOCATED\n                            break;\n                        }\n                        catch (ElasticSearchTimeoutException timeout) {\n                            warning(\"TIMEOUT\", timeout, null, null);\n                        }\n                    }\n```\n\nIn such a situation I see no activity in the elasticsearch threads and no activity in \"my\" calling thread - it just waits in org.elasticsearch.common.util.concurrent.BaseFuture.Sync#acquireSharedInterruptibly forever.\n\nNone of the cluster log files indicate an error.\n\nI do not know if this behaviour affects searches.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1839",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.0.RC1",
+            "v0.19.3"
+        ],
+        "issue_closed_at": "2012-04-05T17:26:09.000Z",
+        "fix_commit_hash": "824b0bd34718e24e0f59d0b3a167adee08d49215",
+        "commit_type": "commit",
+        "commit_message": "Relocation of shards causes bulk indexing client to hang, closes #1839.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/824b0bd34718e24e0f59d0b3a167adee08d49215",
+        "earliest_issue_date": "2012-04-03T13:18:29Z",
+        "predicted_class": "bug",
+        "bic": [
+            "2a0e8d4ec9be8fc6ffe79dd8b03bbd04516364a7"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1852,
+        "issue_title": "Setting index.auto_expand_replicas in the elasticsearch config file does not apply",
+        "issue_body": "Index level settings can be applied on the configuration file itself (like number of shards), which changes the default value for all indices created without explicitly setting it . The `index.auto_expand_replicas` setting does not apply when setting it in the config file.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1852",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.0.RC1",
+            "v0.19.3"
+        ],
+        "issue_closed_at": "2012-04-11T17:53:15.000Z",
+        "fix_commit_hash": "ae69e7c472c4976c79419f27437ca06fbb7e3460",
+        "commit_type": "commit",
+        "commit_message": "Setting index.auto_expand_replicas in the elasticsearch config file does not apply, closes #1852.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/ae69e7c472c4976c79419f27437ca06fbb7e3460",
+        "earliest_issue_date": "2012-04-11T11:26:10Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1853,
+        "issue_title": "XContentBuilder throws NPE on null Boolean",
+        "issue_body": "XContentBuilder.value(Boolean) is the only .value(..) method to not check for null. This is inconsistent and probably not wanted.\n\nCasting explicitly to Object - i.e. calling value(Object) - or invoking nullValue() manually solves the problem.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1853",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.0.RC1",
+            "v0.19.3"
+        ],
+        "issue_closed_at": "2012-04-11T17:54:28.000Z",
+        "fix_commit_hash": "ad07810610c1f2598fc0995b2ad3b4f0f7ae8edd",
+        "commit_type": "commit",
+        "commit_message": "XContentBuilder throws NPE on null Boolean, closes #1853.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/ad07810610c1f2598fc0995b2ad3b4f0f7ae8edd",
+        "earliest_issue_date": "2012-04-11T15:01:51Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1865,
+        "issue_title": "NullPointerException in geo_distance_range without to",
+        "issue_body": "i was trying to use the `gt` options for the geo_distance_range filter like:\n\n``` json\n{\n  \"geo_distance_range\": {\n    \"gt\": \"50km\",\n    \"location\": {\n      \"lat\": \"51.16104233\",\n      \"lon\": \"7.42149815\"\n    }\n}\n```\n\nbut it seems that the `GeoDistanceRangeFilterParser` depends on a `to` being available:\n\n```\nCaused by: java.lang.NullPointerException\n  at org.elasticsearch.common.unit.DistanceUnit.parse(DistanceUnit.java:93)\n  at org.elasticsearch.index.query.GeoDistanceRangeFilterParser.parse(GeoDistanceRangeFilterParser.java:224)\n  at org.elasticsearch.index.query.QueryParseContext.parseInnerFilter(QueryParseContext.java:224)\n  at org.elasticsearch.index.query.AndFilterParser.parse(AndFilterParser.java:63)\n  at org.elasticsearch.index.query.QueryParseContext.parseInnerFilter(QueryParseContext.java:224)\n  at org.elasticsearch.index.query.ConstantScoreQueryParser.parse(ConstantScoreQueryParser.java:66)\n  at org.elasticsearch.index.query.QueryParseContext.parseInnerQuery(QueryParseContext.java:192)\n  at org.elasticsearch.index.query.BoolQueryParser.parse(BoolQueryParser.java:89)\n  at org.elasticsearch.index.query.QueryParseContext.parseInnerQuery(QueryParseContext.java:192)\n  at org.elasticsearch.index.query.IndexQueryParserService.parse(IndexQueryParserService.java:243)\n  at org.elasticsearch.index.query.IndexQueryParserService.parse(IndexQueryParserService.java:223)\n  at org.elasticsearch.search.query.QueryParseElement.parse(QueryParseElement.java:33)\n  at org.elasticsearch.search.SearchService.parseSource(SearchService.java:545)\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1865",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.0.RC1",
+            "v0.19.3"
+        ],
+        "issue_closed_at": "2012-04-17T12:51:56.000Z",
+        "fix_commit_hash": "03c9eaf81279a33b756a97cbf7fa18e676dda989",
+        "commit_type": "commit",
+        "commit_message": "NullPointerException in geo_distance_range without to, closes #1865.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/03c9eaf81279a33b756a97cbf7fa18e676dda989",
+        "earliest_issue_date": "2012-04-17T08:01:48Z",
+        "predicted_class": "bug",
+        "bic": [
+            "8859594e36425c1f24f37ec031bad95d679d2a22"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1866,
+        "issue_title": "On recovery (startup), the recovery translog file handle is not properly closed",
+        "issue_body": "",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1866",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v0.20.0.RC1",
+            "v0.19.3"
+        ],
+        "issue_closed_at": "2012-04-17T09:14:30.000Z",
+        "fix_commit_hash": "20e968bf627b57b69a4bfd675b2f974619f8b116",
+        "commit_type": "commit",
+        "commit_message": "On recovery (startup), the recovery translog file handle is not properly closed, closes #1866.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/20e968bf627b57b69a4bfd675b2f974619f8b116",
+        "earliest_issue_date": "2012-04-17T08:27:24Z",
+        "predicted_class": "bug",
+        "bic": [
+            "269616f35e22b2a51984aa9d53efc3d0dccdb512"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 1873,
+        "issue_title": "Nodes drop their copy of auto-expanded data when coming up, only to sync it again",
+        "issue_body": "When you have an index with `index.auto_expand_replicas=0-all` running on 3 nodes and you bring down one node the number of replicas will be reduced by the master from 2 to 1. Then when the node that just went down comes up again ElasticSearch on that node will will:\n1. Go up, notice that the number of replicas for that index is 1, and promptly drop its own data as redundant\n2. The master will notice that it has a new node in the cluster, set the number of replicas to 2.\n3. The node that just dropped its data will now have the data it just dropped re-synced to it.\n\nInstead ElasticSearch should:\n1. Go up, wait for the master to adjust the number of replicas if needed\n2. Only after that's done drop anything, if needed.\n3. Not re-sync any data since it didn't drop the data in the brief interim when the master was adjusting the number of replicas from 1 to 2.\n\nThis'll aid recovery time where you have a setup where a relatively small index is available on all the nodes for capacity reasons, and you bring up a new node that should serve search requests right away.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/1873",
+        "assignees": [
+            "ywelsch"
+        ],
+        "labels": [
+            ">enhancement",
+            "high hanging fruit",
+            ":Distributed/Allocation"
+        ],
+        "issue_closed_at": "2018-05-07T20:26:32.000Z",
+        "fix_commit_hash": "82b251adcf55a99def6ecb9f4f83416648fce9b2",
+        "commit_type": "pr",
+        "commit_message": "Auto-expand replicas when adding or removing nodes (#30423)\n\nAuto-expands replicas in the same cluster state update (instead of a follow-up reroute) where nodes are added or removed.\r\n\r\nCloses #1873, fixing an issue where nodes drop their copy of auto-expanded data when coming up, only to sync it again later.",
+        "closer_url": "https://github.com/elastic/elasticsearch/pull/30423",
+        "earliest_issue_date": "2012-04-18T16:16:56Z",
+        "predicted_class": "bug",
+        "bic": [
+            "fa19239d4441c8048fca6c714b1afb9b99c6c2f1"
+        ],
+        "method_type": "rszz"
+    }
+]

@@ -1,0 +1,1254 @@
+[
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3463,
+        "issue_title": "plugin script does not exit with exit code != 0 on error",
+        "issue_body": "Steps to reproduce:\n\n```\n$ sudo /usr/share/elasticsearch/bin/plugin -install foo\n-> Installing foo...\nFailed to install foo, reason: failed to download out of all possible locations..., use -verbose to get detailed information\n$ echo $?\n0\n```\n\nExpected result: The exit code should be != 0\n\nActual result: The exit code is 0\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3463",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-08T15:49:12.000Z",
+        "fix_commit_hash": "2ed87b5312c2b0842c739b677f4c8e11e2dbb48a",
+        "commit_type": "commit",
+        "commit_message": "Use nonzero status code to signal abnormal termination\n\nWe currently return with status code 0 when an IOException occurs.\nThe plugin manager should in any case return a nonzero status if\nthe operation was not successful. Now the PluginManager uses the\nfollowing reponse codes based on 'sysexists.sh':\n * '0' on success\n * '64' command line usage error\n * '70' internal software error\n * '74' input/output\n\nCloses #3463",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/2ed87b5312c2b0842c739b677f4c8e11e2dbb48a",
+        "earliest_issue_date": "2013-08-08T12:18:34Z",
+        "predicted_class": "bug",
+        "bic": [
+            "5a20ba5ff284ca3ad4e41ca7d92383ce77f570ce"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3464,
+        "issue_title": "Inconsistent usage of ScriptScoreFunction in FiltersFunctionScoreQuery",
+        "issue_body": "Scoring in `function_score` and `filters_function_score` queries is potentially inconsistent when using scripts.  \n## Brief overview of related classes\n\n`function_score` and `filters_function_score` allow a user to modify the score of a query (referred to as 'subQueryScore' from here on).  \n\nIn brief, there are two classes that compute scores based on a query and some function: `FunctionScoreQuery`, which only has one function and `FiltersFunctionScoreQuery` which combines the result of several functions. For both classes, the function can be a `ScriptScoreFunction`.\n\n`ScoreFunction`: Computes a score for a document. The two relevant methods are:\n-  `score(docId, subQueryScore)`: computes a new score taking into account the `subQueryScore` and some other properties of a documents.\n- `factor(docId)`: computes a score solely based on properties of the document.\n\n`FunctionScoreQuery.score()` computes:\n\nscore = `subQueryBoost` \\* `ScoreFunction.score(docId, subQueryScore)`\n\n`FiltersFunctionScoreQuery.CustomBoostFactorScorer.score()` computes: \n\nscore = `subQueryScore` \\* `subQueryBoost` \\* `combine(ScoreFunction1.factor(docId), ScoreFunction2.factor(docId),\u2026)`\n\nwhere combine can mean add, multiply, lowest value, etc.\n## The problem\n\n`ScoreFunctions.factor(docId)` implies that the method computes a factor only and does not take into account the `subQueryScore`. This is the way the `ScoreFunctions` are used in `FiltersFunctionScoreQuery.CustomBoostFactorScorer`: The method `factor()` is called for each score function and the result is than later multiplied to the `subQueryScore`.\n\nHowever, the `ScriptScoreFunction` violates this principle: scripts can use the `_score` variable which should be initialized with the `subQueryScore` before the script is run, see `ScriptScoreFunction.score(..)`. If `ScriptScoreFunction.factor()` is called, then the behavior is undefined, since the `_score` variable is either wrong or maybe even not initialized.\n\nThis might cause unexpected behavior since this inconsistency is not transparent to the user.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3464",
+        "assignees": [
+            "brwe"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-23T14:15:26.000Z",
+        "fix_commit_hash": "b007af1f464f49849705356a2eea212ed68643ac",
+        "commit_type": "commit",
+        "commit_message": "Fix inconsistent usage of ScriptScoreFunction in FiltersFunctionScoreQuery\n\nThis commit fixes inconsistencies in `function_score` and `filters_function_score`\nusing scripts, see issue #3464\n\nThe method 'ScoreFunction.factor(docId)' is removed completely, since the name\nsuggests that this method actually computes a factor which was not the case.\nMultiplying the computed score is now handled by 'FiltersFunctionScoreQuery'\nand 'FunctionScoreQuery' and not implicitely performed in\n'ScoreFunction.factor(docId, subQueryScore)' as was the case for 'BoostScoreFunction'\nand 'DecayScoreFunctions'.\n\nThis commit also fixes the explain function for FiltersFunctionScoreQuery. Here,\nthe influence of the maxBoost was never printed. Furthermore, the queryBoost was\nprinted as beeing multiplied to the filter score.\n\nCloses #3464",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/b007af1f464f49849705356a2eea212ed68643ac",
+        "earliest_issue_date": "2013-08-08T14:12:22Z",
+        "predicted_class": "bug",
+        "bic": [
+            "a938bd57a946f7eb8d687af19394cacc603d141f"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3469,
+        "issue_title": "Multi-field and suggest api error",
+        "issue_body": "The following error occur while trying to do a simple phrase query on a multi-field using the suggest api:\n\n<pre>\"failures\" : [ {\n      \"status\" : 400,\n      \"reason\" : \"ElasticSearchIllegalArgumentException[generator field [title] doesn't exist]\"\n    }, {\n      \"status\" : 400,\n      \"reason\" : \"RemoteTransportException[[Bella Donna][inet[/127.0.0.1:9301]][search/phase/query]]; nested: ElasticSearchIllegalArgumentException[generator field [title] doesn't exist]; \"\n    } ]\n</pre>\n\n\nAnd here is the code:\n\n<pre>curl -XDELETE \"http://localhost:9200/test?pretty\"\ncurl -XPOST \"http://localhost:9200/test?pretty\" -d '{\n  \"settings\": {\n    \"index\": {\n      \"number_of_replicas\": 0,\n      \"analysis\":{\n        \"analyzer\":{\n          \"suggest\":{\n            \"type\": \"custom\",\n            \"tokenizer\": \"standard\",\n            \"filter\": [ \"standard\", \"lowercase\", \"suggest_shingle\" ]\n          }\n        },\n        \"filter\":{\n          \"suggest_shingle\":{\n            \"type\": \"shingle\",\n            \"min_shingle_size\": 2,\n            \"max_shingle_size\": 5,\n            \"output_unigrams\": true\n          }\n        }\n      }\n    }\n  }\n}'\ncurl -XPOST \"http://localhost:9200/test/test/_mapping?pretty\" -d '{\n  \"test\": {\n \"properties\" : {\n    \"title\": {\n      \"path\": \"just_name\",\n      \"type\": \"multi_field\",\n      \"fields\": \n        {\n          \"title\": {\n            \"type\": \"string\",\n            \"index\": \"analyzed\",\n            \"similarity\": \"BM25\",\n            \"analyzer\": \"suggest\"\n          }\n        }\n      }\n      \n    }\n  }\n}'\n\n\ncurl -XPOST \"http://localhost:9200/test/test?pretty\" -d '{\n  \"title\": \"Just testing the suggestions api\"\n}'\n\ncurl -XPOST \"http://localhost:9200/test/test?pretty\" -d '{\n  \"title\": \"An other title\"\n}'\n\ncurl -XGET \"http://localhost:9200/test/test/_search?pretty\" -d '{\n  \"query\": {\n    \"match_all\": {}\n  },\n  \"suggest\": {\n    \"text\": \"tetsting sugestion\",\n    \"phrase\":{\n      \"phrase\":{\n        \"field\": \"title\",\n        \"max_errors\": 5\n      }\n    }\n  }\n}'</pre>\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3469",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-16T18:25:54.000Z",
+        "fix_commit_hash": "57c0d29114b60f74e43ceb0914c26d490b61a265",
+        "commit_type": "commit",
+        "commit_message": "Prevent Phrase Suggester from failing on missing fields.\n\nUnless the field is not mapped phrase suggester should return\nempty results or skip candidate generation if a field in not in\nthe index rather than failing hard with an illegal argument exception.\nSome shards might not have a value in a certain field.\n\nCloses #3469",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/57c0d29114b60f74e43ceb0914c26d490b61a265",
+        "earliest_issue_date": "2013-08-09T03:52:51Z",
+        "predicted_class": "bug",
+        "bic": [
+            "72d6d822ae1f630849baa4cc4c053f1e65af1e4d"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3470,
+        "issue_title": "NPE in BytesRefOrdValComparator",
+        "issue_body": "This issue relates to issue #3189 and I'm experiencing it with `v1.0.0.Beta`, but I guess that applies to `0.90` branch as well.\n\nWhile sorting on some trivial fields I get the following error message:\n\n``` javascript\n{\n   \"error\": \"SearchPhaseExecutionException[Failed to execute phase [query_fetch], all shards failed; shardFailures {[UIomKhmqSzumD0uzjmRbfA][brisa][0]: QueryPhaseExecutionException[[brisa][0]: query[filtered(ConstantScore(+NotFilter(cache(discarded:T))))->cache(_type:patients)],from[0],size[20],sort[<custom:\\\"lastname\\\": org.elasticsearch.index.fielddata.fieldcomparator.BytesRefFieldComparatorSource@1d8f4c01>]: Query Failed [Failed to execute main query]]; nested: NullPointerException; }]\",\n   \"status\": 500\n}\n```\n\n`lastname` mapping is as follows:\n\n``` javascript\n\"lastname\": {\n  \"type\": \"string\",\n  \"index\": \"not_analyzed\",\n  \"omit_norms\": true,\n  \"index_options\": \"docs\"\n}\n```\n\nFairly standard IMO.\n\nNow the funny thing is that I have another `name` mapping which is exactly the same and everything works just fine. From a data point of view, I cannot see a difference between one field and the other (upper case strings).\n\nThe NPE happens in `BytesRefOrdValComparator` at line 388 because `MultiDocs.ordinals()` returns `null`.\n\nNow, i don't know why `lastname` happens to use `MultiOrdinals` (or `MultiDocs` for that matter) to do sorting, but making `MultiDocs` return its `MultiOrdinals` instance seems to fix the issue, although I'm not sure whether the null pointer was intentional and the problem is somewhere else.\n\nThoughts?\n\nThanks a lot in advance.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3470",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-09T12:32:28.000Z",
+        "fix_commit_hash": "417c193cc3547e00d37bff4a8c760a4486057e61",
+        "commit_type": "commit",
+        "commit_message": "Return ordinals from MultiOrdinals.MultiDocs\n\nMultiOrdinals.MultiDocs returned 'null' ordinals which caused\na NPE if the field was single valued and would allow a significantly\nsmaller in memory representation than single packed int ordinals.\n\nCloses #3470",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/417c193cc3547e00d37bff4a8c760a4486057e61",
+        "earliest_issue_date": "2013-08-09T04:03:44Z",
+        "predicted_class": "bug",
+        "bic": [
+            "12d9268db256b728e8d334801739fb46167902b6"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3471,
+        "issue_title": "term vector api crashes for documents that have no term vectors",
+        "issue_body": "If term vectors for a document are requested but the document does not contain any field with term vectors stored, this causes a null pointer exception.\nThe same happens if the document has the field, but the field only contains, for example, only the string \"?\". \n\nInstead of crashing, an empty response should be returned.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3471",
+        "assignees": [
+            "brwe"
+        ],
+        "labels": [
+            ">bug"
+        ],
+        "issue_closed_at": "2013-08-09T13:19:16.000Z",
+        "fix_commit_hash": "f64065c9d2b167bc3e9b74d31085c3694f221d81",
+        "commit_type": "commit",
+        "commit_message": "termvectors: fix null pointer exception if field has no term vectors\n\nRetrieving termvectors for a document that does not have the requested field\ncaused a null pointer exception. Same for documents if the field has no term vectors,\nfor example, because the field only contains \"?\".\nNow, an empty response is returned.\n\nCloses #3471",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/f64065c9d2b167bc3e9b74d31085c3694f221d81",
+        "earliest_issue_date": "2013-08-09T12:09:24Z",
+        "predicted_class": "bug",
+        "bic": [
+            "7098073a663b888be50486c7c576a9a21366a135"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3473,
+        "issue_title": "Suggest should ignore empty shards",
+        "issue_body": "From #3469.\nWhen running suggest on empty shards, it raises an error like:\n\n```\n\"failures\" : [ {\n      \"status\" : 400,\n      \"reason\" : \"ElasticSearchIllegalArgumentException[generator field [title] doesn't exist]\"\n    } ]\n```\n\nWe should ignore empty shards.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3473",
+        "assignees": [
+            "dadoonet"
+        ],
+        "labels": [
+            ">enhancement",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-16T09:38:15.000Z",
+        "fix_commit_hash": "ac06722e32d7a92d029ffaabe8b0e0e2436ae5cb",
+        "commit_type": "commit",
+        "commit_message": "Suggest should ignore empty shards\nFrom #3469.\nWhen running suggest on empty shards, it raises an error like:\n\n```\n\"failures\" : [ {\n      \"status\" : 400,\n      \"reason\" : \"ElasticSearchIllegalArgumentException[generator field [title] doesn't exist]\"\n    } ]\n```\n\nWe should ignore empty shards.\n\nCloses #3473.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/ac06722e32d7a92d029ffaabe8b0e0e2436ae5cb",
+        "earliest_issue_date": "2013-08-09T15:13:04Z",
+        "predicted_class": "bug",
+        "bic": [
+            "8a5b7b21dfec89cbe3dc82608448dd300987c5ad"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3474,
+        "issue_title": "When replacing an existing _default_ type, the old one get merged into the new",
+        "issue_body": ".\n\nTo reproduce (contrived example):\n\n```\ncurl -XPOST \"http://localhost:9200/test\" -d'\n{\n   \"mappings\": {\n      \"_default_\": {\n              \"date_detection\": false\n      }\n   }\n}'\n```\n\nNow add an empty _default_ (to remove it): \n\n```\ncurl -XPUT \"http://localhost:9200/test/_default_/_mapping\" -d'\n{\n   \"_default_\": {\n   }\n}'\n```\n\nAnd get the mapping :\n\n```\ncurl -XGET \"http://localhost:9200/test/_default_/_mapping\"\n```\n\nwhich gives (note the `date_detection`) :\n\n```\n{\n   \"test\": {\n      \"_default_\": {\n         \"date_detection\": false,\n         \"properties\": {}\n      }\n   }\n}\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3474",
+        "assignees": [
+            "bleskes"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-09T18:37:00.000Z",
+        "fix_commit_hash": "5f4dc5433e6ca3d4b2e0902d758d402b112f88f5",
+        "commit_type": "commit",
+        "commit_message": "when changing the mapping of the _default_ mapping, do not apply the old _default_ mapping to the new one and also do not validate the new version with a merge but parse is as a new type.\n\nCloses #3474, Closes #3476",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/5f4dc5433e6ca3d4b2e0902d758d402b112f88f5",
+        "earliest_issue_date": "2013-08-09T15:14:10Z",
+        "predicted_class": "bug",
+        "bic": [
+            "fb9143aac1f51f8582c093908e3e4a327cdea073"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3476,
+        "issue_title": "_default_ mapping change is validated is if it was a normal type",
+        "issue_body": "Changes to mappings of types in ES are subject to certain validation. For example, if a field was previously analyzed, it is impossible to set it to be not analyzed as this will create inconsistencies with existing data.\n\nThe `_default_` mapping are used for new type creation and therefore it shouldn't be problem to change any setting there.\n\nTo reproduced:\n\n```\ncurl -XPOST \"http://localhost:9200/test\" -d'\n{\n   \"mappings\": {\n      \"_default_\": {\n         \"properties\": {\n            \"f\": {\n                \"type\": \"string\", \n                \"index\": \"analyzed\"\n            }\n         }\n      }\n   }\n}'\n```\n\nAnd then a change:\n\n```\ncurl -XPOST \"http://localhost:9200/test/_default_/_mapping\" -d'\n{\n   \"_default_\": {\n        \"properties\": {\n            \"f\": {\n                \"type\": \"string\", \n                \"index\": \"not_analyzed\"\n            }\n        }\n   }\n}'\n```\n\nWhich results in an `MergeMappingException`\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3476",
+        "assignees": [
+            "bleskes"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-09T18:37:00.000Z",
+        "fix_commit_hash": "5f4dc5433e6ca3d4b2e0902d758d402b112f88f5",
+        "commit_type": "commit",
+        "commit_message": "when changing the mapping of the _default_ mapping, do not apply the old _default_ mapping to the new one and also do not validate the new version with a merge but parse is as a new type.\n\nCloses #3474, Closes #3476",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/5f4dc5433e6ca3d4b2e0902d758d402b112f88f5",
+        "earliest_issue_date": "2013-08-09T17:49:25Z",
+        "predicted_class": "bug",
+        "bic": [
+            "fb9143aac1f51f8582c093908e3e4a327cdea073"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3477,
+        "issue_title": "Failure to execute search request with empty top level filter",
+        "issue_body": "The following causes failure to execute search request:\n\n```\ncurl -XPOST 'http://localhost:9200/test/_search?pretty=true' -d '{ \n    \"query\" : {\"query_string\":{\"query\":\"*\",\"default_operator\":\"AND\"}},\n    \"filter\":{} \n}'\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3477",
+        "assignees": [
+            "kimchy"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-10T08:21:35.000Z",
+        "fix_commit_hash": "5c7d7fb399e023639cb007b9c08519b8da36ffe8",
+        "commit_type": "commit",
+        "commit_message": "Failure to execute search request with empty top level filter\ncloses #3477",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/5c7d7fb399e023639cb007b9c08519b8da36ffe8",
+        "earliest_issue_date": "2013-08-10T07:44:13Z",
+        "predicted_class": "bug",
+        "bic": [
+            "85b7efa08bd0c1429799641898647dd89d155102"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3478,
+        "issue_title": "Elasticsearch (0.90.2) fails in large core (Ex: ~48) machine ",
+        "issue_body": "elastic search creates number of threads based on the number of processors available. So when the elastic search  client library initialized,  it tries to create 350+ threads which is too much for the machine & results in OOM.\n\nApparently org.elasticsearch.threadpool.ThreadPool tries to assign threads based in cores available in the machines. \n\nExtrat from logs:\nthread_pool [index], type [fixed], size [48], \nqueue_size [null], reject_policy [abort], queue_type [linked] [org.elasticsearch.threadpool] : [xxxxxxxx] creating thread_pool [bulk], type [fixed], size [48], queue_size [null], reject_policy [abort], queue_type [linked] [org.elasticsearch.threadpool] : [xxxxxxxx] creating thread_pool [get], type [fixed], size [48], queue_size [null], reject_policy [abort], queue_type [linked] [org.elasticsearch.threadpool] : [xxxxxxxx] creating thread_pool [search], type [fixed], size [144], queue_size [1k], reject_policy [abort], queue_type [linked] [org.elasticsearch.threadpool] : [xxxxxxxx] creating thread_pool [percolate], type [fixed], size [48], queue_size [null], reject_policy [abort], queue_type [linked] [org.elasticsearch.threadpool] : [xxxxxxxx] creating thread_pool [management], type [scaling], min [1], size [5], keep_alive [5m] \n\n& the stacktrace,\n\njava.lang.OutOfMemoryError: unable to create new native thread\n    at java.lang.Thread.start0(Native Method)\n    at java.lang.Thread.start(Thread.java:640)\n    at java.util.concurrent.ThreadPoolExecutor.addThread(ThreadPoolExecutor.java:681)\n    at java.util.concurrent.ThreadPoolExecutor.addIfUnderMaximumPoolSize(ThreadPoolExecutor.java:727)\n    at java.util.concurrent.ThreadPoolExecutor.execute(ThreadPoolExecutor.java:655)\n    at org.elasticsearch.common.netty.util.internal.DeadLockProofWorker.start(DeadLockProofWorker.java:38)\n    at org.elasticsearch.common.netty.channel.socket.nio.AbstractNioSelector.openSelector(AbstractNioSelector.java:343)\n    at org.elasticsearch.common.netty.channel.socket.nio.AbstractNioSelector.<init>(AbstractNioSelector.java:95)\n    at org.elasticsearch.common.netty.channel.socket.nio.AbstractNioWorker.<init>(AbstractNioWorker.java:53)\n    at org.elasticsearch.common.netty.channel.socket.nio.NioWorker.<init>(NioWorker.java:45)\n    at org.elasticsearch.common.netty.channel.socket.nio.NioWorkerPool.createWorker(NioWorkerPool.java:45)\n    at org.elasticsearch.common.netty.channel.socket.nio.NioWorkerPool.createWorker(NioWorkerPool.java:28)\n    at org.elasticsearch.common.netty.channel.socket.nio.AbstractNioWorkerPool.newWorker(AbstractNioWorkerPool.java:99)\n    at org.elasticsearch.common.netty.channel.socket.nio.AbstractNioWorkerPool.init(AbstractNioWorkerPool.java:69)\n    at org.elasticsearch.common.netty.channel.socket.nio.NioWorkerPool.<init>(NioWorkerPool.java:39)\n    at org.elasticsearch.common.netty.channel.socket.nio.NioWorkerPool.<init>(NioWorkerPool.java:33)\n    at org.elasticsearch.transport.netty.NettyTransport.doStart(NettyTransport.java:240)\n    at org.elasticsearch.common.component.AbstractLifecycleComponent.start(AbstractLifecycleComponent.java:85)\n    at org.elasticsearch.transport.TransportService.doStart(TransportService.java:90)\n    at org.elasticsearch.common.component.AbstractLifecycleComponent.start(AbstractLifecycleComponent.java:85)\n    at org.elasticsearch.client.transport.TransportClient.<init>(TransportClient.java:179)\n    at org.elasticsearch.client.transport.TransportClient.<init>(TransportClient.java:119)\n    at \n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3478",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-14T22:20:21.000Z",
+        "fix_commit_hash": "0472bac2efc6e84c645978b154dd6f93a656f3df",
+        "commit_type": "commit",
+        "commit_message": "Limit the number created threads for machines with large number of cores\n\nFor machines with lots of cores ie. >= 48 the number of threads\ncreated by default might cause unecessary memory pressure on the system\nand can even lead to OOM where the system is not able to create any\nnative threads anymore. This commit limits the number of available\nCPUs on the system used for thread pool initialization to at most\n24 cores.\n\nCloses #3478",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/0472bac2efc6e84c645978b154dd6f93a656f3df",
+        "earliest_issue_date": "2013-08-10T10:18:42Z",
+        "predicted_class": "bug",
+        "bic": [
+            "54f685674bd1742c4b202e1e860218c6d9179c10"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3479,
+        "issue_title": "Null pointer exception for POST mode facets if facet_filter accepts no documents",
+        "issue_body": "elasticsearch 0.90.3\norg.elasticsearch.search.facet.FacetExecutor$Post$Filtered, line 66\n\n```\nfor (int i = 0; i < docSets.size(); i++) {\n  ContextDocIdSet entry = docSets.get(i);\n  DocIdSet filteredSet = filter.getDocIdSet(entry.context, null);\n  filteredEntries.add(new ContextDocIdSet(\n    entry.context,\n    // TODO: can we be smart here, maybe AndDocIdSet is not always fastest?\n    new AndDocIdSet(new DocIdSet[]{entry.docSet, filteredSet})\n  ));\n}\n```\n\nFrom the JavaDoc for Filter:\n`NOTE: null can be returned if no documents are accepted by this Filter`\n\nSo, the filteredSet object can be null. It is then passed into the constructor of the AndDocIdSet, which can cause a null pointer exception during the execution of the POST facet.\n\nThe solution is that if filteredSet is null then the current ContextDocIdSet can be ignored.\n\n```\nif (filteredSet == null) continue;\n```\n\nI replicated this issue with the following query (where the filter facet does match a term in the index, but the facet filter does not):\n\n```\n{\n  \"query\": {\n    \"match_all\": {}\n  },\n  \"size\": 0,\n  \"facets\": {\n    \"my_facet\": {\n      \"filter\": {\n        \"term\": {\n          \"text\": \"document\"\n        }\n      },\n      \"mode\": \"post\",\n      \"facet_filter\": {\n        \"term\": {\n          \"text\": \"DOES_NOT_MATCH_ANYTHING\",\n        }\n      }\n    }\n  }\n}\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3479",
+        "assignees": [
+            "dadoonet"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-11T19:23:19.000Z",
+        "fix_commit_hash": "83c26eb74abe7d3c4550a927ee78fe3ee4010d49",
+        "commit_type": "commit",
+        "commit_message": "NPE for POST mode facets if facet_filter gives no document.\nCloses #3479.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/83c26eb74abe7d3c4550a927ee78fe3ee4010d49",
+        "earliest_issue_date": "2013-08-10T12:07:13Z",
+        "predicted_class": "bug",
+        "bic": [
+            "73a447da861d2413269064899443b297b9ca3f88"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3486,
+        "issue_title": "FastVectorHighlighter fails with StackOverflow on terms with large TermFrequency",
+        "issue_body": "FVH deploys some recursive logic to extract terms from documents that need to highlighted. For documents that have terms with super large term frequency like a document that repeats a terms very very often this can produce some very large stacks when extracting the terms. Taken to an extreme this causes stack overflow errors when this grow beyond a term frequency >= 6000. \nThe ultimate solution is a iterative implementation of the extract logic but until then we should protect users from these massive term extractions which might be not very useful in the first place. \n\nI will attach a possible fix and a test case that reproduces the problem in a bit.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3486",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-12T15:47:29.000Z",
+        "fix_commit_hash": "8a876ea80e26e5c40c5ff400b77d4458b318ec18",
+        "commit_type": "commit",
+        "commit_message": "Limit the number of extracted token instance per query token.\n\nFVH deploys some recursive logic to extract terms from documents\nthat need to highlighted. For documents that have terms with super\nlarge term frequency like a document that repeats a terms very\nvery often this can produce some very large stacks when extracting\nthe terms. Taken to an extreme this causes stack overflow errors\nwhen this grow beyond a term frequency >= 6000.\n\nThe ultimate solution is a iterative implementation of the extract\nlogic but until then we should protect users from these massive\nterm extractions which might be not very useful in the first place.\n\nCloses #3486",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/8a876ea80e26e5c40c5ff400b77d4458b318ec18",
+        "earliest_issue_date": "2013-08-12T13:54:38Z",
+        "predicted_class": "bug",
+        "bic": [
+            "e943cc81a5cd02e6ef641ad0662f34bda176fb5b"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3487,
+        "issue_title": "PutMapping requests were prematurely acknowledged if other nodes were quicker than master",
+        "issue_body": "If other nodes completed process the new mapping before the master did, the put mapping request would acknowledge before master finished processing.\n\nThis can happen when running multiple nodes on one machine.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3487",
+        "assignees": [
+            "bleskes"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-12T15:02:33.000Z",
+        "fix_commit_hash": "ab6163898fd8c83dda01b6eb4dd42e1f900f393b",
+        "commit_type": "commit",
+        "commit_message": "Postponed acknowledging put mapping requests to after master has finished processed them\n\nAlso - TransportMasterNodeOperationAction was potentially use stale cluster state\n\nCloses #3487",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/ab6163898fd8c83dda01b6eb4dd42e1f900f393b",
+        "earliest_issue_date": "2013-08-12T14:09:06Z",
+        "predicted_class": "bug",
+        "bic": [
+            "be103c188be2ea2b2d7b88ca6192f0b72dd20b09"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3489,
+        "issue_title": "More helpful error when specifying side=BACK on edge n-gram tokenizer/tokenfilter",
+        "issue_body": "From what I can tell, as of Lucene 4.4/elasticsearch 0.90.2 the \"side=BACK\" variation of edgeNGram tokenizer/tokenfilter has not only been deprecated, but now throws an ElasticSearchIllegalArgumentException:\n\n> org.elasticsearch.ElasticSearchIllegalArgumentException: side=BACK is not supported anymore. Please fix your analysis chain or use an older compatibility version (<=4.2) but beware that it might cause highlighting bugs.\n\nThat's fine, but the exception message as well as the documentation page for edgeNGram on elsaticsearch.org don't provide any information on _how_ you can/should fix your analysis chain.\n\nhttp://www.elasticsearch.org/guide/reference/index-modules/analysis/edgengram-tokenizer/\n\n> There used to be a side parameter up to 0.90.1 but it is now deprecated.\n\nThis change also wasn't mentioned/linked in any release notes (at least not that I could find).\n\nAfter some digging, I found this ticket in Lucene's Jira instance that explains a) what changed and b) how to work around this issue if you were using side=BACK previously:\n\nhttps://issues.apache.org/jira/browse/LUCENE-3907?focusedCommentId=13653011&page=com.atlassian.jira.plugin.system.issuetabpanels:comment-tabpanel#comment-13653011\n\nThe elasticsearch docs and the exception message should provide some guidance on how to workaround this backwards-incompatible change.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3489",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            ">enhancement",
+            ">docs",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-14T21:31:12.000Z",
+        "fix_commit_hash": "4a15106d6a76d7e506c4966b6b5bafceca3853c9",
+        "commit_type": "commit",
+        "commit_message": "Improve backwards compatibility handling for NGram / EdgeNGram analysis\n\nThe '\"side\" : \"back\"' parameter is not supported anymore on\nEdgeNGramTokenizer if the mapping is created with 0.90.2 / Lucene 4.3\nThe 'EdgeNgramTokenFilter' handles this automatically wrapping the\n'EdgeNgramTokenFilter' in a 'ReverseTokenFilter' yet with tokenizers this\noptimization is not possible. This commit also add a more verbose error message\nhow to work around this limitation.\n\nCloses #3489",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/4a15106d6a76d7e506c4966b6b5bafceca3853c9",
+        "earliest_issue_date": "2013-08-12T14:45:34Z",
+        "predicted_class": "bug",
+        "bic": [
+            "fccbe9c185889a981c9172d848e373b40826d10b"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3500,
+        "issue_title": "Elasticsearch should include debian's standard java_home when looking for installed jdk ",
+        "issue_body": "I get that error when trying to install debian package\n\n``` bash\nSetting up elasticsearch (0.90.2) ...\n * no JDK found - please set JAVA_HOME\ninvoke-rc.d: initscript elasticsearch, action \"start\" failed.\n```\n\nAfter looking in the source code I found out that the debian standard java_home **'/usr/lib/jvm/default-java'** isn't being looked up.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3500",
+        "assignees": [
+            "spinscale"
+        ],
+        "labels": [],
+        "issue_closed_at": "2013-08-23T09:28:33.000Z",
+        "fix_commit_hash": "048a02eebcdefed36ff7abea2f836f2d5f547ed4",
+        "commit_type": "commit",
+        "commit_message": "Debian init script: Add debian default java location\n\nAdding /usr/lib/jvm/default-java to JAVA_HOME candidates to check\n\nCloses #3500",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/048a02eebcdefed36ff7abea2f836f2d5f547ed4",
+        "earliest_issue_date": "2013-08-13T15:06:58Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3505,
+        "issue_title": "Inconsistent highlighting behavior(normal x vector)",
+        "issue_body": "So, the issue is reproducible by running(using 0.90.0):\n\n```\ncurl -XPOST http://localhost:9200/foo -d '{ \"mappings\": { \"bar\": { \"properties\": { \"id\": { \"type\": \"integer\" }, \"content\": { \"type\": \"string\", \"store\": \"yes\" } } } } }'\ncurl -XPOST http://localhost:9200/foo2 -d '{ \"mappings\": { \"bar\": { \"properties\": { \"id\": { \"type\": \"integer\" }, \"content\": { \"type\": \"string\", \"store\": \"yes\", \"term_vector\": \"with_positions_offsets\" } } } } }'\n\ncurl -XPUT http://localhost:9200/foo/bar/1 -d '{ \"id\": 1, \"content\": \"North Atlantic Treaty Organization, Zwei, Drei, Vier, F\u00fcnf, Sechs, Sieben, Acht, Neun\" }'\ncurl -XPUT http://localhost:9200/foo2/bar/1 -d '{ \"id\": 1, \"content\": \"North Atlantic Treaty Organization, Zwei, Drei, Vier, F\u00fcnf, Sechs, Sieben, Acht, Neun\" }'\n\ncurl -XPOST http://localhost:9200/foo/bar/_search -d' { \"query\": { \"bool\": { \"must\": [ { \"match\": { \"content\": \"North\" } }, { \"match\": { \"content\": \"Zwei\" } }, { \"match\": { \"content\": \"Vier\" } }, { \"match\": { \"content\": \"Drei\" } }, { \"match\": { \"content\": \"Sechs\" } }, { \"match\": { \"content\": \"Sieben\" } }, { \"match\": { \"content\": \"Acht\" } }, { \"match\": { \"content\": \"Neun\" } } ] } }, \"highlight\": { \"fields\": { \"content\": { \"fragment_size\": 50, \"number_of_fragments\": 5 } } } }'\n\ncurl -XPOST http://localhost:9200/foo2/bar/_search -d' { \"query\": { \"bool\": { \"must\": [ { \"match\": { \"content\": \"North\" } }, { \"match\": { \"content\": \"Zwei\" } }, { \"match\": { \"content\": \"Vier\" } }, { \"match\": { \"content\": \"Drei\" } }, { \"match\": { \"content\": \"Sechs\" } }, { \"match\": { \"content\": \"Sieben\" } }, { \"match\": { \"content\": \"Acht\" } }, { \"match\": { \"content\": \"Neun\" } } ] } }, \"highlight\": { \"fields\": { \"content\": { \"fragment_size\": 50, \"number_of_fragments\": 5 } } } }'\n\n```\n\nFor the first index/query, I get \n\n```\n\"highlight\":{\"content\":[\", <em>Vier</em>, F\u00fcnf, <em>Sechs</em>, <em>Sieben</em>, <em>Acht</em>, <em>Neun</em>\",\"<em>North</em> Atlantic Treaty Organization, <em>Zwei</em>, <em>Drei</em>\"]}\n```\n\nwhich is what i would expected. but for the second I get:\n\n```\n\"highlight\":{\"content\":[\"<em>North</em> Atlantic Treaty Organization, <em>Zwei</em>, <em>Drei</em>, Vier\",\"Vier, F\u00fcnf, <em>Sechs</em>, <em>Sieben</em>, <em>Acht</em>, <em>Neun</em>\"]}\n```\n\nwhere the Vier is missing.\n\nI don't expect both to return the same highlighted fragments, but I don't really get why the Vier is not highlighted on the second query(for the second fragment).\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3505",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            ":Search Relevance/Highlighting",
+            "Team:Search Relevance"
+        ],
+        "issue_closed_at": "2016-11-24T18:17:57.000Z",
+        "fix_commit_hash": "60b72254ccb3231e7d50bf4f8d921cf884d9a98a",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "Fix InternalIndexLifecycleContext to update state in memory (#3505)\n\n* Fix InternalIndexLifecycleContext to update state in memory\r\n\r\nThe internal and the mock index-lifecycle-context implementations differed\r\nin that the InternalIndexLifecycleContext assumed no one would be using it after\r\nit mutated state. This is not the case. We assume that the current context is updated after\r\na `#setAction` is called so that the listener can then appropriately use the newly modified\r\ncluster state. since idxMeta was not being updated, any call to `context.getAction` was stale and\r\neither returning null or the previous action, not the next action that was updated by `#setAction`.\r\nSame goes for `setPhase`.\r\n\r\nThis PR should fix this so that the Mock and Internal implementations are more in line.",
+        "closer_url": null,
+        "earliest_issue_date": "2013-08-14T09:56:30Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3507,
+        "issue_title": "Concurrent Put Mapping API to multiple indices/types may return prematurely",
+        "issue_body": "The put mapping api waits for all the nodes that has the relevant indices to have processed the change. Concurrent put mapping requests to different indices/types may result in requests returning before all nodes processed the change.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3507",
+        "assignees": [
+            "bleskes"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-14T14:16:06.000Z",
+        "fix_commit_hash": "256bf1f4bc54fc5cf0106a2e4386ce3b72cfc9e8",
+        "commit_type": "commit",
+        "commit_message": "Added index and type checks to MetaDataMappingService.CountDownListener\n\nCloses #3507",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/256bf1f4bc54fc5cf0106a2e4386ce3b72cfc9e8",
+        "earliest_issue_date": "2013-08-14T11:37:59Z",
+        "predicted_class": "bug",
+        "bic": [
+            "ab6163898fd8c83dda01b6eb4dd42e1f900f393b"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3508,
+        "issue_title": "A previous dynamic change to mapping may cause a Put Mapping request to return prematurely ",
+        "issue_body": "Index request which change the mapping of the index can cause a put mapping request which is executed quickly after it to return before all relevant nodes processed the change.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3508",
+        "assignees": [
+            "bleskes"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1"
+        ],
+        "issue_closed_at": "2013-08-14T15:14:13.000Z",
+        "fix_commit_hash": "3ac3c7d12c0cb845a8c28cec5b890705b13dc659",
+        "commit_type": "commit",
+        "commit_message": "Put Mappings CountDownListener validates cluster state version of incoming change confirmations.\n\nCloses #3508",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/3ac3c7d12c0cb845a8c28cec5b890705b13dc659",
+        "earliest_issue_date": "2013-08-14T11:39:49Z",
+        "predicted_class": "bug",
+        "bic": [
+            "2bf4a6766e66f500d6cad925b8aae00939d5796b"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3513,
+        "issue_title": "Errors (like StackOverflow) can cause a search context to not be released",
+        "issue_body": "It will eventually time out (with the default 5 minutes timeout), but we should properly handle it, and also, properly propagate the failure.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3513",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-14T21:42:15.000Z",
+        "fix_commit_hash": "28ae4d63937f64d4d70c3646191b06f8f303f0a5",
+        "commit_type": "commit",
+        "commit_message": "Errors (like StackOverflow) can cause a search context to not be released\nIt will eventually time out (with the default 5 minutes timeout), but we should properly handle it, and also, properly propagate the failure.\ncloses #3513",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/28ae4d63937f64d4d70c3646191b06f8f303f0a5",
+        "earliest_issue_date": "2013-08-14T21:40:28Z",
+        "predicted_class": "bug",
+        "bic": [
+            "62d67e6c2db0248b3df602817ebbe47a856ae10f"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3515,
+        "issue_title": "NullPointerException during discovery",
+        "issue_body": "Some logs from during discovery of a brand new cluster today. The zen.multicast is set to disable and they are all given a list of the other nodes for unicast.\n\n[2013-08-15 02:41:17,744][INFO ][node                     ] [qphosphorus2] stopping ...\n[2013-08-15 02:41:18,237][INFO ][node                     ] [qphosphorus2] stopped\n[2013-08-15 02:41:18,237][INFO ][node                     ] [qphosphorus2] closing ...\n[2013-08-15 02:41:18,273][INFO ][node                     ] [qphosphorus2] closed\n[2013-08-15 02:57:51,994][INFO ][node                     ] [qphosphorus2] version[0.90.3], pid[72565], build[5c38d60/2013-08-06T13:18:31Z]\n[2013-08-15 02:57:51,995][INFO ][node                     ] [qphosphorus2] initializing ...\n[2013-08-15 02:57:52,004][INFO ][plugins                  ] [qphosphorus2] loaded [], sites [head]\n[2013-08-15 02:57:54,627][INFO ][node                     ] [qphosphorus2] initialized\n[2013-08-15 02:57:54,627][INFO ][node                     ] [qphosphorus2] starting ...\n[2013-08-15 02:57:54,856][INFO ][transport                ] [qphosphorus2] bound_address {inet[/192.168.72.120:9300]}, publish_address {inet[/192.168.72.120:9300]}\n[2013-08-15 02:58:24,865][WARN ][discovery                ] [qphosphorus2] waited for 30s and no initial state was set by the discovery\n[2013-08-15 02:58:24,866][INFO ][discovery                ] [qphosphorus2] QuizletProductionCluster/HstcP8sQRWGi6nwjZU5KHw\n[2013-08-15 02:58:24,949][INFO ][http                     ] [qphosphorus2] bound_address {inet[/192.168.72.120:9200]}, publish_address {inet[/192.168.72.120:9200]}\n[2013-08-15 02:58:24,950][INFO ][node                     ] [qphosphorus2] started\n[2013-08-15 02:58:54,909][INFO ][cluster.service          ] [qphosphorus2] new_master [qphosphorus2][HstcP8sQRWGi6nwjZU5KHw][inet[/192.168.72.120:9300]]{master=true}, reason: zen-disco-join (elected_as_master)\n[2013-08-15 02:59:30,213][INFO ][cluster.service          ] [qphosphorus2] added {[qaluminium2][YH9kVKH-Rgyc9tVcxQq_-g][inet[/192.168.72.115:9300]]{master=true},}, reason: zen-disco-receive(join from node[[qaluminium2][YH9kVKH-Rgyc9tVcxQq_-g][inet[/192.168.72.115:9300]]{master=true}])\n[2013-08-15 03:00:35,465][INFO ][cluster.service          ] [qphosphorus2] added {[qargon2][Mif6T8WDT0Of0Td9vgrf_w][inet[/192.168.72.119:9300]]{master=true},}, reason: zen-disco-receive(join from node[[qargon2][Mif6T8WDT0Of0Td9vgrf_w][inet[/192.168.72.119:9300]]{master=true}])\n[2013-08-15 03:00:35,533][DEBUG][action.admin.cluster.node.stats] [qphosphorus2] failed to execute on node [Mif6T8WDT0Of0Td9vgrf_w]\norg.elasticsearch.transport.RemoteTransportException: [qargon2][inet[/192.168.72.119:9300]][cluster/nodes/stats/n]\nCaused by: java.lang.NullPointerException\n        at org.elasticsearch.action.support.nodes.NodeOperationResponse.writeTo(NodeOperationResponse.java:59)\n        at org.elasticsearch.action.admin.cluster.node.stats.NodeStats.writeTo(NodeStats.java:215)\n        at org.elasticsearch.transport.netty.NettyTransportChannel.sendResponse(NettyTransportChannel.java:83)\n        at org.elasticsearch.transport.netty.NettyTransportChannel.sendResponse(NettyTransportChannel.java:62)\n        at org.elasticsearch.action.support.nodes.TransportNodesOperationAction$NodeTransportHandler.messageReceived(TransportNodesOperationAction.java:276)\n        at org.elasticsearch.action.support.nodes.TransportNodesOperationAction$NodeTransportHandler.messageReceived(TransportNodesOperationAction.java:267)\n        at org.elasticsearch.transport.netty.MessageChannelHandler$RequestHandler.run(MessageChannelHandler.java:269)\n        at java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)\n        at java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)\n        at java.lang.Thread.run(Unknown Source)\n[2013-08-15 03:00:37,546][INFO ][cluster.service          ] [qphosphorus2] added {[qchlorine2][PFq_0tNNSC6yvom-RNCzPw][inet[/192.168.72.114:9300]]{master=true},}, reason: zen-disco-receive(join from node[[qchlorine2][PFq_0tNNSC6yvom-RNCzPw][inet[/192.168.72.114:9300]]{master=true}])\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3515",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-15T09:45:06.000Z",
+        "fix_commit_hash": "27b973830d2c65359e9a54e4d12c221d163d4de2",
+        "commit_type": "commit",
+        "commit_message": "Use ClusterService#localNode instead of checking the cluster state.\n\nThe ClusterState can hold an 'invalid' local 'DiscoveryNode' during\nnode startup and rare race conditions can cause NPEs if an 'invalid'\n'DiscoveryNode' is serialized.\n\nCloses #3515",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/27b973830d2c65359e9a54e4d12c221d163d4de2",
+        "earliest_issue_date": "2013-08-15T03:07:28Z",
+        "predicted_class": "bug",
+        "bic": [
+            "36b92be212e884daff251cc2f3f85fb982e5c85d"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3521,
+        "issue_title": "odd scoring behaviour / inconsistent scoring",
+        "issue_body": "unfortunately i wasn't able to reproduce this in the usual way, but here is the case:\n\nI have a query such as \n\n```\n{ \"from\": 0, \"size\": 10, \"query\": { \"bool\": {  \"must\": [ {\"match_all\":{}},{ \"constant_score\": { \"filter\": { \"terms\": { \"id\": [...] } } } } ] } }, \"fields\": \"\", \"sort\": [ { \"_score\": {} }, { \"id\": { \"order\": \"desc\" } } ] }\n```\n\nto the terms filter, i pass a list of ids(anywhere between 1 and 200k unique ids).\n\nwhen executing this query multiple times i get different results. so, investigating a little i traced it to the score not being constant sometimes(not what i expected at all).\n\ni ran the same query a few times with explain set to true and getting only the last document, and here is what i got:\n\n```\n_explanation: {\nvalue: 1.264911\ndescription: sum of:\ndetails: [\n{\nvalue: 0.94868326\ndescription: ConstantScore(*:*)^3.0, product of:\ndetails: [\n{\nvalue: 3\ndescription: boost\n}\n{\nvalue: 0.31622776\ndescription: queryNorm\n}\n]\n}\n{\nvalue: 0.31622776\ndescription: ConstantScore...\n```\n\nand then \n\n```\n_explanation: {\nvalue: 1.4142135\ndescription: sum of:\ndetails: [\n{\nvalue: 0.70710677\ndescription: ConstantScore(*:*), product of:\ndetails: [\n{\nvalue: 1\ndescription: boost\n}\n{\nvalue: 0.70710677\ndescription: queryNorm\n}\n]\n}\n{\nvalue: 0.70710677\ndescription: ConstantScore...\n```\n\nso, here i would expect this query to ALWAYS have the same score, and also, that every document scores exactly the same. \nit could even seem ok if the score wasnt constant across requests, but not really that documents score differently.\n- i do know i don't need the \"match_all\" query, but that's the way i managed to reproduce it on our cluster. without that, the score for the documents would always be 1 and i could not reproduce this behaviour.\n\n*\\* hope thats clear enough... but let me know if you need more info, or even the complete output for the explain(its pretty big)\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3521",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-16T19:18:52.000Z",
+        "fix_commit_hash": "b11f81d744a5c23bf7c20d696939e226905c60e7",
+        "commit_type": "commit",
+        "commit_message": "Removed static versions of MatchAllDocsQuery\n\nIf a static cached version of MatchAllDocsQuery is used through for\ninstanst the `query_string` together with a boost like `*:*^2.0` the\nglobally used version is modified since queries are not immutable and it's\nboost variable can change at any time. Holding on to queries that are modifiable\nis risky and should not be done in a global scope.\nThis commit also adds tests for constant scores from `constant_score` query.\n\nCloses #3521",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/b11f81d744a5c23bf7c20d696939e226905c60e7",
+        "earliest_issue_date": "2013-08-16T11:31:39Z",
+        "predicted_class": "bug",
+        "bic": [
+            "becbbf53d50506e98f5d3d8b3d9fb5a1d6469a6c"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3526,
+        "issue_title": "Setting index/bulk thread pools with queue_size can cause replica shard failures",
+        "issue_body": "When setting `queue_size` on the index/bulk thread pools, they can cause replica shard failures when a request ends up being rejected on the replica shard. We should not adhere to the `queue_size` limit when executing the operation on the replica (which is perfectly fine, since the primary shard will make sure to limit it).\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3526",
+        "assignees": [
+            "kimchy"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-23T17:25:50.000Z",
+        "fix_commit_hash": "86c95ab2ab3eec1ee1c843a0d095832e9caf4118",
+        "commit_type": "commit",
+        "commit_message": "Setting index/bulk thread pools with queue_size can cause replica shard failures\ncloses #3526",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/86c95ab2ab3eec1ee1c843a0d095832e9caf4118",
+        "earliest_issue_date": "2013-08-17T17:34:34Z",
+        "predicted_class": "bug",
+        "bic": [
+            "9d0ce1b1d38156a08cb7ab5e76af015d05c2fab2"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3534,
+        "issue_title": "Requesting the mapping of an index where no mappings are defined yet throws an Index Not found exception",
+        "issue_body": "To reproduce:\n\n```\ncurl -XPUT \"http://localhost:9200/index1\"\n```\n\n```\ncurl -XGET \"http://localhost:9200/index1/_mapping\"\n```\n\nNow returns:\n\n```\n{\n   \"error\": \"IndexMissingException[[index1] missing]\",\n   \"status\": 404\n}\n```\n\nShould return:\n\n```\n{\n   \"index1\": {}\n}\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3534",
+        "assignees": [
+            "bleskes"
+        ],
+        "labels": [
+            ">regression",
+            "v1.0.0.Beta1"
+        ],
+        "issue_closed_at": "2013-08-19T13:52:20.000Z",
+        "fix_commit_hash": "cd5ebac7ddb7bdd0d8e2528dff762cd407a6eb9a",
+        "commit_type": "commit",
+        "commit_message": "GetMapping failed when index had no mapping (yet)\n\nCloses #3534",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/cd5ebac7ddb7bdd0d8e2528dff762cd407a6eb9a",
+        "earliest_issue_date": "2013-08-19T13:50:36Z",
+        "predicted_class": "bug",
+        "bic": [
+            "8b95c5fab8e00c62649c413489e3acf7bcba2cd6"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3538,
+        "issue_title": "Dynamic templates from an index template are skipped if a new type already have dynamic templates",
+        "issue_body": "The two dynamic templates lists should be merged. \n\nExample:\n\nAdd a template:\n\n```\ncurl -XPUT \"http://localhost:9200/_template/template_1\" -d'\n{\n   \"template\": \"te*\",\n   \"mappings\": {\n      \"type1\": {\n         \"dynamic_templates\": [\n            {\n               \"t1\": {\n                  \"match\": \"*\",\n                  \"mapping\": {\n                     \"store\": \"yes\"\n                  }\n               }\n            }\n         ]\n      }\n   }\n}'\n```\n\ncreate a type:\n\n```\ncurl -XPUT \"http://localhost:9200/test1\" -d'\n{\n   \"mappings\": {\n      \"type1\": {\n         \"dynamic_templates\": [\n            {\n               \"t2\": {\n                  \"match\": \"t*\",\n                  \"mapping\": {\n                     \"store\": \"no\"\n                  }\n               }\n            }\n         ]\n      }\n   }\n}'\n```\n\nNow get the mappings for the newly created type:\n\n```\ncurl -XGET \"http://localhost:9200/test1/_mapping\"\n```\n\nwhich gives (note that the t1 template is missing):\n\n```\n{\n   \"test1\": {\n      \"type1\": {\n         \"dynamic_templates\": [\n            {\n               \"t2\": {\n                  \"mapping\": {\n                     \"store\": \"yes\"\n                  },\n                  \"match\": \"t*\"\n               }\n            }\n         ],\n         \"properties\": {}\n      }\n   }\n}\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3538",
+        "assignees": [
+            "bleskes"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-19T15:59:47.000Z",
+        "fix_commit_hash": "11fab5c66f64045528d540d8958ea09bc5020d52",
+        "commit_type": "commit",
+        "commit_message": "XContentHelper.mergeDefaults with single key object list ([ { key: .. } , {key : ... } .. ] ) didn't add defaults which were not already in content\n\n Closes #3538",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/11fab5c66f64045528d540d8958ea09bc5020d52",
+        "earliest_issue_date": "2013-08-19T15:20:20Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3540,
+        "issue_title": "Date math not working correctly due to lower casing",
+        "issue_body": "ES 0.90.3 appears to lowercase the date math portion of this query, turning M (month) into m (minutes). The same query is correctly interpreted in ES 0.20.6:\n\n```\n{ \n    \"query\" : { \"query_string\" : { \"default_operator\" : \"AND\",\n          \"query\" : \"created:[now-1M/d TO now/d]\"\n        } },\n  \"sort\" : [ { \"ordernumber\" : \"desc\" } ]\n}\n```\n\nThe following query with upper case D for day rounding generates an exception in ES 0.20.6 but not on 0.90.3 which further indicates that some lower casing is going on.\n\n```\n{ \n    \"query\" : { \"query_string\" : { \"default_operator\" : \"AND\",\n          \"query\" : \"created:[now-1M/D TO now/D]\"\n        } },\n  \"sort\" : [ { \"ordernumber\" : \"desc\" } ]\n}\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3540",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-20T12:55:23.000Z",
+        "fix_commit_hash": "7dab7ab585106389f88c6e2e8fb864b2b34c8176",
+        "commit_type": "commit",
+        "commit_message": "when doing range queries within a query_string query, the range terms should only be lowercased if the field is not numeric\n\nfixes #3540",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/7dab7ab585106389f88c6e2e8fb864b2b34c8176",
+        "earliest_issue_date": "2013-08-20T06:38:23Z",
+        "predicted_class": "bug",
+        "bic": [
+            "d6b613ac8c6e3ddee6d8e1604db208721f03cb75"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3543,
+        "issue_title": "FVH can end in very very long running recursion on phrase highlight",
+        "issue_body": "This is a followup from [LUCENE-5182](https://issues.apache.org/jira/browse/LUCENE-5182) ...due to the nature of FVH extract logic a simple phrase query can put a FHV into a super long running recursion. I had documents taking literally days to return form the extract phrases logic. I have a test that reproduces the problem and a possible fix. The reason for this is that the FVH never tries to early terminate if a phrase is already way beyond the slop coming from the phrase query. If there is a document with lot of occurrences or two or more terms in the phrase this literally tries to match all possible combinations of the terms in the doc. I don't think we can fix this FVH without rewriting it since this alg is freaking crazy and somehow `n!` of all the positions etc. I am not even sure what the Big-O of this is but I have a patch that tires to prevent this thing from going totally nuts.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3543",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [],
+        "issue_closed_at": "2013-08-20T16:03:29.000Z",
+        "fix_commit_hash": "9af7a850e94f14eab653e594c4d470a733f51b6a",
+        "commit_type": "commit",
+        "commit_message": "Prevent FVH from entering a very long running loop on large docs with high freq phrase terms.\n\nTerminate phrase searches early if max phrase window is exceeded in\nFastVectorHighlighter to prevent very long running phrase\nextraction if phrase terms are high frequent. See LUCENE-5182\n\nCloses #3543",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/9af7a850e94f14eab653e594c4d470a733f51b6a",
+        "earliest_issue_date": "2013-08-20T14:02:19Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3544,
+        "issue_title": "Wrong analyzer used when indexing dynamic property",
+        "issue_body": "Hi,\n\nI'm seeing some unusual behaviour when indexing documents in Elasticsearch with a dynamic template. I have a unit test that's failing intermittently. The flow of the test is as follows:\n\n```\n1) Initialise in-memory Elasticsearch cluster (one local node, no replicas)\n2) Create new index\n3) Create new type mapping\n4) Index some documents\n5) Refresh index and wait for all documents to be processed\n6) Query Elasticsearch for documents\n```\n\nThe type mapping I'm using includes the following dynamic template definition:\n\n```\n{\n    \"participants\": {\n        \"path_match\": \"participants.*\",\n        \"mapping\": {\n            \"type\": \"string\",\n            \"store\": \"yes\",\n            \"index\": \"analyzed\",\n            \"analyzer\": \"whitespace\"\n        }\n    }\n}\n```\n\nThis template is intended to produce fields of the form:\n\n```\nparticipants.new = [ 'user-1', 'user-2' ]\nparticipants.removed = [ 'user-3' ]\n```\n\nThe problem I have is that occasionally (perhaps once in every ten runs) the test will fail because step 6 does not return all the expected documents. When I check the indexed terms for the missing documents I see that values in the 'participants' field have been split into separate tokens on the '-' character. This seems to suggest that the default analyzer is being used for indexing instead of the whitespace one.\n\nSo far I haven't been able to detect any pattern to the failures. The unexpected tokenisation only affects a portion of the indexed documents and can occur at any point in the indexing process (i.e. it isn't always the first or last document that has problems).\n\nHere is a gist with a simplified version of my original test: https://gist.github.com/pmclellan/64b192537c97529ec2e4 This version fails much more consistently, usually on the first run. However, I have noticed that the problem does not occur if I index documents in a synchronous manner (i.e. waiting for a response to each indexing request before issuing the next).\n\nCheers,\nPaul\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3544",
+        "assignees": [
+            "brwe"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-09-11T14:09:14.000Z",
+        "fix_commit_hash": "bbce6e85883ef812a80f5713e001f4ad1de47f22",
+        "commit_type": "commit",
+        "commit_message": "Rare race condition when introducing new fields into a mapping\nDynamic mapping allow to dynamically introduce new fields into an existing mapping. There is a (pretty rare) race condition, where a new field/object being introduced will not be immediately visible for another document that introduces it at the same time.\n\ncloses #3667, closes #3544",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/bbce6e85883ef812a80f5713e001f4ad1de47f22",
+        "earliest_issue_date": "2013-08-20T19:12:30Z",
+        "predicted_class": "bug",
+        "bic": [
+            "bb9c7172b0ad67d6244fc0574df429318d63068d"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3547,
+        "issue_title": "Phrase suggest can make bad suggestions when searching for an uncommon phrase and confidence > 1",
+        "issue_body": "It looks like sometimes documents get sharded in such a way the phrase suggest confidence stops working from time to time.  I have a gist (https://gist.github.com/nik9000/6287620) that normally produces a phrase response with no suggestions (like it should) but if you run it a bunch of times (5-20) it'll eventually return one with suggestions.  I've determined that if you set the number of shards to 1 this won't happen.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3547",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [],
+        "issue_closed_at": "2013-08-29T14:40:56.000Z",
+        "fix_commit_hash": "10e55bd3ef4f14e667981b0688eaa779fe250a84",
+        "commit_type": "commit",
+        "commit_message": "Recheck cutoffScore during phrase_suggest merge.\n\nThe goal is to throw out suggestions that only meet the cutoff in some\nshards.  This will happen if your input phrase is only contained in a\nfew shards.  If your shards are unbanced this rechecking can throw out\ngood suggestions.\n\nCloses #3547.",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/10e55bd3ef4f14e667981b0688eaa779fe250a84",
+        "earliest_issue_date": "2013-08-20T21:56:02Z",
+        "predicted_class": "bug",
+        "bic": [
+            "1257109944e0e44a61c5319835ce73425a3c24e3"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3551,
+        "issue_title": "Plugin Manager can not download _site plugins from github",
+        "issue_body": "Sounds like github changes a bit download url for master zip file.\n\nFrom `https://github.com/username/reponame/zipball/master` to `https://github.com/username/reponame/archive/master.zip`.\n\nWe need to update plugin manager to reflect that change.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3551",
+        "assignees": [
+            "dadoonet"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-27T15:04:04.000Z",
+        "fix_commit_hash": "d5b2c8e82f0b32b56605bd7b6775389304f6e5bf",
+        "commit_type": "commit",
+        "commit_message": "Fixed extraction of site plugins downloaded from github, so that we skip the top-level folder and we place the files directly under the _site folder\n\nCloses #3551",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/d5b2c8e82f0b32b56605bd7b6775389304f6e5bf",
+        "earliest_issue_date": "2013-08-21T13:57:43Z",
+        "predicted_class": "bug",
+        "bic": [
+            "3652d57667a7a9d167cd00582be185f5038b796e"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3555,
+        "issue_title": "NullPointerException during concurrent merges",
+        "issue_body": "Looks like it may be related to the new suggestion stuff. I'm on 0.90.3, Java 7. Will be trying to reproduce on master shortly, but let me know if there's other stuff you need to debug.\n\n[2013-08-21 22:02:05,166][WARN ][index.engine.robin       ] [qanticharm] [quizlet][9] failed engine\norg.apache.lucene.index.MergePolicy$MergeException: java.lang.NullPointerException\n        at org.elasticsearch.index.merge.scheduler.ConcurrentMergeSchedulerProvider$CustomConcurrentMergeScheduler.handleMergeException(ConcurrentMergeSchedulerProvider.java:99)\n        at org.apache.lucene.index.ConcurrentMergeScheduler$MergeThread.run(ConcurrentMergeScheduler.java:518)\nCaused by: java.lang.NullPointerException\n        at org.elasticsearch.search.suggest.completion.AnalyzingCompletionLookupProvider$1$1.finish(AnalyzingCompletionLookupProvider.java:134)\n        at org.elasticsearch.search.suggest.completion.Completion090PostingsFormat$SuggestFieldsConsumer$1.finish(Completion090PostingsFormat.java:152)\n        at org.apache.lucene.codecs.TermsConsumer.merge(TermsConsumer.java:204)\n        at org.apache.lucene.codecs.FieldsConsumer.merge(FieldsConsumer.java:72)\n        at org.apache.lucene.index.SegmentMerger.mergeTerms(SegmentMerger.java:365)\n        at org.apache.lucene.index.SegmentMerger.merge(SegmentMerger.java:98)\n        at org.apache.lucene.index.IndexWriter.mergeMiddle(IndexWriter.java:3772)\n        at org.apache.lucene.index.IndexWriter.merge(IndexWriter.java:3376)\n        at org.apache.lucene.index.ConcurrentMergeScheduler.doMerge(ConcurrentMergeScheduler.java:405)\n        at org.apache.lucene.index.TrackingConcurrentMergeScheduler.doMerge(TrackingConcurrentMergeScheduler.java:91)\n        at org.apache.lucene.index.ConcurrentMergeScheduler$MergeThread.run(ConcurrentMergeScheduler.java:482)\n[2013-08-21 22:02:05,180][WARN ][cluster.action.shard     ] [qanticharm] sending failed shard for [quizlet][9], node[27LWb8rFQiafhZhgRH4vjg], [R], s[STARTED], reason [engine failure, message [MergeException[java.lang.NullPointerException]; nested: NullPointerException; ]]\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3555",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-22T10:20:47.000Z",
+        "fix_commit_hash": "fc3133d0878a426a6d2098cb75f567be00c59635",
+        "commit_type": "commit",
+        "commit_message": "Prevent NPE if all docs for the field are pruned during merge\n\nDuring segment merges FieldConsumers for all fields from the source\nsegments are created. Yet, if all documents that have a value in a\ncertain field  are deleted / pruned during the merge the FieldConsumer\nwill not be called at all causing the internally used FST Builder to\nreturn `null` from it's `build()` method. This means we can't store\nit and run potentially into a NPE. This commit adds handling for\nthis corner case both during merge and during suggest phase since\nwe also don't have a Lookup instance for this segments field.\n\nCloses #3555",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/fc3133d0878a426a6d2098cb75f567be00c59635",
+        "earliest_issue_date": "2013-08-21T22:04:50Z",
+        "predicted_class": "bug",
+        "bic": [
+            "cdddbb758502793ebcecf0e4311de574a74293ea"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3560,
+        "issue_title": "Cluster Setting update can hang if gets settings which are not dynamically updatable",
+        "issue_body": "Also holds for settings that do not exist:\n\n```\ncurl -XPUT \"http://localhost:9200/_cluster/settings\" -d'\n{\n    \"transient\": {\n        \"cluster.routing.allocation.same_shard.host\": true\n    }\n}'\n```\n\n```\ncurl -XPUT \"http://localhost:9200/_cluster/settings\" -d'\n{\n    \"transient\": {\n        \"cluster\": true\n    }\n}'\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3560",
+        "assignees": [
+            "bleskes"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-22T19:02:29.000Z",
+        "fix_commit_hash": "109e2944f2e0cfea948ee77aabb7a022e0146ada",
+        "commit_type": "commit",
+        "commit_message": "ClusterUpdateSettingsAction will hang if no changes were made\n\n Closes #3560",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/109e2944f2e0cfea948ee77aabb7a022e0146ada",
+        "earliest_issue_date": "2013-08-22T18:59:20Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3580,
+        "issue_title": "Forced awareness fails to balance shards",
+        "issue_body": "I built a cluster for amazon zone awareness as follows:\n\nBackground: I've setup the number of shards to 3, and I have allocation awareness set to match the awszone property which I'm setting in a config. \n\nThere's 6 nodes total:\n\n  2 in us-west-2a\n  2 in us-west-2b\n  1 in us-east-2a\n  1 in us-east-2b\n\nSo in theory, I should be able to lose either an entire side of the country. I would also expect the nodes in us-west to balance the shards, not just allocate a single shard to the machine. \n\nHowever, the western zone shards aren't balancing except to move 1 shard onto each of the other hosts in the zone. \n\nS1monw is on the case. \n\nDiscussion here: https://groups.google.com/forum/m/#!topic/elasticsearch/9yZw7sryFb4\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3580",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-28T21:42:01.000Z",
+        "fix_commit_hash": "b9558edeff254ab3d553526e6e0928f67753499d",
+        "commit_type": "commit",
+        "commit_message": "Prevent allocation algorithm from prematurely exiting balance operations\n\nIn a special case if allocations from the \"heaviest\" to the \"lighter\" nodes is not possible\ndue to some allocation decider restrictions like zone awareness. if one zone has for instance\nless nodes than another zone so one zone is horribly overloaded from a balanced perspective but we\ncan't move to the \"lighter\" shards since otherwise the zone would go over capacity.\n\nCloses #3580",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/b9558edeff254ab3d553526e6e0928f67753499d",
+        "earliest_issue_date": "2013-08-27T10:55:51Z",
+        "predicted_class": "bug",
+        "bic": [
+            "39040b5f170ebc8aa3f536a18450cde321e1be39"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3582,
+        "issue_title": "Install site plugin with custom url doesn't filter directory",
+        "issue_body": "1. Download  https://github.com/mobz/elasticsearch-head/zipball/master\n2. Copy downloaded file to target server /tmp/mobz-elasticsearch-head-0c2ac0b.zip\n3. Install plugin with command:\n\n```\n bin/plugin --url file:/tmp/mobz-elasticsearch-head-0c2ac0b.zip --install head\n```\n1. The plugins is installed in plugins/head/_site/mobz-elasticsearch-head-0c2ac0b/... instead of plugins/head/_site/...\n\nThe folder could be stripped because it's same as file name.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3582",
+        "assignees": [
+            "javanna"
+        ],
+        "labels": [
+            ">enhancement",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-09-03T08:35:18.000Z",
+        "fix_commit_hash": "45c8da3e98f391b815f7966dd62900d1b1d77d04",
+        "commit_type": "commit",
+        "commit_message": "Improved logic that removes top-level folder from archives when needed\n\nWhether we remove the top-level folder from the archive depends now on the zip itself and not on where it was downloaded from. That makes it work installing local files too.\n\nCloses #3582",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/45c8da3e98f391b815f7966dd62900d1b1d77d04",
+        "earliest_issue_date": "2013-08-27T15:18:29Z",
+        "predicted_class": "bug",
+        "bic": [
+            "d5b2c8e82f0b32b56605bd7b6775389304f6e5bf"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3585,
+        "issue_title": "Count and Search API status codes are inconsistent (count does not return 400)",
+        "issue_body": "I've got a query that produces a 400 when performing a search. However, when I use the same query to perform a count, a 200 status is returned.\n\nhttps://gist.github.com/garron/6346888\n\nThe output from this gist is:\n\n{\"ok\":true,\"_index\":\"myindex\",\"_type\":\"mydoc\",\"_id\":\"5kngTmpeR5GtJg6Vu46tUw\",\"_version\":1}\\n\nCount using a good query\n200\nSearch using a good query\n200\nCount using a bad query\n200\nSearch using a bad query\n400\n\nIf you take out the \"-o /dev/null\", you can see that both the search and count produce errors in the \"bad query\" case, but the count API still returns a 200.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3585",
+        "assignees": [
+            "bleskes"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1"
+        ],
+        "issue_closed_at": "2013-08-28T18:33:25.000Z",
+        "fix_commit_hash": "86cb76a0ce8ecb1532cde94a0164f8fa41dbc96b",
+        "commit_type": "commit",
+        "commit_message": "Added a status method CountResponse that resolve shard failures into rest status code. That method is now used in RestCountAction to return proper status.\n\nCloses #3585",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/86cb76a0ce8ecb1532cde94a0164f8fa41dbc96b",
+        "earliest_issue_date": "2013-08-27T16:48:19Z",
+        "predicted_class": "bug",
+        "bic": [
+            "6a71eab51f6d7e7a436d8986df3685c7e0774bd3"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3591,
+        "issue_title": "ArrayIndexOutOfBoundsException when using empty preference parameter",
+        "issue_body": "to reproduce(tested on 0.90.3):\n\n```\ncurl -XGET http://localhost:9200/_search?preference=\n```\n\nthis returns:\n\n```\n{\nerror: \"StringIndexOutOfBoundsException[String index out of range: 0]\",\nstatus: 500\n}\n```\n\nI'm not really sure what is the desired behavior in this case, because it could be one of:\n    1 - ignore the parameter and treat as if nothing was sent\n    2 -  treat the empty string as the preference parameter\n    3 - return a friendly error message for it\n\nanyway, the error happens here (https://github.com/elasticsearch/elasticsearch/blob/master/src/main/java/org/elasticsearch/cluster/routing/operation/plain/PlainOperationRouting.java#L172)\nand it could be easily fixed by either making a check for an empty string before comparing its first character, or changing this line https://github.com/elasticsearch/elasticsearch/blob/master/src/main/java/org/elasticsearch/cluster/routing/operation/plain/PlainOperationRouting.java#L164 for something like preference.isEmpty(), which also covers the empty string case.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3591",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-08-28T19:33:17.000Z",
+        "fix_commit_hash": "82397c05542a794c8629fe611cbca58a3d831780",
+        "commit_type": "commit",
+        "commit_message": "Treat empty prefrence as a `not set` in Plain Operation Routing\n\nAn empty preference was causing a AIOOB exception in\nPlainOperationRouting. We now check for `null` or `empty` instead of\njust `null`\n\nCloses #3591",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/82397c05542a794c8629fe611cbca58a3d831780",
+        "earliest_issue_date": "2013-08-28T15:52:35Z",
+        "predicted_class": "bug",
+        "bic": [
+            "81965d0ea94170e06de225c8cc9b822084daf63c"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3594,
+        "issue_title": "The light Finnish stemmer is specified as \"light_finish\"",
+        "issue_body": "This is mostly a typo as it does look like it uses the correct stemmer in Java, but would it be worthwhile to correct the spelling from \"finish\" to \"finnish\"?\n\nSee:\nhttps://github.com/elasticsearch/elasticsearch/blob/master/src/main/java/org/elasticsearch/index/analysis/StemmerTokenFilterFactory.java#L136\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3594",
+        "assignees": [
+            "bleskes"
+        ],
+        "labels": [],
+        "issue_closed_at": "2013-08-29T08:16:12.000Z",
+        "fix_commit_hash": "e807c99f278694af06b1895983f5daa623ec488b",
+        "commit_type": "commit",
+        "commit_message": "Fixed a typo in the config of light finnish stemmer (old last_finish is still supported for backward compatibility)\n\nCloses #3594",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/e807c99f278694af06b1895983f5daa623ec488b",
+        "earliest_issue_date": "2013-08-29T00:10:40Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3596,
+        "issue_title": "StackOverflow in completion suggester when using long input strings",
+        "issue_body": "I ran into a StackOverflowError when using the new completion suggestions on a long string.  I reproduced this using the latest build of master and a random string:\n\n```\n[2013-08-29 10:10:36,691][DEBUG][action.index             ] [Summers, Christopher] [music][4], node[MKSIixv6QQaAu-ws3rs9_g], [P], s[STARTED]: Failed to execute [index {[music][song][10], source[{\n    \"name\" : \"long string\",\n    \"suggest\" : { \n        \"input\": [ \"GBDGUPXWENKY8HVZDZ0ZB6K0DU7QHAUC68JYRKCIU1GOLNDLRQF693S9UNB0OZL0TXL25LVUGNW03KOBXZK050HSXD37YJAA2JTEFGOG2552C0C0C6Z2G8WCH5Y78KDBY9D0950ZRPSMV3ZC3CPAZGP2D4QJ4FJE1ZQIQUYN6CBMUE2DDB4UV71AH4MR5E2F86NQN67I0STDK7I413DR6N5LSG1OK6YICL09VRIIN2FMKWEP242HYDG3GITQ4DPAMUL5N4S8HB7W7H7C6B7ZFTGO2RRLYB56GE44XD6B42XZVBP8IJROUHTPU7SFI59D1T11XH9FD6KDX7AV84K4KWHK48BQI1VZNZQRN1VC6YM8KLS4PGNGLFHRN302J92U90XM8H2AB94AFPFDTG559FHRX7ANRDUBYLPCR5U9O268HU783MOLP1A8TSU7NJWM6RG7ANPZL9NPQD1TRB3RPJNCT5IJS7QI6MI1HJG86XU8BXRLRU81ITKEXR1X7H8EXAKM1ER9DFMAS7O2WJB4W26Z6ETZ3UZKB55LDZEBW9XEDE7PW6ITA0CHUWXTUHSVID0ID5TTGG6U9J2Z72OV0ROI5KNRGDHYMT8O1S2GWA5EZFJJEGWS0R3SB8WVBL7XPCTD5WX314AEM8ZYW2APIM1GZXV17VLJJ9CF4TMD87X3SH4U1UQVOWCR27N4ZXH0UZ0VC545GPWK9EKJ8HLBRKIBGUHAESMJ930RF6SPMYVH4R02E54NBTBLOQRH92H49TJFT9SG3VU4WGV392DLIGTJUOH80RTIIL86N675GVTNUX7Z89FH8CU2S5XNW0FD6TG3DFU3WCDCJN03D6TYESIAZW6J7CCMMUZTNF6ON07BOGLMLYZRTQZB4O8MYOWQGI1185ALZSTO3HQFZBOSMHXQ7OKTZWHDI6O5SB1NWDF7PVBFNSM11QEGQKI6E52DVG44H3M4OIOT9MDZYOUBFVHV12E8T911YXSZJ74ZOM2JOUMBAM8ZOUFF5X9JAP6IY2E983LWK58BLPPEANQ6KRJZG256XQY2LJJMA7WESVGXMF2RP1XZ5FWCOCFCPHWI2FAYI68JN4N5EEKD3P3U6XALSYJXJWXWOSHT4FYDXDMR7W0VWVLX5C8YSU3SFYA2K0Q1YKVEP1RRWV30ZJMT9B5DDBWN8MHUHX7L3IROSZ6493S9IE8VFOMAYZ0HUMRXO6PS6JO0C54QB0BCUTJ4B1XBHIW6F7DNJMVI539YNERSUBAGGVQW3HR9SI53EODVSHKGI46WJICOCZG8CHD4LQBCWHFTREJ3JHVJGZ8884GGRX456VCGUAIXQL8PPHGW7S34U5KT9OY7O5ZXAFJF4IS9M1PIVU5VTLU44DJLSLQIHMNR5HMWDGIRI0WLHQE0KNRV7OL1JD9PGKUIG8JCI7D0VOT0BN2EQC23GSGL02SZE5314S1GHD1KENX1TD2SXWN272XR6BBL2BDH72XKF9R9482GDOO88ZN0DWTV0QI20SUOMAZQO6JEA7T3YR5FIU8TRX34YER1WPIZ20T7KR8JU71FAEXJYF74PFZF2BCRLN1E93HGN6GFYPTKESI2THT3R4YX7KA0M44G6TZ209SKSFAT2G5PUG0ERGKIHT1XIZTRJOGMG7T8NVCWWQSPIH3JAQ51E0ZXDFXSMJ31I7ABEWWDAF0KTNYRNWDE1R5V89HT9OLHDUZ7IXXRSYXUX2K3956MD0AF1NLGSS5U3D2QFPATN4AAW4IDYULEX67ZC5O1ZPQ9HGEGVFO0FQUFDG92WZIFEMIY0Z0Q66SUZ2N553D3VBLZIPGL2AHP11XEDJ5BU4R9ZJX3UWFCV6YCIXU5SRQEUYQZRQG7EDBQB8M7KIW4GIZQ3KMN8ISQUT5SRODI45O9GC5LG1P522U6092NTVMU7PLGEEGHLXPL1UCL3TCXQ8VS4SDW65MEVMWY9UNRWEHFMOVO7ABIYUUIU90FRIPATGZSGD7XOW5NWW4OYW8WQ91HSLVJUWUNIIDAU08GSZ654PXN5VMLNZ6N\" ],\n        \"output\": \"long string\",\n        \"payload\" : { \"artistId\" : 2310 }, \"weight\": 1\n    }\n}]}]\njava.lang.StackOverflowError\n    at java.util.HashMap.addEntry(HashMap.java:856)\n    at java.util.HashMap.put(HashMap.java:484)\n    at java.util.HashSet.add(HashSet.java:217)\n    at org.apache.lucene.util.automaton.SpecialOperations.getFiniteStrings(SpecialOperations.java:244)\n    at org.apache.lucene.util.automaton.SpecialOperations.getFiniteStrings(SpecialOperations.java:259)\n    at org.apache.lucene.util.automaton.SpecialOperations.getFiniteStrings(SpecialOperations.java:259)\n    at org.apache.lucene.util.automaton.SpecialOperations.getFiniteStrings(SpecialOperations.java:259)\n    at org.apache.lucene.util.automaton.SpecialOperations.getFiniteStrings(SpecialOperations.java:259)...\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3596",
+        "assignees": [],
+        "labels": [
+            ">enhancement",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-09-03T08:27:13.000Z",
+        "fix_commit_hash": "eb2fed85f1f9e7105b576a0c379878c7bb4b40ee",
+        "commit_type": "commit",
+        "commit_message": "Add 'min_input_len' to completion suggester\n\nRestrict the size of the input length to a reasonable size otherwise very\nlong strings can cause StackOverflowExceptions deep down in lucene land.\nYet, this is simply a saftly limit set to `50` UTF-16 codepoints by default.\nThis limit is only present at index time and not at query time. If prefix\ncompletions > 50 UTF-16 codepoints are expected / desired this limit should be raised.\nCritical string sizes are beyone the 1k UTF-16 Codepoints limit.\n\nCloses #3596",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/eb2fed85f1f9e7105b576a0c379878c7bb4b40ee",
+        "earliest_issue_date": "2013-08-29T17:17:23Z",
+        "predicted_class": "bug",
+        "bic": [
+            "fc3133d0878a426a6d2098cb75f567be00c59635"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3601,
+        "issue_title": "NullPointerException when closing an already closed index",
+        "issue_body": "not really an important issue, but:\n\n```\ncurl -XPOST http://localhost:9200/foo\ncurl -XPOST http://localhost:9200/foo/_close\ncurl -XPOST http://localhost:9200/foo/_close\n```\n\ngives  {\"error\":\"NullPointerException[null]\",\"status\":500}\n\nopening an already opened index works ok, with a {\"ok\":true,\"acknowledged\":true} so I guess I would expect something like that for the redundant close operation.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3601",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-09-02T09:59:16.000Z",
+        "fix_commit_hash": "38be478c46f7858314335fc854e722dd1005f8ab",
+        "commit_type": "commit",
+        "commit_message": "Fixed close index when the index is already closed\n\nCloses #3601",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/38be478c46f7858314335fc854e722dd1005f8ab",
+        "earliest_issue_date": "2013-09-02T08:24:06Z",
+        "predicted_class": "bug",
+        "bic": [
+            "6b8123d7265158c62e4be7aaa20d7b70e3703c10"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3610,
+        "issue_title": "BalancedShardsAllocator prematurely modifies `unassigned` shards list",
+        "issue_body": "BalancedShardsAllocator modifies the unassigned shards list during initialization which is used by AllocationDeciders. Yet, premature modification can cause unintended throtteling of primary allocation which causes cluster to go in a red state until recovery / relocation has caught up to not throttle the allocation anymore. This is a very rare scenario that will only have a prominent effect on full cluster restarts or similar heavy weight operations.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3610",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-09-03T15:15:54.000Z",
+        "fix_commit_hash": "b39961b2a6ae880bfcfe17d5e80c834be705f15d",
+        "commit_type": "commit",
+        "commit_message": "Prevent ShardAllocator to modify the unassigned while running allocations\n\nThe unassinged list is used to make allocation decisions but is currently\nmodified during allocation runs which causes primaries to be throttled\nduring allocation. If this happens newly allocated indices can be stalled\nfor a long time turning a cluster into a RED state if concurrent relocations\nand / or recoveries are happening.\n\nCloses #3610",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/b39961b2a6ae880bfcfe17d5e80c834be705f15d",
+        "earliest_issue_date": "2013-09-03T15:02:07Z",
+        "predicted_class": "bug",
+        "bic": [
+            "058f57b198278f6bae63b6e93b891075c67216cd"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3619,
+        "issue_title": "NullPointerException in CompletionStats",
+        "issue_body": "[2013-09-04 00:46:46,113][DEBUG][action.admin.cluster.node.stats] [qtau] failed to execute on node [3MfX8Mx6Rmmp0_fukOT4lQ]\norg.elasticsearch.transport.RemoteTransportException: [qantiup][inet[/192.168.72.143:9300]][cluster/nodes/stats/n]\nCaused by: java.lang.NullPointerException\n        at org.elasticsearch.index.engine.robin.RobinEngine.searcher(RobinEngine.java:682)\n        at org.elasticsearch.index.shard.service.InternalIndexShard.completionStats(InternalIndexShard.java:536)\n        at org.elasticsearch.indices.InternalIndicesService.stats(InternalIndicesService.java:299)\n        at org.elasticsearch.node.service.NodeService.stats(NodeService.java:165)\n        at org.elasticsearch.action.admin.cluster.node.stats.TransportNodesStatsAction.nodeOperation(TransportNodesStatsAction.java:100)\n        at org.elasticsearch.action.admin.cluster.node.stats.TransportNodesStatsAction.nodeOperation(TransportNodesStatsAction.java:43)\n        at org.elasticsearch.action.support.nodes.TransportNodesOperationAction$NodeTransportHandler.messageReceived(TransportNodesOperationAction.java:280)\n        at org.elasticsearch.action.support.nodes.TransportNodesOperationAction$NodeTransportHandler.messageReceived(TransportNodesOperationAction.java:271)\n        at org.elasticsearch.transport.netty.MessageChannelHandler$RequestHandler.run(MessageChannelHandler.java:269)\n        at java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)\n        at java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)\n        at java.lang.Thread.run(Unknown Source)\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3619",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-09-05T08:10:53.000Z",
+        "fix_commit_hash": "764a519627cd3a79b713082caf200eb9ce3018d1",
+        "commit_type": "commit",
+        "commit_message": "Return empty completion stats if engine throws an exception\n\nIf the index shard is not started yet the underlying engine can\nthrow an exception since not everything is initialized. This can\nhappen if a shard is just about starting up or recovering / initalizing\nand stats are requested.\n\nCloses #3619",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/764a519627cd3a79b713082caf200eb9ce3018d1",
+        "earliest_issue_date": "2013-09-04T21:55:49Z",
+        "predicted_class": "bug",
+        "bic": [
+            "cdddbb758502793ebcecf0e4311de574a74293ea"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3625,
+        "issue_title": "Count api parses wrong date range query when using \"now\"",
+        "issue_body": "When using the count API with date range queries that contain `now` (e.g. `[* TO now-1d]`), the parsed query contains a negative number that leads to count 0 being returned. The following curl reproduction shows the different result obtained using the search API and the count API.\n\n```\ncurl -XPUT localhost:9200/index1/type1/1 -d '{\n  \"date\": \"2013-09-03T15:07:47.000Z\"\n}\n'\n\ncurl -XPOST localhost:9200/index1/_refresh\n\n#one hit gets returned using search api\ncurl -XGET localhost:9200/index1/_search -d '\n{ \n    \"query\" : {\n        \"query_string\": {\n            \"query\": \"date:[* TO now-1d]\"\n        }   \n    }\n}\n'\n#count 0 using count api\ncurl -XGET localhost:9200/index1/_count -d '\n{ \n    \"query_string\": {\n      \"query\": \"date:[* TO now-1d]\"\n    }\n}\n'\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3625",
+        "assignees": [
+            "javanna"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.6"
+        ],
+        "issue_closed_at": "2013-09-20T20:23:46.000Z",
+        "fix_commit_hash": "06bfe0550d66e16a26f0dec044f1bd1e3ca83425",
+        "commit_type": "commit",
+        "commit_message": "Set nowInMillis to search context created by the count api so that \"NOW\" can be used within queries\n\nAdded nowInMillis to ShardCountRequest in a backwards compatible manner\n\nFixes #3625",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/06bfe0550d66e16a26f0dec044f1bd1e3ca83425",
+        "earliest_issue_date": "2013-09-05T13:32:26Z",
+        "predicted_class": "bug",
+        "bic": [
+            "e3a9271000128121c056ac59dfe6c7fede80f0d1"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3626,
+        "issue_title": " Explain api parses wrong date range query when using \"now\"",
+        "issue_body": "Same problem as #3625, but with the explain api. \nWhen using the explain API with date range queries that contain `now` (e.g. `[* TO now-1d]`), the parsed query contains a negative number that leads to a no match being returned. The following curl reproduction shows the different result obtained using the search API and the explain API.\n\n```\ncurl -XPUT localhost:9200/index1/type1/1 -d '{\n  \"date\": \"2013-09-03T15:07:47.000Z\"\n}\n'\n\ncurl -XPOST localhost:9200/index1/_refresh\n\n#one hit gets returned (id 1) using search api\ncurl -XGET localhost:9200/index1/_search -d '\n{ \n    \"query\" : {\n        \"query_string\": {\n            \"query\": \"date:[* TO now-1d]\"\n        }   \n    }\n}\n'\n#explain api says the document doesn't match\ncurl -XGET localhost:9200/index1/type1/1/_explain -d '\n{ \n    \"query_string\": {\n      \"query\": \"date:[* TO now-1d]\"\n    }\n}\n'\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3626",
+        "assignees": [
+            "javanna"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.6"
+        ],
+        "issue_closed_at": "2013-09-20T20:23:47.000Z",
+        "fix_commit_hash": "52e9e753e6db00fc56e0ee5e73bb6ff7b7e85e5f",
+        "commit_type": "commit",
+        "commit_message": "Set nowInMillis to search context created by the explain api so that \"NOW\" can be used within queries\n\nAdded nowInMillis to ExplainRequest in a backwards compatible manner\n\nFixes #3626",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/52e9e753e6db00fc56e0ee5e73bb6ff7b7e85e5f",
+        "earliest_issue_date": "2013-09-05T14:08:37Z",
+        "predicted_class": "bug",
+        "bic": [
+            "8365e7ba0b86c76efbcb615db0f7bbaf2a89b6b0"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3629,
+        "issue_title": "Validate query api parses wrong date range query when using \"now\"",
+        "issue_body": "Same problem as #3625 and #3626, but with the validate query api. \nWhen using the validate query API with date range queries that contain `now` (e.g. `[* TO now-1d]`), the parsed query contains a negative number that leads to a valid query anyway, but the explain shows that something went wrong while parsing the date range. The following curl reproduction shows the different result obtained using the search API and the validate query API.\n\n```\ncurl -XPUT localhost:9200/index1/type1/1 -d '{\n  \"date\": \"2013-09-03T15:07:47.000Z\"\n}\n'\n\ncurl -XPOST localhost:9200/index1/_refresh\n\n#one hit gets returned (id 1) using search api\ncurl -XGET localhost:9200/index1/_search -d '\n{ \n    \"query\" : {\n        \"query_string\": {\n            \"query\": \"date:[* TO now-1d]\"\n        }   \n    }\n}\n'\n#validate query api returns a weird query with a negative time from epoch (`date:[* TO -86400000]`\")\ncurl -XGET localhost:9200/index1/type1/_validate/query?explain -d '\n{ \n    \"query_string\": {\n      \"query\": \"date:[* TO now-1d]\"\n    }\n}\n'\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3629",
+        "assignees": [
+            "javanna"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.6"
+        ],
+        "issue_closed_at": "2013-09-20T20:23:47.000Z",
+        "fix_commit_hash": "0d3895533c004cf40d75226efd62ec833981741a",
+        "commit_type": "commit",
+        "commit_message": "Set nowInMillis to search context created by the validate query api so that \"NOW\" can be used within queries\n\nAdded nowInMillis to ShardValidateQueryRequest in a backwards compatible manner\n\nFixes #3629",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/0d3895533c004cf40d75226efd62ec833981741a",
+        "earliest_issue_date": "2013-09-05T14:30:17Z",
+        "predicted_class": "bug",
+        "bic": [
+            "a4ad84b5e4cf6621841794bbc2744c3e5bccccb0"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3631,
+        "issue_title": "FlushNotAllowedEngineException during optimize",
+        "issue_body": "I have encountered the following exception a few times recently on 0.90.3 while I was during some testing.  Seems to happen sporadically on a random shard during an optimize, maybe I am hitting some weird race condition?\n\n```\n[2013-09-05 05:42:23,925][DEBUG][action.admin.indices.optimize] [samcro] [stackoverflow][0], node[i45bAah_SUa9zPPLmFYw4g], [P], s[STARTED]: Failed to execute [org.elasticsearch.action.admin.indices.optimize.OptimizeRequest@5ef574db]\norg.elasticsearch.index.engine.FlushNotAllowedEngineException: [stackoverflow][0] already flushing...\n    at org.elasticsearch.index.engine.robin.RobinEngine.flush(RobinEngine.java:818)\n    at org.elasticsearch.index.engine.robin.RobinEngine.optimize(RobinEngine.java:1014)\n    at org.elasticsearch.index.shard.service.InternalIndexShard.optimize(InternalIndexShard.java:512)\n    at org.elasticsearch.action.admin.indices.optimize.TransportOptimizeAction.shardOperation(TransportOptimizeAction.java:115)\n    at org.elasticsearch.action.admin.indices.optimize.TransportOptimizeAction.shardOperation(TransportOptimizeAction.java:49)\n    at org.elasticsearch.action.support.broadcast.TransportBroadcastOperationAction$AsyncBroadcastAction.performOperation(TransportBroadcastOperationAction.java:228)\n    at org.elasticsearch.action.support.broadcast.TransportBroadcastOperationAction$AsyncBroadcastAction.performOperation(TransportBroadcastOperationAction.java:205)\n    at org.elasticsearch.action.support.broadcast.TransportBroadcastOperationAction$AsyncBroadcastAction$1.run(TransportBroadcastOperationAction.java:179)\n    at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)\n    at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:615)\n    at java.lang.Thread.run(Thread.java:722)\n```\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3631",
+        "assignees": [
+            "javanna"
+        ],
+        "labels": [
+            ">enhancement",
+            "v1.0.0.Beta1",
+            "v0.90.5"
+        ],
+        "issue_closed_at": "2013-09-16T20:20:38.000Z",
+        "fix_commit_hash": "c8a72d9768d2aca50857b3d11e3be2e69e438f80",
+        "commit_type": "commit",
+        "commit_message": "FlushNotAllowedEngineException during optimize\ndefault to wait if a flush is on going when executed as part of optimize request\ncloses #3631",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/c8a72d9768d2aca50857b3d11e3be2e69e438f80",
+        "earliest_issue_date": "2013-09-05T15:38:38Z",
+        "predicted_class": "bug",
+        "bic": [
+            "052f9aac1f9a002c67a17b884481994c86127108"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3634,
+        "issue_title": "On Solaris, default LZF compress type (for transport) can cause segfault",
+        "issue_body": "Default to the safe instance in case we are on sun os.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3634",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            ">enhancement",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-09-05T22:41:25.000Z",
+        "fix_commit_hash": "95b894e6f625b1e9bb2ed1fd2abb8f0ee7224727",
+        "commit_type": "commit",
+        "commit_message": "On Solaris, default LZF compress type (for transport) can cause segfault\ncloses #3634",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/95b894e6f625b1e9bb2ed1fd2abb8f0ee7224727",
+        "earliest_issue_date": "2013-09-05T22:40:49Z",
+        "predicted_class": "bug",
+        "bic": [
+            "aebd27afbda5b6d4651348055e5ce2d7db3bb793"
+        ],
+        "method_type": "pdszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3652,
+        "issue_title": "CompletionStats can cause resource leak since requested searchers are not closed",
+        "issue_body": "I found this very sneaky problem while hunting a couple of other problems that I thought are related to potentially not closed index readers etc. I added support for MockDirectoryWrapper and the completion stats blew up immediately. While I might need more time to fully integrate the MockDirectoryWrapper from Lucene I want to fix this obvious bug first...\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3652",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-09-09T15:51:13.000Z",
+        "fix_commit_hash": "76cc8c3549cebb10eebf73ee2c6829bb2db04e55",
+        "commit_type": "commit",
+        "commit_message": "Only pull searcher once during completion stats\n\nThe inner call to the completion stats pulled a second searcher\nthat never got released causing the underlying readers to never\nget closed unless the node is shut down. This was triggered\nwith literally each stats call including the completion stats\neven if no completion service was used on the index.\n\nCloses #3652",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/76cc8c3549cebb10eebf73ee2c6829bb2db04e55",
+        "earliest_issue_date": "2013-09-09T15:03:08Z",
+        "predicted_class": "bug",
+        "bic": [
+            "764a519627cd3a79b713082caf200eb9ce3018d1"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3661,
+        "issue_title": "JsonGenerationException thrown in SuggestResponse#toString method",
+        "issue_body": "The following exception is consistently thrown (and caught) by the SuggestResponse#toString method:\n\n```\ncom.fasterxml.jackson.core.JsonGenerationException: Can not write a field name, expecting a value\n    at com.fasterxml.jackson.core.base.GeneratorBase._reportError(GeneratorBase.java:444)\n    at com.fasterxml.jackson.core.json.UTF8JsonGenerator.writeFieldName(UTF8JsonGenerator.java:167)\n    at org.elasticsearch.common.xcontent.json.JsonXContentGenerator.writeFieldName(JsonXContentGenerator.java:74)\n    at org.elasticsearch.common.xcontent.XContentBuilder.field(XContentBuilder.java:265)\n    at org.elasticsearch.common.xcontent.XContentBuilder.startArray(XContentBuilder.java:210)\n    at org.elasticsearch.search.suggest.Suggest$Suggestion.toXContent(Suggest.java:317)\n    at org.elasticsearch.search.suggest.Suggest.toXContent(Suggest.java:148)\n    at org.elasticsearch.action.suggest.SuggestResponse.toString(SuggestResponse.java:74)\n    at java.lang.String.valueOf(String.java:2854)\n    at java.io.PrintStream.println(PrintStream.java:821)\n```\n\nThere seems to be a missing startObject/endObject. Even though it is not a blocking problem, it would be nice to be able to print out the string representation of a suggest response when needed.\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3661",
+        "assignees": [
+            "javanna"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-09-10T20:35:32.000Z",
+        "fix_commit_hash": "0b79ba9493a57ac0b852cd60f9cad8ce275b8687",
+        "commit_type": "commit",
+        "commit_message": "Rewrote SuggestResponse#toString method\n\nIt only prints out json now (as the SearchResponse does)\nAdded missing startObject & endObject (was causing JsonGenerationException)\n\nCloses #3661",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/0b79ba9493a57ac0b852cd60f9cad8ce275b8687",
+        "earliest_issue_date": "2013-09-10T20:20:55Z",
+        "predicted_class": "bug",
+        "bic": [
+            "98a674fc6ed8516f8a20641950e0c149b0494bee"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3667,
+        "issue_title": "Rare race condition when introducing new fields into a mapping",
+        "issue_body": "Dynamic mapping allow to dynamically introduce new fields into an existing mapping. There is a (pretty rare) race condition, where a new field/object being introduced will not be immediately visible for another document that introduces it at the same time.\n\nRelates to #3544 \n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3667",
+        "assignees": [],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-09-11T14:09:14.000Z",
+        "fix_commit_hash": "bbce6e85883ef812a80f5713e001f4ad1de47f22",
+        "commit_type": "commit",
+        "commit_message": "Rare race condition when introducing new fields into a mapping\nDynamic mapping allow to dynamically introduce new fields into an existing mapping. There is a (pretty rare) race condition, where a new field/object being introduced will not be immediately visible for another document that introduces it at the same time.\n\ncloses #3667, closes #3544",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/bbce6e85883ef812a80f5713e001f4ad1de47f22",
+        "earliest_issue_date": "2013-09-11T14:07:38Z",
+        "predicted_class": "bug",
+        "bic": [
+            "bb9c7172b0ad67d6244fc0574df429318d63068d"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3669,
+        "issue_title": "CompletionFieldMapper ignores path: just_name",
+        "issue_body": "`CompletionFieldMapper` is using full name of the field instead of index name during indexing and as a result completion doesn't work on `multi_field` fields with `\"path\": \"just_name\"`\n\nRepro: https://gist.github.com/imotov/b11f866c48b090158d7e \n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3669",
+        "assignees": [
+            "imotov"
+        ],
+        "labels": [
+            ">bug",
+            "v1.0.0.Beta1",
+            "v0.90.4"
+        ],
+        "issue_closed_at": "2013-09-12T22:00:49.000Z",
+        "fix_commit_hash": "714aaa40eadf2c392b53efd11fc629adb5cf9014",
+        "commit_type": "commit",
+        "commit_message": "CompletionFieldMapper should use index name instead of full name\n\nFixes #3669",
+        "closer_url": "https://github.com/elastic/elasticsearch/commit/714aaa40eadf2c392b53efd11fc629adb5cf9014",
+        "earliest_issue_date": "2013-09-11T18:39:27Z",
+        "predicted_class": "bug",
+        "bic": [
+            "732e38b8c7d22256a50921e48249f1f1e50b7ff9"
+        ],
+        "method_type": "rszz"
+    },
+    {
+        "repo_name": "elasticsearch",
+        "issue_number": 3670,
+        "issue_title": "No obvious way to delete persistent cluster admin settings",
+        "issue_body": "There's no delete API for these, if you want to set them back to defaults on next startup.\n\nkarmi on irc suggested setting them to the empty string, e.g.:\n\n```\ncurl -XPUT 'localhost:9200/_cluster/settings' -d '{\"persistent\":{\"threadpool.search.type\":\"\"}}'\n```\n\nBut then on next restart I got warnings like this:\n\n```\n[2013-09-11 20:08:41,548][WARN ][node.settings            ] [lo3uppaldbs009.palomino.pearson.com] failed to refresh settings for [org.elasticsearch.threadpool.ThreadPool$ApplySettings@49e3f731]\norg.elasticsearch.ElasticSearchIllegalArgumentException: No type found [], for [search]\n        at org.elasticsearch.threadpool.ThreadPool.rebuild(ThreadPool.java:452)\n        at org.elasticsearch.threadpool.ThreadPool.updateSettings(ThreadPool.java:468)\n        at org.elasticsearch.threadpool.ThreadPool$ApplySettings.onRefreshSettings(ThreadPool.java:809)\n        at org.elasticsearch.node.settings.NodeSettingsService.clusterChanged(NodeSettingsService.java:84)\n        at org.elasticsearch.cluster.service.InternalClusterService$2.run(InternalClusterService.java:321)\n        at org.elasticsearch.common.util.concurrent.PrioritizedEsThreadPoolExecutor$TieBreakingPrioritizedRunnable.run(PrioritizedEsThreadPoolExecutor.java:95)\n        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)\n        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:615)\n        at java.lang.Thread.run(Thread.java:724)\n```\n\nSo now I have no way to tell what kind of thread pool I have.\n\nVersion: 0.90.3\n",
+        "issue_url": "https://github.com/elastic/elasticsearch/issues/3670",
+        "assignees": [
+            "s1monw"
+        ],
+        "labels": [],
+        "issue_closed_at": "2014-07-04T12:37:39.000Z",
+        "fix_commit_hash": "0ca8876661e9ef7691b45ea3cb2976b1cf53f415",
+        "commit_type": "commit_ref_issue_no_event",
+        "commit_message": "migrate lifecycle settings to plugin:core:LifecycleSettings (#3670)",
+        "closer_url": null,
+        "earliest_issue_date": "2013-09-11T19:15:41Z",
+        "predicted_class": "bug",
+        "bic": [],
+        "method_type": "none"
+    }
+]
