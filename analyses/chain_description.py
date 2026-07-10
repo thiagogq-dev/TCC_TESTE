@@ -112,22 +112,22 @@ def aggregate_propagation(graph_dict, title, reporter):
             if graph_dict.get(commit):
                 with_fix[depth] += 1
 
-    reporter.write(f"=== {title} ===")
+    # reporter.write(f"=== {title} ===")
 
-    for depth in sorted(overall.keys()):
-        total = overall[depth]
-        fix   = with_fix.get(depth, 0)
+    # for depth in sorted(overall.keys()):
+    #     total = overall[depth]
+    #     fix   = with_fix.get(depth, 0)
 
-        pct = (fix / total * 100) if total else 0
+    #     pct = (fix / total * 100) if total else 0
 
-        reporter.write(
-            f"Level {depth}: total={total} | with_fix={fix} ({pct:.1f}%)"
-        )
+    #     reporter.write(
+    #         f"Level {depth}: total={total} | with_fix={fix} ({pct:.1f}%)"
+    #     )
 
-    reporter.write("")
+    # reporter.write("")
 
-    print("Geral total:", sum(overall.values()))
-    print("with_fix_total:", sum(with_fix.values()))
+    # print("Geral total:", sum(overall.values()))
+    # print("with_fix_total:", sum(with_fix.values()))
 
     return overall, with_fix
 
@@ -149,20 +149,20 @@ def analyze_max_chain_depth(graph_dict, reporter):
             max_per_bug[commit] = max(depths_set)
     
     if not max_per_bug:
-        reporter.write("=== Análise de Profundidade Máxima ===")
-        reporter.write("Sem dados disponíveis")
-        reporter.write("")
+        # reporter.write("=== Análise de Profundidade Máxima ===")
+        # reporter.write("Sem dados disponíveis")
+        # reporter.write("")
         return {}
     
     longest_chain = max(max_per_bug.values())
     avg_max_depth = np.mean(list(max_per_bug.values()))
     pct_chains_gt_5 = sum(1 for d in max_per_bug.values() if d > 5) / len(max_per_bug) * 100
     
-    reporter.write("=== Análise de Profundidade Máxima da Cadeia ===")
-    reporter.write(f"Cadeia mais longa (profundidade): {longest_chain}")
-    reporter.write(f"Profundidade média máxima: {avg_max_depth:.2f}")
-    reporter.write(f"% de cadeias com profundidade > 5: {pct_chains_gt_5:.1f}%")
-    reporter.write("")
+    # reporter.write("=== Análise de Profundidade Máxima da Cadeia ===")
+    # reporter.write(f"Cadeia mais longa (profundidade): {longest_chain}")
+    # reporter.write(f"Profundidade média máxima: {avg_max_depth:.2f}")
+    # reporter.write(f"% de cadeias com profundidade > 5: {pct_chains_gt_5:.1f}%")
+    # reporter.write("")
     
     print(f"  Max chain depth: {longest_chain}")
     print(f"  Avg max depth: {avg_max_depth:.2f}")
@@ -188,20 +188,20 @@ def analyze_bifurcation_rate(graph_dict, reporter):
     children_counts = [len(fixes) for fixes in graph_dict.values() if fixes]
     
     if not children_counts:
-        reporter.write("=== Análise de Taxa de Bifurcação ===")
-        reporter.write("Sem dados de correções disponíveis")
-        reporter.write("")
+        # reporter.write("=== Análise de Taxa de Bifurcação ===")
+        # reporter.write("Sem dados de correções disponíveis")
+        # reporter.write("")
         return {}
     
     avg_fixes = np.mean(children_counts)
     pct_multiple_fixes = sum(1 for c in children_counts if c > 1) / len(children_counts) * 100
     max_fixes = max(children_counts)
     
-    reporter.write("=== Análise de Taxa de Bifurcação ===")
-    reporter.write(f"Média de correções por bug: {avg_fixes:.2f}")
-    reporter.write(f"% de bugs com múltiplas correções: {pct_multiple_fixes:.1f}%")
-    reporter.write(f"Máximo de correções para um único bug: {max_fixes}")
-    reporter.write("")
+    # reporter.write("=== Análise de Taxa de Bifurcação ===")
+    # reporter.write(f"Média de correções por bug: {avg_fixes:.2f}")
+    # reporter.write(f"% de bugs com múltiplas correções: {pct_multiple_fixes:.1f}%")
+    # reporter.write(f"Máximo de correções para um único bug: {max_fixes}")
+    # reporter.write("")
     
     print(f"  Avg fixes per bug: {avg_fixes:.2f}")
     print(f"  % bugs with multiple fixes: {pct_multiple_fixes:.1f}%")
@@ -280,9 +280,9 @@ def analyze_fix_velocity(data, reporter):
             continue
     
     if not latencies:
-        reporter.write("=== Análise de Velocidade de Correção ===")
-        reporter.write("Dados de datas insuficientes para análise")
-        reporter.write("")
+        # reporter.write("=== Análise de Velocidade de Correção ===")
+        # reporter.write("Dados de datas insuficientes para análise")
+        # reporter.write("")
         return {}
     
     median_days = np.median(latencies)
@@ -290,18 +290,18 @@ def analyze_fix_velocity(data, reporter):
     pct_fixed_7days = sum(1 for x in latencies if x <= 7) / len(latencies) * 100
     avg_days = np.mean(latencies)
     
-    reporter.write("=== Análise de Velocidade de Correção ===")
-    reporter.write(f"Tempo mediano para fix (dias): {median_days:.0f}")
-    reporter.write(f"Tempo médio para fix (dias): {avg_days:.1f}")
-    reporter.write(f"P95 - tempo para fix (dias): {p95_days:.0f}")
-    reporter.write(f"% bugs corrigidos em ≤7 dias: {pct_fixed_7days:.1f}%")
-    reporter.write(f"Total de relações bug→fix com dados de data: {valid_records}")
-    reporter.write("")
+    # reporter.write("=== Análise de Velocidade de Correção ===")
+    # reporter.write(f"Tempo mediano para fix (dias): {median_days:.0f}")
+    # reporter.write(f"Tempo médio para fix (dias): {avg_days:.1f}")
+    # reporter.write(f"P95 - tempo para fix (dias): {p95_days:.0f}")
+    # reporter.write(f"% bugs corrigidos em ≤7 dias: {pct_fixed_7days:.1f}%")
+    # reporter.write(f"Total de relações bug→fix com dados de data: {valid_records}")
+    # reporter.write("")
     
-    print(f"  Median days to fix: {median_days:.0f}")
-    print(f"  Avg days to fix: {avg_days:.1f}")
-    print(f"  P95 days to fix: {p95_days:.0f}")
-    print(f"  % fixed within 7 days: {pct_fixed_7days:.1f}%")
+    # print(f"  Median days to fix: {median_days:.0f}")
+    # print(f"  Avg days to fix: {avg_days:.1f}")
+    # print(f"  P95 days to fix: {p95_days:.0f}")
+    # print(f"  % fixed within 7 days: {pct_fixed_7days:.1f}%")
     
     return {
         "median_days": median_days,
@@ -310,6 +310,57 @@ def analyze_fix_velocity(data, reporter):
         "pct_fixed_7days": pct_fixed_7days
     }
 
+
+def generate_comparison_table(results_summary):
+    """
+    Gera uma tabela simples no formato MS Excel (.xlsx) sem formatação.
+    """
+    import json
+    import os
+    try:
+        import openpyxl
+    except ImportError:
+        print("A biblioteca 'openpyxl' não está instalada. Execute: pip install openpyxl")
+        return
+
+    if not results_summary:
+        print("Sem dados para comparação.")
+        return
+    
+    # Cria o arquivo Excel
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Resumo"
+
+    # 1. Inserir Cabeçalho
+    headers = ["Repositório", "Max Depth", "Avg Depth", "% Multi-Fix", "Median Dias", "% em 7 dias"]
+    ws.append(headers)
+
+    # 2. Inserir Dados
+    for repo_name in sorted(results_summary.keys()):
+        results = results_summary[repo_name]
+        
+        max_d = results.get("max_depth", {}).get("longest_chain", "N/A")
+        avg_d = results.get("max_depth", {}).get("avg_max_depth", "N/A")
+        multi_fix = results.get("bifurcation", {}).get("pct_multiple_fixes", "N/A")
+        median_days = results.get("velocity", {}).get("median_days", "N/A")
+        fix_7days = results.get("velocity", {}).get("pct_fixed_7days", "N/A")
+        
+        # Joga a linha direto na planilha
+        ws.append([repo_name, max_d, avg_d, multi_fix, median_days, fix_7days])
+
+    # 3. Salvar os arquivos
+    os.makedirs("./results", exist_ok=True)
+    
+    # Salvar tabela em Excel
+    summary_excel_path = "./results/comparison_summary.xlsx"
+    wb.save(summary_excel_path)
+        
+    # Salvar resumo em JSON
+    summary_json_path = "./results/comparison_summary.json"
+    with open(summary_json_path, "w", encoding="utf-8") as f:
+        json.dump(results_summary, f, indent=2, ensure_ascii=False)
+    
 # ==========================================================
 # MAIN
 # ==========================================================
@@ -335,22 +386,22 @@ def main():
         if not os.path.exists(output_path):
             open(output_path, "w").close()
 
-        reporter = Reporter(output_path)
+        # reporter = Reporter(output_path)
         repo_name = OUTPUT_REPO_FOLDER
 
         commit_to_fix = build_commit_to_fix(data)
 
         # 1. Análise de Propagação Geral (original)
-        basic_counts, _ = aggregate_propagation(commit_to_fix, f"Propagação Geral - {repo_name}", reporter)
+        basic_counts, _ = aggregate_propagation(commit_to_fix, f"Propagação Geral - {repo_name}", reporter=None)
 
         # 2. Análise de Profundidade Máxima
-        max_depth_results = analyze_max_chain_depth(commit_to_fix, reporter)
+        max_depth_results = analyze_max_chain_depth(commit_to_fix, reporter=None)
 
         # 3. Análise de Taxa de Bifurcação
-        bifurcation_results = analyze_bifurcation_rate(commit_to_fix, reporter)
+        bifurcation_results = analyze_bifurcation_rate(commit_to_fix, reporter=None)
 
         # 4. Análise de Velocidade de Correção
-        velocity_results = analyze_fix_velocity(data, reporter)
+        velocity_results = analyze_fix_velocity(data, reporter=None)
 
         # Armazena resultados para comparação final
         results_summary[repo_name] = {
@@ -359,72 +410,18 @@ def main():
             "velocity": velocity_results,
         }
 
-        reporter.write("\n" + "="*60)
-        reporter.write("FIM DO RELATÓRIO")
-        reporter.write("="*60)
+        # reporter.write("\n" + "="*60)
+        # reporter.write("FIM DO RELATÓRIO")
+        # reporter.write("="*60)
 
         print(f"  Concluido -> ./results/{OUTPUT_REPO_FOLDER}/")
 
-    # Gera tabela comparativa
-    print("\n" + "="*80)
-    print("TABELA COMPARATIVA ENTRE REPOSITÓRIOS")
-    print("="*80)
+    # Gera tabela comparativa em Excel
+    # print("\n" + "="*80)
+    # print("GERANDO TABELA COMPARATIVA ENTRE REPOSITÓRIOS")
+    # print("="*80)
     
     generate_comparison_table(results_summary)
-
-
-def generate_comparison_table(results_summary):
-    """
-    Gera uma tabela comparativa com as 3 análises principais para todos os repos.
-    """
-    import json
-    
-    if not results_summary:
-        print("Sem dados para comparação.")
-        return
-    
-    # Headers
-    print(f"\n{'Repositório':<20} | {'Max Depth':<12} | {'Avg Depth':<12} | "
-          f"{'% Multi-Fix':<12} | {'Median Dias':<12} | {'% em 7 dias':<12}")
-    print("-" * 100)
-    
-    # Dados
-    for repo_name in sorted(results_summary.keys()):
-        results = results_summary[repo_name]
-        
-        max_d = results.get("max_depth", {}).get("longest_chain", "N/A")
-        avg_d = results.get("max_depth", {}).get("avg_max_depth", "N/A")
-        multi_fix = results.get("bifurcation", {}).get("pct_multiple_fixes", "N/A")
-        median_days = results.get("velocity", {}).get("median_days", "N/A")
-        fix_7days = results.get("velocity", {}).get("pct_fixed_7days", "N/A")
-        
-        # Formata valores
-        max_d_str = f"{max_d}" if isinstance(max_d, int) else f"{max_d:.0f}" if isinstance(max_d, float) else "N/A"
-        avg_d_str = f"{avg_d:.2f}" if isinstance(avg_d, (int, float)) else "N/A"
-        multi_fix_str = f"{multi_fix:.1f}%" if isinstance(multi_fix, (int, float)) else "N/A"
-        median_str = f"{median_days:.0f}d" if isinstance(median_days, (int, float)) else "N/A"
-        fix_7_str = f"{fix_7days:.1f}%" if isinstance(fix_7days, (int, float)) else "N/A"
-        
-        print(f"{repo_name:<20} | {max_d_str:>11} | {avg_d_str:>11} | "
-              f"{multi_fix_str:>11} | {median_str:>11} | {fix_7_str:>11}")
-    
-    print("\n" + "-" * 100)
-    print("Legendas:")
-    print("  Max Depth          : Profundidade máxima da cadeia de correção")
-    print("  Avg Depth          : Profundidade média máxima por bug")
-    print("  % Multi-Fix        : % de bugs que precisam múltiplas correções (< 15% é bom)")
-    print("  Median Dias        : Dias medianos entre bug e sua correção")
-    print("  % em 7 dias        : % de bugs corrigidos em ≤7 dias (> 50% é bom)")
-    print("\n" + "="*100)
-    
-    # Salva resumo em JSON também
-    summary_json_path = "./results/comparison_summary.json"
-    os.makedirs("./results", exist_ok=True)
-    
-    with open(summary_json_path, "w", encoding="utf-8") as f:
-        json.dump(results_summary, f, indent=2, ensure_ascii=False)
-    
-    print(f"\nResumo salvo também em: {summary_json_path}")
 
 
 if __name__ == "__main__":

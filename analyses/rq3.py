@@ -1,151 +1,81 @@
 import os
-
-import matplotlib.pyplot as plt
-import numpy as np
 import json
 import glob
+import pandas as pd
 
-def plot_confusion_matrix(tp, fp, tn, fn, output_file, quadrant_colors, repo_name=''):
-    matrix = np.array([[tp, fp], [fn, tn]])
+if __name__ == "__main__":
+    os.makedirs("./results", exist_ok=True)
+    
+    json_files = glob.glob('./relations/*.json')
+    dados_tabela = []
 
-    plt.figure(figsize=(8, 8))
-    plt.imshow(matrix, interpolation='nearest', cmap=plt.cm.Blues)
+    for json_file in sorted(json_files):
+        repo_name = os.path.basename(json_file).replace('.json', '')
+        
+        with open(json_file, 'r') as f:
+            data = json.load(f)
 
-    for i in range(2):
-        for j in range(2):
-            plt.text(j, i, str(matrix[i, j]), horizontalalignment='center', verticalalignment='center', color='black')
+        commit_map = {
+            entry['commit']: entry
+            for entry in data
+        }
 
-    plt.gca().add_patch(plt.Rectangle((-0.5, 0.5), 1, 1, fill=True, edgecolor='black', facecolor=quadrant_colors[0]))
-    plt.gca().add_patch(plt.Rectangle((0.5, 0.5), 1, 1, fill=True, edgecolor='black', facecolor=quadrant_colors[1]))
-    plt.gca().add_patch(plt.Rectangle((-0.5, -0.5), 1, 1, fill=True, edgecolor='black', facecolor=quadrant_colors[2]))
-    plt.gca().add_patch(plt.Rectangle((0.5, -0.5), 1, 1, fill=True, edgecolor='black', facecolor=quadrant_colors[3]))
+        # Contadores
+        bic_fix = 0   # FIX com teste + BIC com teste (Ambos)
+        bic = 0       # FIX sem teste + BIC com teste (Apenas BIC)
+        fix = 0       # FIX com teste + BIC sem teste (Apenas FIX)
+        none = 0      # FIX sem teste + BIC sem teste (Nenhum)
 
-    classes = ['Com', 'Sem']
-    tick_marks = np.arange(len(classes))
+        # Para cada BIC no dataset
+        for entry in data:
+            bic_has_asserts_changes = entry.get('test_files_with_asserts_changes', 0) > 0
+            fix_hashes = entry.get('fixed_by', [])
 
-    plt.xticks(tick_marks, classes, rotation=45)
-    plt.yticks(tick_marks, classes)
+            # Para cada FIX associado ao BIC
+            for fix_hash in fix_hashes:
+                fix_entry = commit_map.get(fix_hash)
 
-    plt.ylabel('BIC')
-    plt.xlabel('FIX')
+                # Se o FIX não estiver no dataset, ignora
+                if not fix_entry:
+                    continue
 
-    plt.gca().spines['top'].set_visible(False)
-    plt.gca().spines['right'].set_visible(False)
-    plt.gca().spines['left'].set_visible(False)
-    plt.gca().spines['bottom'].set_visible(False)
+                fix_has_asserts_changes = fix_entry.get('test_files_with_asserts_changes', 0) > 0
 
-    plt.gca().invert_yaxis()
+                # Classificação do par (FIX, BIC)
+                if fix_has_asserts_changes and bic_has_asserts_changes: # Ambos tem alterações em testes
+                    bic_fix += 1
+                elif fix_has_asserts_changes and not bic_has_asserts_changes: # Apenas FIX tem alterações em testes
+                    fix += 1
+                elif not fix_has_asserts_changes and bic_has_asserts_changes: # Apenas BIC tem alterações em testes
+                    bic += 1
+                else: # Nenhum tem alterações em testes
+                    none += 1
 
-    plt.title(f'Confusion Matrix - {repo_name}')
-    plt.savefig(output_file)
-    plt.close()
+        # Adiciona a linha do repositório na nossa lista de dados
+        dados_tabela.append({
+            "Repositório": repo_name,
+            "Ambos": bic_fix,
+            "Apenas FIX": fix,
+            "Apenas BIC": bic,
+            "Nenhum": none
+        })
+        
+        print(f"Processado: {repo_name}")
 
-# json_files = glob.glob('./data/*.json')
+    # ==========================================================
+    # GERAÇÃO DAS TABELAS (CSV, LaTeX e Excel)
+    # ==========================================================
+    if dados_tabela:
+        df = pd.DataFrame(dados_tabela)
+        
+        # 1. Exporta para CSV
+        csv_path = "./results/tabela_rq3.csv"
+        df.to_csv(csv_path, index=False)
+        print(f"\nTabela CSV salva em: {csv_path}")
 
-# for json_file in json_files:
-
-#     with open(json_file, 'r') as f:
-#         data = json.load(f)
-
-#     commit_map = {
-#         entry['fix_commit_hash']: entry
-#         for entry in data
-#     }
-
-#     # Contadores
-#     bic_fix = 0   # FIX com teste + BIC com teste
-#     bic = 0       # FIX sem teste + BIC com teste
-#     fix = 0       # FIX com teste + BIC sem teste
-#     none = 0      # FIX sem teste + BIC sem teste
-
-#     # Para cada FIX
-#     for entry in data:
-#         fix_has_tests = entry.get('has_tests') == 'Yes'
-#         bic_hashes = entry.get('bic', [])
-
-#         # Para cada BIC associado ao FIX
-#         for bic_hash in bic_hashes:
-
-#             bic_entry = commit_map.get(bic_hash)
-
-#             # Se o BIC não estiver no dataset, ignora
-#             if not bic_entry:
-#                 continue
-
-#             bic_has_tests = bic_entry.get('has_tests') == 'Yes'
-
-#             # Classificação do par (FIX, BIC)
-#             if fix_has_tests and bic_has_tests:
-#                 bic_fix += 1
-#             elif fix_has_tests and not bic_has_tests:
-#                 fix += 1
-#             elif not fix_has_tests and bic_has_tests:
-#                 bic += 1
-#             else:
-#                 none += 1
-
-#     tp = bic_fix
-#     fp = bic
-#     tn = none
-#     fn = fix
-
-#     repo_name = json_file.split('/')[-1].replace('.json', '')
-#     output_file = f"./results/{repo_name}/data.png"
-#     os.makedirs(f"./results/{repo_name}", exist_ok=True)
-#     plot_confusion_matrix(tp, fp, tn, fn, output_file, quadrant_colors=('yellow', 'red', 'green', 'orange'), repo_name=repo_name)
-
-
-
-json_files = glob.glob('./relations/*.json')
-
-for json_file in json_files:
-
-    with open(json_file, 'r') as f:
-        data = json.load(f)
-
-    commit_map = {
-        entry['commit']: entry
-        for entry in data
-    }
-
-    # Contadores
-    bic_fix = 0   # FIX com teste + BIC com teste
-    bic = 0       # FIX sem teste + BIC com teste
-    fix = 0       # FIX com teste + BIC sem teste
-    none = 0      # FIX sem teste + BIC sem teste
-
-    # Para cada FIX
-    for entry in data:
-        bic_has_asserts_changes = entry.get('test_files_with_asserts_changes') > 0
-        fix_hashes = entry.get('fixed_by', [])
-
-        # Para cada BIC associado ao FIX
-        for fix_hash in fix_hashes:
-
-            fix_entry = commit_map.get(fix_hash)
-
-            # Se o BIC não estiver no dataset, ignora
-            if not fix_entry:
-                continue
-
-            fix_has_asserts_changes = fix_entry.get('test_files_with_asserts_changes') > 0
-
-            # Classificação do par (FIX, BIC)
-            if fix_has_asserts_changes and bic_has_asserts_changes:
-                bic_fix += 1
-            elif fix_has_asserts_changes and not bic_has_asserts_changes:
-                fix += 1
-            elif not fix_has_asserts_changes and bic_has_asserts_changes:
-                bic += 1
-            else:
-                none += 1
-
-    tp = bic_fix
-    fp = bic
-    tn = none
-    fn = fix
-
-    repo_name = json_file.split('/')[-1].replace('.json', '')
-    output_file = f"./results/{repo_name}/rq3.png"
-    os.makedirs(f"./results/{repo_name}", exist_ok=True)
-    plot_confusion_matrix(tp, fp, tn, fn, output_file, quadrant_colors=('yellow', 'red', 'green', 'orange'), repo_name=repo_name)
+        # 2. Exporta para LaTeX (pronto para o artigo, alinhado: left e 4 rights)
+        # latex_path = "./results/tabela_rq3.tex"
+        # with open(latex_path, "w") as f:
+        #     f.write(df.to_latex(index=False, column_format="lrrrr"))
+        # print(f"Código LaTeX gerado em: {latex_path}")
+        

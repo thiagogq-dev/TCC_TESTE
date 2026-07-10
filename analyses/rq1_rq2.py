@@ -1,13 +1,18 @@
 import os
-from utils.utils import load_data, Reporter
+import pandas as pd
+from utils.utils import load_data
 
-def calculate_test_changes(data, reporter):
-    """Calcula a proporção de commits com e sem testes, e a qualidade efetiva das alterações em testes nos commits."""
+def calculate_test_changes(data):
+    """
+    Calcula a qualidade efetiva das alterações em testes nos commits.
+    Args:
+        data (list): Lista de dicionários contendo informações sobre commits e alterações em testes.
+    Returns:
+        dict: Dicionário contendo contadores de alterações em testes, incluindo adições, remo
+    """
     total = len(data)
     
-    asserts = 0
     no_asserts = 0
-
     no_real_tests = 0
 
     weaker_asserts = 0
@@ -15,59 +20,64 @@ def calculate_test_changes(data, reporter):
     maintenance_asserts = 0
 
     for d in data:
-
-        if d.get("test_files_with_asserts_changes") > 0:
-            asserts += 1
-
-        if d.get("asserts_changes_type") == "Removed":
-            weaker_asserts += 1
-        elif d.get("asserts_changes_type") == "Added":
+        changes_type = d.get("asserts_changes_type")
+        
+        if changes_type == "Added":
             stronger_asserts += 1
-        elif d.get("asserts_changes_type") == "Maintained":
+        elif changes_type == "Removed":
+            weaker_asserts += 1
+        elif changes_type == "Maintained":
             maintenance_asserts += 1
-        elif d.get("asserts_changes_type") == "None":
+        elif changes_type == "None": 
             no_asserts += 1
             if d.get("has_test_files"):
                 no_real_tests += 1
 
-    reporter.write("=== PROPORÇÃO DE ASSERTS NOS COMMITS ===")
-    reporter.write(f"Com mudança de asserts: {asserts} ({asserts/total*100:.2f}%)")
-    reporter.write(f"Com asserts mais fortes (adição de asserts): {stronger_asserts} ({stronger_asserts/asserts*100:.2f}%)")
-    reporter.write(f"Com asserts mais fracos (remoção de asserts): {weaker_asserts} ({weaker_asserts/asserts*100:.2f}%)")
-    reporter.write(f"Manutenção de asserts: {maintenance_asserts} ({maintenance_asserts/asserts*100:.2f}%)\n")
-    reporter.write(f"Sem asserts com arquivos de testes: {no_real_tests} ({no_real_tests/no_asserts*100:.2f}%)")
-    reporter.write(f"Sem mudança de asserts: {no_asserts} ({no_asserts/total*100:.2f}%)")
-    reporter.write("")
+    return {
+        "Total": total,
+        "Adição": stronger_asserts,
+        "Remoção": weaker_asserts,
+        "Manutenção": maintenance_asserts,
+        "Negligenciado": no_asserts,
+        "Negligenciado com arquivo de teste": no_real_tests
+    }
 
-# ==========================================================
-# MAIN
-# ==========================================================
 
 if __name__ == "__main__":
     os.makedirs("./results", exist_ok=True)
+    
+    dados_tabela = []
 
     for file in sorted(os.listdir("./relations")):
         if not file.endswith(".json"):
             continue
 
-        FOLDER_REPO_PATH = file.replace(".json", "")
-        os.makedirs(f"./results/{FOLDER_REPO_PATH}", exist_ok=True)
+        repo_name = file.replace(".json", "")
+        input_path = f"./relations/{file}"
 
-        INPUT_PATH      = f"./relations/{file}"
-        RESULTS_FOLDER  = f"./results/{FOLDER_REPO_PATH}"
-        OUTPUT_PATH     = f"{RESULTS_FOLDER}/rq1_rq2.txt"
+        # Carrega os dados
+        data = load_data(input_path)
+        
+        # Extrai os dados e monta a linha
+        linha_repositorio = {"Repositório": repo_name}
+        linha_repositorio.update(calculate_test_changes(data))
+        
+        dados_tabela.append(linha_repositorio)
+        print(f"Processado: {repo_name}")
 
-        data = load_data(INPUT_PATH)
+    # ==========================================================
+    # GERAÇÃO DAS TABELAS
+    # ==========================================================
+    if dados_tabela:
+        df = pd.DataFrame(dados_tabela)
+        
+        # CSV
+        csv_path = "./results/tabela_rq1_rq2.csv"
+        df.to_csv(csv_path, index=False)
+        print(f"\nTabela consolidada salva em: {csv_path}")
 
-        if os.path.exists(OUTPUT_PATH):
-            open(OUTPUT_PATH, "w").close()
-
-        reporter = Reporter(OUTPUT_PATH)
-
-        reporter.write(f"{FOLDER_REPO_PATH}")
-        reporter.write("R1: Qual é a proporção de commits que incluem alterações em asserts?\n")
-        reporter.write("R2: Qual é a qualidade efetiva das alterações em asserts nos commits?\n")
-        calculate_test_changes(data, reporter) 
-
-
-        print(f"Análises de RQ1 e RQ2 concluídas: {file} -> {OUTPUT_PATH}")
+        # LaTeX (ideal para copiar e colar no artigo)
+        # latex_path = "./results/tabela_rq1_rq2.tex"
+        # with open(latex_path, "w") as f:
+        #     f.write(df.to_latex(index=False, column_format="lrrrrr"))
+        # print(f"Código LaTeX gerado em: {latex_path}")
