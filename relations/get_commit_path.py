@@ -14,6 +14,11 @@ RELATIONS_DIR = os.path.join(BASE_DIR, 'relations')
 BASE_REPOS_DIR = os.path.join(BASE_DIR, 'repos_dir')
 
 def proccess_data_dir(data_dir):
+    """
+    Processa todos os arquivos JSON em um diretório específico, extraindo informações de commits e suas relações.
+    Args:
+        data_dir (str): Caminho para o diretório contendo os arquivos JSON de entrada.
+    """
     for file in os.listdir(data_dir):
         file_path = os.path.join(data_dir, file)
 
@@ -39,7 +44,7 @@ def proccess_data_dir(data_dir):
                 "repository": data.get('repo_name'),
                 "commit": possible_bic,
                 "commit_date": data.get("commit_date"),
-                "fixed_by": bic_index.get(possible_bic, []),
+                "fixed_by": bic_index.get(possible_bic, []), # Lista de commits que corrigiram o commit atual
                 "dmm_unit_size": data.get("dmm_unit_size"),
                 "dmm_unit_complexity": data.get("dmm_unit_complexity"),
                 "dmm_unit_interfacing": data.get("dmm_unit_interfacing"),

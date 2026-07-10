@@ -1,6 +1,6 @@
 """
 Código originalmente implementado em https://github.com/hugohfsouza/PRAnalyzer/blob/main/PRAnalizer.py.
-Essa parte foi replicada aqio sem nehum modificação, apenas para facilitar a leitura e o entendimento do código.
+Essa parte foi replicada aqui sem nenhuma modificação, apenas para facilitar a leitura e o entendimento do código.
 """
 import re
 

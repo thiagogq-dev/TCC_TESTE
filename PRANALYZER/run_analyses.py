@@ -1,18 +1,32 @@
-import json
 from .PRAnalizer import PRAnalizer
-import os
-from pydriller import Git
-from tqdm import tqdm
 
 allowed_extensions = {
     'java': 'JAVA'
 }
 
 def check_test_changes(tests):
+    """
+    Verifica se houve alterações em arquivos de teste com base nos dados fornecidos.
+    Args:
+        tests (dict): Dicionário contendo contadores de alterações em arquivos de teste.
+    Returns:
+        bool: True se houver alterações em arquivos de teste, False caso contrário.
+    """
     test_changes = tests['removed'] + tests['added'] + tests['others']
     return test_changes > 0
 
 def analyze_diff(language, patch):
+    """
+    Analisa o diff de um arquivo específico, verificando alterações em arquivos de teste e contando adições e remoções de asserts.
+    Args:
+        language (str): Linguagem de programação do arquivo.
+        patch (str): Conteúdo do diff do arquivo.
+    Returns:
+        tuple: (has_test, added_asserts, removed_asserts)
+            has_test (bool): True se houver alterações em arquivos de teste, False caso contrário.
+            added_asserts (int): Número de asserts adicionados.
+            removed_asserts (int): Número de asserts removidos.
+    """
     analizer = PRAnalizer(language)
     dadosDoPR = analizer.retornaEstrutura()
     diff = patch.split("\n")
@@ -32,6 +46,18 @@ def analyze_diff(language, patch):
 
 
 def analyze_files(files):
+    """
+    Analisa os arquivos fornecidos, verificando alterações em arquivos de teste e contando adições e remoções de asserts.
+    Args:
+        files (list): Lista de arquivos a serem analisados.
+    Returns:
+        tuple: (files_with_test, real_code_files, added_asserts, removed_asserts, test_files_with_test)
+            files_with_test (int): Número de arquivos com alterações em testes.
+            real_code_files (int): Número de arquivos de código real.
+            added_asserts (int): Número total de asserts adicionados.
+            removed_asserts (int): Número total de asserts removidos.
+            test_files_with_test (int): Número de arquivos de teste com alterações.
+    """
     files_with_test = 0
     real_code_files = 0
     added_asserts = 0

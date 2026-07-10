@@ -3,8 +3,13 @@ from pydriller import Git
 import json
 import os
 from PRANALYZER.run_analyses import analyze_diff
+import argparse
 
-DATA_FOLDER = "./teste"
+parser = argparse.ArgumentParser()
+parser.add_argument("data-folder", default="./szz", help="Pasta contendo os arquivos JSON a serem processados.")
+args = parser.parse_args()
+
+DATA_FOLDER = args.data_folder
 
 for file in os.listdir(DATA_FOLDER):
     if not file.endswith(".json"):
@@ -52,6 +57,8 @@ for file in os.listdir(DATA_FOLDER):
             d.update(metrics_cache[commit_hash])
         else:
             print(f"Aviso: Commit {commit_hash} de {d['repo_name']} não encontrado.")
+
+    data = [d for d in data if d.get("java_files", 0) > 0] # Manter apenas registros com arquivos Java modificados
 
     with open(folder_path, "w") as f:
         json.dump(data, f, indent=4)

@@ -1,3 +1,8 @@
+"""
+Esse script gera um grafo de commits e suas relações a partir de arquivos JSON. Ele utiliza a biblioteca PyVis para criar visualizações interativas do grafo, onde cada nó representa um commit e cada aresta representa uma relação de correção entre commits. O grafo é salvo como um arquivo HTML na pasta de resultados.
+O script percorre todos os arquivos JSON no diretório atual, processa cada commit e suas relações, e gera um grafo interativo para cada arquivo JSON. Cada nó do grafo é colorido aleatoriamente se o commit tiver correções associadas, ou cinza se não tiver. As arestas são adicionadas apenas uma vez para evitar duplicações.
+O grafo resultante é salvo em um arquivo HTML na pasta de resultados, permitindo a visual
+"""
 from pyvis.network import Network
 import pyvis
 import json
@@ -53,7 +58,7 @@ for file in os.listdir('./'):
             for fix_commit in fixed_by:
                 edge_key = (bic, fix_commit)
                 if edge_key not in existing_edges:
-                    data = get_data_in_json(f"../data/{output_base_file}.json", fix_commit)
+                    data = get_data_in_json(f"../szz/{output_base_file}.json", fix_commit)
                     net.add_node(fix_commit, label=fix_commit, title=f"repository: {data['repo_name']}\n Commit: {data['fix_commit_hash']}")
                     net.add_edge(bic, fix_commit, arrowStrikethrough=False)
                     existing_edges.add(edge_key)

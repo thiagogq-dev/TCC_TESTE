@@ -36,16 +36,16 @@ def main():
     output_folder = args.output_folder
     output_file = args.output_file
 
-    # Step 1: Merge all JSON files in the input folder into a data register
+    # Passo 1: Juntar todos os registros de uma pasta em um só arquivo
     merged_data = merge_files(input_folder)
 
-    # Step 2: Group the merged data by 'fix_commit_hash' to avoid duplicates of 'bic' for each fix
+    # Passo 2: Agrupar registros de mesma correcão e relacionar os diferentes BICs detectados
     grouped_data = group_file_by_fix(merged_data)
 
-    # Step 3: Remove duplicate entries from the grouped data
+    # Passo 3: Remover registros duplicados
     unique_data = remove_duplicates(grouped_data)
 
-    # Step 4: Save the cleaned data to the output folder
+    # Passo 4: Salvar a json final
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
