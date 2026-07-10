@@ -8,6 +8,13 @@ if not os.path.exists("logs"):
 
 # === Configuração Geral ===
 def setup_loggers(repo_name="default"):
+    """"
+    Configura loggers para diferentes níveis de log (info, error, warning) e cria arquivos de log separados para cada nível.
+    Args:
+        repo_name (str): Nome do repositório, usado para nomear os arquivos de log.
+    Returns:
+        dict: Dicionário contendo os loggers configurados para info, error e warning.
+    """
     # General Log
     general_log = logging.getLogger("general_log")
     general_log.setLevel(logging.INFO)
@@ -38,8 +45,13 @@ def setup_loggers(repo_name="default"):
         "warning": warning_log
     }
 
-# === Função para logar ===
 def log_message(message, level):
+    """"
+    Registra uma mensagem em um logger específico com base no nível fornecido.
+    Args:
+        message (str): Mensagem a ser registrada.
+        level (str): Nível de log ("info", "error", "warning").
+    """
     loggers = {
         "info": logging.getLogger("general_log"),
         "error": logging.getLogger("error_log"),

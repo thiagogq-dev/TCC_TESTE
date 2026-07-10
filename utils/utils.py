@@ -11,6 +11,13 @@ from utils.logger_config import log_message
 ACTIVITY_BUCKETS = ["0", "1-5", "6-20", "21-100", "100+"]
 
 def remove_duplicates(data):
+    """
+    Remove duplicatas de um arquivo JSON, mantendo apenas entradas únicas.
+    Args:
+        data (list): Lista de registros JSON.
+    Returns:
+        list: Lista de registros JSON sem duplicatas.
+    """
     tam = len(data)
     seen = set()
     unique_data = []
@@ -25,6 +32,14 @@ def remove_duplicates(data):
     return unique_data
 
 def split_json_file(input_data, output_folder, file_prefix, max_items_per_file=10):
+    """
+    Divide um arquivo JSON em vários arquivos menores, cada um contendo no máximo `max_items_per_file` registros.
+    Args:
+        input_data (list): Lista de registros JSON a serem divididos.
+        output_folder (str): Pasta onde os arquivos divididos serão salvos.
+        file_prefix (str): Prefixo para os arquivos de saída.
+        max_items_per_file (int): Número máximo de registros por arquivo.
+    """
     if not isinstance(input_data, list):
         raise ValueError("The input data does not contain a JSON list.")
 
@@ -40,6 +55,13 @@ def split_json_file(input_data, output_folder, file_prefix, max_items_per_file=1
         print(f"File {output_file} created with {len(chunk)} items.")
               
 def merge_files(folder_path):
+    """
+    Mescla todos os arquivos JSON em uma pasta especificada em um único arquivo JSON.
+    Args:
+        folder_path (str): Caminho para a pasta contendo os arquivos JSON.
+    Returns:
+        list: Lista combinada de registros JSON de todos os arquivos.
+    """
     json_files = glob.glob(folder_path + "/**/*.json", recursive=True)
     combined_data = []
     for file in json_files:
@@ -47,7 +69,7 @@ def merge_files(folder_path):
             data = json.load(f)
             print(f'Processing {file} with {len(data)} items')
             combined_data.extend(data)
-    print(f'Combined data has {len(combined_data)} items')
+    print(f'Dados combinados contêm {len(combined_data)} items')
     return combined_data
 
 def group_file_by_fix(data):
@@ -98,6 +120,16 @@ def is_commit_valid(repo_path, commit_hash):
     return True, "Commit válido"
 
 def extract_metrics_from_commit(commit, author_commits_map, pranalyzer_fn=None):
+    """"
+    Extrai métricas de um commit específico, incluindo informações sobre alterações em arquivos de teste e asserts.
+    Args:
+        commit (pydriller.Commit): Objeto de commit do PyDriller.
+        author_commits_map (dict): Mapeamento de autores para suas datas de commits.
+        pranalyzer_fn (callable, optional): Função para analisar diffs e detectar alterações em asserts. 
+            Deve aceitar dois argumentos: linguagem e diff, e retornar uma tupla (has_asserts_changes, added_asserts, removed_asserts).
+    Returns:
+        dict: Dicionário contendo métricas extraídas do commit.
+    """
     has_test_files = False
     java_lines_changed = 0
     java_files = 0
@@ -170,10 +202,12 @@ def extract_metrics_from_commit(commit, author_commits_map, pranalyzer_fn=None):
 
 
 def preload_commits_index(repo_path):
-    """Return two maps: commit_date and author_commits (sorted lists).
-
-    commit_date: {commit_hash: datetime}
-    author_commits: {author_name: [datetime, ...]}
+    """
+    Precarrega um índice de commits para um repositório específico, mapeando cada commit para sua data e agrupando commits por autor.
+    Args:
+        repo_path (str): Caminho para o repositório local.
+    Returns:
+        tuple: Um dicionário mapeando hashes de commits para suas datas e um dicionário mapeando autores para listas de datas de commits.
     """
     commit_date = {}
     author_commits = defaultdict(list)
@@ -193,7 +227,14 @@ def preload_commits_index(repo_path):
 
 
 def get_commit_date_from_index(fix_commit, commit_date_map):
-    """Return the date to use as 'fix_date' (one day before author_date) or None."""
+    """
+    Retorna a data de um commit específico a partir do índice de commits.
+    Args:
+        fix_commit (str): Hash do commit a ser consultado.
+        commit_date_map (dict): Dicionário mapeando hashes de commits para suas datas.
+    Returns:
+            datetime: A data do commit ou None se não encontrado.
+    """
     d = commit_date_map.get(fix_commit)
     if not d:
         return None
@@ -201,25 +242,54 @@ def get_commit_date_from_index(fix_commit, commit_date_map):
 
 
 def get_contributor_activity_from_index(author, fix_date, author_commits_map):
-    """Return number of commits by `author` up to `fix_date` (inclusive)."""
+    """
+    Retorna a atividade do contribuinte (número de commits) até a data do commit de correção.
+    Args:
+        author (str): Nome do autor do commit.
+        fix_date (datetime): Data do commit de correção.
+        author_commits_map (dict): Dicionário mapeando autores para listas de datas de commits.
+    Returns:
+        int: Número de commits do autor até a data do commit de correção.
+    """
     if fix_date is None:
         return 0
     dates = author_commits_map.get(author, [])
     return bisect_right(dates, fix_date)
 
 def safe_float(value):
+    """
+    Converte um valor para float de forma segura, retornando None se a conversão falhar.
+    Args:
+        value: Valor a ser convertido.
+    Returns:
+        float or None: Valor convertido para float ou None se a conversão falhar.
+    """
     try:
         return float(value) if value is not None else None
     except (ValueError, TypeError):
         return None
     
 def load_data(path):
+    """
+    Carrega dados de um arquivo JSON.
+    Args:
+        path (str): Caminho para o arquivo JSON.
+    Returns:
+        dict: Dados carregados do arquivo JSON.
+    Raises:
+        FileNotFoundError: Se o arquivo não for encontrado.
+    """
     if not os.path.exists(path):
         raise FileNotFoundError(f"Data file not found: {path}")
     with open(path, "r") as f:
         return json.load(f)
     
 class Reporter:
+    """
+    Classe para registrar mensagens em um arquivo de log específico.
+    Args:
+        path (str): Caminho para o arquivo de log.
+    """
     def __init__(self, path):
         self.path = path
 
@@ -228,6 +298,13 @@ class Reporter:
             f.write(text + "\n")
 
 def get_activity_bucket(activity):
+    """
+    Retorna o bucket de atividade com base no número de commits.
+    Args:
+        activity (int): Número de commits.
+    Returns:
+        str: O bucket de atividade.
+    """
     if activity is None: return None
     if activity == 0:    return "0"
     if activity <= 5:    return "1-5"

@@ -20,6 +20,7 @@ repo_owner = os.getenv('REPO_OWNER')
 
 setup_loggers(repo_name)
 
+# Definicão de constantes
 API_TOKENS = [v for k, v in os.environ.items() if k.startswith("API_TOKEN_") and v]
 OUTPUT_DIR = "data"
 OUTPUT_FILE = os.path.join(OUTPUT_DIR, f"{repo_name}.json")
@@ -63,16 +64,30 @@ session.mount("https://", adapter)
 session.mount("http://", adapter)
 
 def get_headers():
+    """
+    Retorna os headers de autenticação para a requisição GraphQL usando o token atual.
+    """
     return {
         'Authorization': f'token {API_TOKENS[token_index]}'
     }
 
 def switch_token():
+    """
+    Alterna para o próximo token de API na lista, garantindo que não exceda o limite de tokens disponíveis.
+    """
     global token_index
     token_index = (token_index + 1) % len(API_TOKENS)
     log_message(f"Trocando token. Novo index: {token_index}", "info")
 
 def execute_query(query, headers):
+    """
+    Executa a query GraphQL com retry em caso de falha.
+    Args:
+        query (dict): A query GraphQL a ser executada.
+        headers (dict): Headers de autenticação para a requisição.
+    Returns:
+        dict: A resposta JSON da API GitHub.
+    """
     log_message(f"Executando query com token index: {token_index}", "info")
     max_attempts = 5
     for attempt in range(1, max_attempts + 1):
@@ -99,8 +114,10 @@ def execute_query(query, headers):
     return {"errors": [{"message": "Max retries exceeded"}]}
 
 def _first_referenced_commit(events_field):
-    """Extrai (oid, message) do primeiro nó de um bloco timelineItems(REFERENCED_EVENT) já
-    presente na resposta da query principal. Retorna (None, None) se não houver nada."""
+    """
+    Extrai (oid, message) do primeiro nó de um bloco timelineItems(REFERENCED_EVENT) já
+    presente na resposta da query principal. Retorna (None, None) se não houver nada.
+    """
     nodes = events_field.get("nodes", []) if events_field else []
     if not nodes:
         return None, None
@@ -109,46 +126,53 @@ def _first_referenced_commit(events_field):
 
 
 def resolve_fix_commit(issue, repo_owner, repo_name):
-    # Fallback "commit que referencia a issue" já veio embutido na query principal,
-    # não precisa de nenhuma requisição adicional.
+    """
+    Resolve o commit de correção associado a uma issue fechada, verificando eventos de fechamento e commits referenciados.
+    Args:
+        issue (dict): Dicionário representando a issue fechada.
+        repo_owner (str): Nome do proprietário do repositório.
+        repo_name (str): Nome do repositório.
+    Returns:
+        tuple: (fix_commit_hash, commit_type, commit_message) onde commit_type pode ser "pr", "commit", "commit_ref_pr", "commit_ref_issue" ou None se não houver commit válido.
+    """
     issue_ref_commit, issue_ref_message = _first_referenced_commit(issue.get("referencedEvents"))
 
     nodes = issue.get("closedEvents", {}).get("nodes", [])
     node = nodes[0].get("closer") if nodes else None
-    if node:
+    if node: # Se ter um closer, então é um evento de fechamento com commit ou PR
         closer_type = node.get("__typename", "")
 
-        if closer_type == "PullRequest":
+        if closer_type == "PullRequest": # Fechamento via PR
             merge_commit = node.get("mergeCommit", {}).get("oid") if node.get("mergeCommit") else None
             if merge_commit:
                 valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", merge_commit)
                 if valid:
                     return merge_commit, "pr", node.get("mergeCommit", {}).get("message") if node.get("mergeCommit") else None
 
-            # Fallback "commit que referencia a PR" também já veio embutido, dentro do
-            # próprio fragmento da PullRequest retornada como closer.
+            # Fallback "commit que referencia a PR" t
             pr_ref_commit, pr_ref_message = _first_referenced_commit(node.get("referencedCommit"))
             if pr_ref_commit:
                 valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", pr_ref_commit)
                 if valid:
                     return pr_ref_commit, "commit_ref_pr", pr_ref_message
 
+            # Fallback "commit que referencia a issue" t
             if issue_ref_commit:
                 valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", issue_ref_commit)
                 if valid:
                     return issue_ref_commit, "commit_ref_issue", issue_ref_message
-        else:
+        else: # Fechamento direto com commit (não PR)
             fix_commit = node.get("oid", None)
             if fix_commit:
                 valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
                 if valid:
                     return fix_commit, "commit", node.get("message", None)
 
-            if issue_ref_commit:
+            if issue_ref_commit: # Fallback "commit que referencia a issue" t
                 valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", issue_ref_commit)
                 if valid:
                     return issue_ref_commit, "commit_ref_issue", issue_ref_message
-    else:
+    else: # Sem evento de fechamento, mas pode ter commit referenciado na issue
         if issue_ref_commit:
             valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", issue_ref_commit)
             if valid:
@@ -189,6 +213,12 @@ def save_progress(all_data, after_cursor, total_count, read_issues):
     return None
 
 def get_data():
+    """"
+    Coleta issues fechadas de um repositório GitHub usando a API GraphQL, filtrando por data de fechamento e resolvendo o commit de correção associado a cada issue.
+    Retorna uma lista de dicionários contendo informações relevantes sobre cada issue.
+    Returns:
+        list: Lista de dicionários com informações das issues coletadas.
+    """
     _ensure_output_dir()
 
     # restore previous data if exists
