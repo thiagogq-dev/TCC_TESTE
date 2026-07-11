@@ -83,10 +83,12 @@ def calculate_added_asserts_churn(data, reporter):
 
         asserts_churn = added_asserts + removed_asserts
         asserts_growth = added_asserts - removed_asserts
+
+        lines_without_asserts = lines - asserts_churn
         
         asserts_growth_list.append(asserts_growth)
         asserts_churn_list.append(asserts_churn)
-        lines_changed.append(lines)
+        lines_changed.append(lines_without_asserts)
 
     reporter.write("=== ATIVIDADE EM ASSERTS X CHURN (LINES) ===")
     reporter.write("Nota: 'assert churn' mede movimento total; 'assert growth' mede mudança líquida")
@@ -114,8 +116,6 @@ def calculate_added_asserts_churn(data, reporter):
         reporter
     )
 
-    # reporter.write(f"Média de asserts adicionados: {np.mean(asserts_growth_list):.4f}")
-    # reporter.write(f"Média de linhas alteradas: {np.mean(lines_changed):.2f}")
     reporter.write("")
     return r1, r2
 

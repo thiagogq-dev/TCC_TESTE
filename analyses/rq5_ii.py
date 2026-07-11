@@ -324,7 +324,7 @@ def main():
         os.makedirs(f"./results/{OUTPUT_REPO_FOLDER}", exist_ok=True)
         output_path = f"./results/{OUTPUT_REPO_FOLDER}/rq5_ii.txt"
 
-        if not os.path.exists(output_path):
+        if os.path.exists(output_path):
             open(output_path, "w").close()
 
         reporter = Reporter(output_path)
