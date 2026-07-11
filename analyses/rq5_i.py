@@ -120,46 +120,66 @@ def code_complexity_vs_contributor_experience(data, reporter):
     return result
 
 
-# ==========================================================
-# MAIN
-# ==========================================================
 
 if __name__ == "__main__":
-    os.makedirs("./results", exist_ok=True)
+    os.makedirs("./results/rq5_i", exist_ok=True)
+    import pandas as pd # Pode colocar no topo do arquivo junto com os outros imports
+
+    OUTPUT_TEXT_PATH = "./results/rq5_i/relatorio_texto.txt"
+    OUTPUT_CSV_PATH = "./results/rq5_i/tabela_resultados.csv"
+
+    if os.path.exists(OUTPUT_TEXT_PATH):
+        open(OUTPUT_TEXT_PATH, "w").close()
+
+    reporter = Reporter(OUTPUT_TEXT_PATH)
+    
+    dados_tabela = []
 
     for file in sorted(os.listdir("./relations")):
         if not file.endswith(".json"):
             continue
 
         FOLDER_REPO_PATH = file.replace(".json", "")
-        os.makedirs(f"./results/{FOLDER_REPO_PATH}", exist_ok=True)
-
         INPUT_PATH      = f"./relations/{file}"
-        RESULTS_FOLDER  = f"./results/{FOLDER_REPO_PATH}"
-        OUTPUT_PATH     = f"{RESULTS_FOLDER}/rq5_i.txt"
 
         data = load_data(INPUT_PATH)
 
-        if os.path.exists(OUTPUT_PATH):
-            open(OUTPUT_PATH, "w").close()
+        reporter.write("RQ5 (i): Análise de fatores que afetam a presença de bugs\n")
+        reporter.write("\n" + "="*80)
+        reporter.write(f"PROJETO: {FOLDER_REPO_PATH}\n\n")
+        reporter.write("="*80 + "\n")
 
-        reporter = Reporter(OUTPUT_PATH)
-
-        reporter.write(f"{FOLDER_REPO_PATH}")
-        reporter.write("RQ5 (i): Análise de fatores que pssam a presenã de bugs\n")
-
+        linha_projeto = {"Projeto": FOLDER_REPO_PATH}
         pvalores = []
 
-        r = calculate_proportion_bugs_asserts_types(data, reporter)
-        pvalores.append(r)
+        # Coletar métricas
+        r1 = calculate_proportion_bugs_asserts_types(data, reporter)
+        pvalores.append(r1)
 
-        r = calculate_experience_vs_recurrence(data, reporter)
-        pvalores.append(r)
+        r2 = calculate_experience_vs_recurrence(data, reporter)
+        pvalores.append(r2)
 
-        r = code_complexity_vs_contributor_experience(data, reporter)
-        pvalores.append(r)
+        r3 = code_complexity_vs_contributor_experience(data, reporter)
+        pvalores.append(r3)
 
-        # --- correção BH sobre toda a família tests_analyses ---
+        # Preencher os valores na linha do CSV
+        for resultado in pvalores:
+            if resultado is not None and "label" in resultado:
+                nome_coluna = resultado["label"]
+                valor_p = resultado.get("p")
+                
+                if isinstance(valor_p, float):
+                    linha_projeto[f"{nome_coluna} (p-value)"] = round(valor_p, 4)
+                else:
+                    linha_projeto[f"{nome_coluna} (p-value)"] = valor_p
+
+        # --- correção BH ---
         aplicar_correcao_bh(pvalores, reporter, label="RQ5 (i)")
 
-        print(f"Análises concluídas: {file} -> {OUTPUT_PATH}")
+        dados_tabela.append(linha_projeto)
+        print(f"Processado RQ5_i: {file}")
+
+    # Salvar tabela final
+    if dados_tabela:
+        df_resultados = pd.DataFrame(dados_tabela)
+        df_resultados.to_csv(OUTPUT_CSV_PATH, index=False, encoding='utf-8')

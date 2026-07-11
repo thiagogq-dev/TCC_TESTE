@@ -14,7 +14,6 @@ from utils.utils import is_commit_valid
 
 dotenv.load_dotenv()
 
-
 repo_name = os.getenv('REPO_NAME')
 repo_owner = os.getenv('REPO_OWNER')
 
@@ -22,7 +21,7 @@ setup_loggers(repo_name)
 
 # Definicão de constantes
 API_TOKENS = [v for k, v in os.environ.items() if k.startswith("API_TOKEN_") and v]
-OUTPUT_DIR = "data"
+OUTPUT_DIR = "dataset/coleta_issues"
 OUTPUT_FILE = os.path.join(OUTPUT_DIR, f"{repo_name}.json")
 CLOSED_UNTIL = "2026-05-13"
 GRAPHQL_URL="https://api.github.com/graphql"
@@ -291,7 +290,6 @@ def get_data():
                     "fix_commit_hash": final_fix_commit,
                     "commit_type": commit_type,
                     "commit_message": commit_message,
-                    "closer_url": issue["closedEvents"]["nodes"][0]["closer"].get("url") if issue["closedEvents"]["nodes"] and issue["closedEvents"]["nodes"][0]["closer"] else None,
                     "earliest_issue_date": issue.get("createdAt"),
                 }
 

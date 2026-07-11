@@ -2,6 +2,8 @@ import os
 import pandas as pd
 from utils.utils import load_data
 
+OUTPUT_FOLDER = "./results/rq1_rq2"
+
 def calculate_test_changes(data):
     """
     Calcula a qualidade efetiva das alterações em testes nos commits.
@@ -44,7 +46,7 @@ def calculate_test_changes(data):
 
 
 if __name__ == "__main__":
-    os.makedirs("./results", exist_ok=True)
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
     
     dados_tabela = []
 
@@ -72,7 +74,7 @@ if __name__ == "__main__":
         df = pd.DataFrame(dados_tabela)
         
         # CSV
-        csv_path = "./results/tabela_rq1_rq2.csv"
+        csv_path = os.path.join(OUTPUT_FOLDER, "rq1_rq2.csv")
         df.to_csv(csv_path, index=False)
         print(f"\nTabela consolidada salva em: {csv_path}")
 

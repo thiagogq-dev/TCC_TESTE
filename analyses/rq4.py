@@ -7,6 +7,8 @@ from utils.stats import (
 import matplotlib.pyplot as plt
 from collections import defaultdict
 
+RESULTS_FOLDER = "./results/rq4"  # Pasta base para gráficos ou outros outputs se necessário
+
 def calculate_avg_metrics_by_tests(data, reporter):
     """
     Calcula a média de complexidade, interfacing e size, comparando commits com e sem testes.
@@ -180,26 +182,34 @@ def calculate_experience_vs_tests(data, reporter, results_folder):
 if __name__ == "__main__":
     os.makedirs("./results", exist_ok=True)
 
+    # 1. Definir o caminho do arquivo final único FORA do loop
+    OUTPUT_FILE = os.path.join(RESULTS_FOLDER, "rq4_results.txt")
+
+    # Limpar o arquivo final apenas uma vez caso ele já exista de execuções anteriores
+    if os.path.exists(OUTPUT_FILE):
+        open(OUTPUT_FILE, "w").close()
+
+    if not os.path.exists(RESULTS_FOLDER):
+        os.makedirs(RESULTS_FOLDER)
+
+    # 2. Instanciar o Reporter uma única vez FORA do loop
+    reporter = Reporter(OUTPUT_FILE)
+
     for file in sorted(os.listdir("./relations")):
         if not file.endswith(".json"):
             continue
 
         FOLDER_REPO_PATH = file.replace(".json", "")
-        os.makedirs(f"./results/{FOLDER_REPO_PATH}", exist_ok=True)
-
         INPUT_PATH      = f"./relations/{file}"
-        RESULTS_FOLDER  = f"./results/{FOLDER_REPO_PATH}"
-        OUTPUT_PATH     = f"{RESULTS_FOLDER}/rq4.txt"
+        RESULTS_FOLDER  = "./results/rq4"  # Pasta base para gráficos ou outros outputs se necessário
 
         data = load_data(INPUT_PATH)
 
-        if os.path.exists(OUTPUT_PATH):
-            open(OUTPUT_PATH, "w").close()
-
-        reporter = Reporter(OUTPUT_PATH)
-
-        reporter.write(f"{FOLDER_REPO_PATH}")
         reporter.write("R4: Quais fatores estão associados à presença de alterações em testes?\n")
+        # 3. Adicionar um separador visual claro para identificar o projeto atual no arquivo único
+        reporter.write("\n" + "="*80)
+        reporter.write(f"PROJETO: {FOLDER_REPO_PATH}")
+        reporter.write("="*80 + "\n")
 
         pvalores = []
         
@@ -215,5 +225,3 @@ if __name__ == "__main__":
 
         # --- correção BH sobre toda a família tests_analyses ---
         aplicar_correcao_bh(pvalores, reporter, label="RQ4")
-
-        print(f"Análises de RQ4 concluídas: {file} -> {OUTPUT_PATH}")

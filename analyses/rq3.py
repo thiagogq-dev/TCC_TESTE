@@ -3,9 +3,11 @@ import json
 import glob
 import pandas as pd
 
+OUTPUT_FOLDER = "./results/rq3"
+
 if __name__ == "__main__":
-    os.makedirs("./results", exist_ok=True)
-    
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
     json_files = glob.glob('./relations/*.json')
     dados_tabela = []
 
@@ -69,12 +71,12 @@ if __name__ == "__main__":
         df = pd.DataFrame(dados_tabela)
         
         # 1. Exporta para CSV
-        csv_path = "./results/tabela_rq3.csv"
+        csv_path = os.path.join(OUTPUT_FOLDER, "rq3.csv")
         df.to_csv(csv_path, index=False)
         print(f"\nTabela CSV salva em: {csv_path}")
 
         # 2. Exporta para LaTeX (pronto para o artigo, alinhado: left e 4 rights)
-        # latex_path = "./results/tabela_rq3.tex"
+        # latex_path = os.path.join(OUTPUT_FOLDER, "rq3.tex")
         # with open(latex_path, "w") as f:
         #     f.write(df.to_latex(index=False, column_format="lrrrr"))
         # print(f"Código LaTeX gerado em: {latex_path}")

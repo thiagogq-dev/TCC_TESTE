@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 
 from utils.utils import Reporter, load_data
 
+OUTPUT_FOLDER = "./results/chain_description"
+
 def build_commit_to_fix(data):
     commit_to_fix = defaultdict(list)
     for record in data:
@@ -350,14 +352,14 @@ def generate_comparison_table(results_summary):
         ws.append([repo_name, max_d, avg_d, multi_fix, median_days, fix_7days])
 
     # 3. Salvar os arquivos
-    os.makedirs("./results", exist_ok=True)
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
     
     # Salvar tabela em Excel
-    summary_excel_path = "./results/comparison_summary.xlsx"
+    summary_excel_path = os.path.join(OUTPUT_FOLDER, "comparison_summary.xlsx")
     wb.save(summary_excel_path)
         
     # Salvar resumo em JSON
-    summary_json_path = "./results/comparison_summary.json"
+    summary_json_path = os.path.join(OUTPUT_FOLDER, "comparison_summary.json")
     with open(summary_json_path, "w", encoding="utf-8") as f:
         json.dump(results_summary, f, indent=2, ensure_ascii=False)
     
@@ -379,15 +381,14 @@ def main():
             print(f"  Erro ao carregar: {e}")
             continue
 
-        OUTPUT_REPO_FOLDER = relations_file.replace(".json", "")
-        os.makedirs(f"./results/{OUTPUT_REPO_FOLDER}", exist_ok=True)
-        output_path = f"./results/{OUTPUT_REPO_FOLDER}/chain_description.txt"
+        os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+        output_path = os.path.join(OUTPUT_FOLDER, "chain_description.txt")
 
         if not os.path.exists(output_path):
             open(output_path, "w").close()
 
         # reporter = Reporter(output_path)
-        repo_name = OUTPUT_REPO_FOLDER
+        repo_name = relations_file.replace(".json", "")
 
         commit_to_fix = build_commit_to_fix(data)
 
@@ -413,8 +414,6 @@ def main():
         # reporter.write("\n" + "="*60)
         # reporter.write("FIM DO RELATÓRIO")
         # reporter.write("="*60)
-
-        print(f"  Concluido -> ./results/{OUTPUT_REPO_FOLDER}/")
 
     # Gera tabela comparativa em Excel
     # print("\n" + "="*80)

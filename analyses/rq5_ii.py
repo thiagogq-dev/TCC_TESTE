@@ -309,6 +309,18 @@ def aggregate_tests_vs_no_tests(metrics, reporter):
 # ==========================================================
 
 def main():
+    os.makedirs("./results/rq5_ii", exist_ok=True)
+    import pandas as pd
+
+    OUTPUT_TEXT_PATH = "./results/rq5_ii/relatorio_texto.txt"
+    OUTPUT_CSV_PATH = "./results/rq5_ii/tabela_resultados.csv"
+
+    if os.path.exists(OUTPUT_TEXT_PATH):
+        open(OUTPUT_TEXT_PATH, "w").close()
+
+    reporter = Reporter(OUTPUT_TEXT_PATH)
+    dados_tabela = []
+
     for relations_file in sorted(os.listdir("./relations")):
         if not relations_file.endswith(".json"):
             continue
@@ -321,17 +333,13 @@ def main():
             continue
 
         OUTPUT_REPO_FOLDER = relations_file.replace(".json", "")
-        os.makedirs(f"./results/{OUTPUT_REPO_FOLDER}", exist_ok=True)
-        output_path = f"./results/{OUTPUT_REPO_FOLDER}/rq5_ii.txt"
 
-        if os.path.exists(output_path):
-            open(output_path, "w").close()
+        reporter.write("Características das cadeias de propagação\n\n")
+        reporter.write("\n" + "="*80)
+        reporter.write(f"PROJETO: {OUTPUT_REPO_FOLDER}")
+        reporter.write("="*80 + "\n")
 
-        reporter = Reporter(output_path)
-        repo_name = OUTPUT_REPO_FOLDER
-
-        reporter.write(f"{OUTPUT_REPO_FOLDER}\n")
-        reporter.write(f"Características das cadeias de propagação\n")
+        linha_projeto = {"Projeto": OUTPUT_REPO_FOLDER}
 
         commit_to_fix = build_commit_to_fix(data)
         has_tests_map = build_has_tests_map(data)
@@ -347,7 +355,6 @@ def main():
         # basic_counts, _ = aggregate_propagation(metrics, "PROPAGACAO", reporter)
         # save_histogram(basic_counts, f"./results/{OUTPUT_REPO_FOLDER}/histograma_general.png",
                     #    title="General Propagation Histogram")
-
         # 2 — Experiência (buckets) x profundidade
         rs = aggregate_by_experience(metrics, reporter)
         pvalores.extend(rs)
@@ -366,9 +373,28 @@ def main():
         #                title="Propagation (commits without tests)")
 
         # --- correção BH sobre toda a família depth_analyses ---
+
+        # Preencher os valores na linha do CSV
+        for resultado in pvalores:
+            if resultado is not None and "label" in resultado:
+                nome_coluna = resultado["label"]
+                valor_p = resultado.get("p")
+                
+                if isinstance(valor_p, float):
+                    linha_projeto[f"{nome_coluna} (p-value)"] = round(valor_p, 4)
+                else:
+                    linha_projeto[f"{nome_coluna} (p-value)"] = valor_p
+
+        # --- correção BH ---
         aplicar_correcao_bh(pvalores, reporter, label="RQ5 (ii)")
 
-        print(f"  Concluido -> ./results/{OUTPUT_REPO_FOLDER}/")
+        dados_tabela.append(linha_projeto)
+        print(f"  Concluído -> Adicionado à tabela unificada.")
+
+    # Salvar tabela final
+    if dados_tabela:
+        df_resultados = pd.DataFrame(dados_tabela)
+        df_resultados.to_csv(OUTPUT_CSV_PATH, index=False, encoding='utf-8')
 
 if __name__ == "__main__":
     main()

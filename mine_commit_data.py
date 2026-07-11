@@ -6,7 +6,7 @@ from PRANALYZER.run_analyses import analyze_diff
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument("data-folder", default="./szz", help="Pasta contendo os arquivos JSON a serem processados.")
+parser.add_argument("data_folder", help="Pasta contendo os arquivos JSON a serem processados.")
 args = parser.parse_args()
 
 DATA_FOLDER = args.data_folder
