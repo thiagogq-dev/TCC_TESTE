@@ -1,17 +1,13 @@
 import os
 import numpy as np
-from utils.utils import safe_float, load_data, get_activity_bucket, Reporter, ACTIVITY_BUCKETS
+from collections import defaultdict # <-- Adicionado
+from utils.utils import safe_float, load_data, get_activity_bucket, Reporter, ACTIVITY_BUCKETS, preprocess_raw_data
 from utils.stats import (
     teste_chi2, teste_spearman,
     aplicar_correcao_bh, teste_pointbiserial
 )
 
 def calculate_proportion_bugs_asserts_types(data, reporter):
-    """
-    Calcula a proporção de commits que introduziram bugs, comparando tipos de mudança nos asserts (adição, remoção, sem mudança).
-
-    Retorna lista de dicts {"label", "p"} para correção BH.
-    """
     no_caused_bug_with_weaker_tests = 0
     no_caused_bug_with_stronger_tests = 0
     no_caused_bug_with_equal_tests = 0
@@ -67,11 +63,6 @@ def calculate_proportion_bugs_asserts_types(data, reporter):
     return result
 
 def calculate_experience_vs_recurrence(data, reporter):
-    """
-    Analisa a taxa de recorrência de bugs por faixa de experiência do contribuidor.
-
-    Retorna dict {"label", "p"} do teste Spearman para correção BH.
-    """
     bins = {b: [] for b in ACTIVITY_BUCKETS}
     activities, fix_counts_all = [], []
 
@@ -98,13 +89,7 @@ def calculate_experience_vs_recurrence(data, reporter):
     reporter.write("")
     return result
 
-
 def code_complexity_vs_contributor_experience(data, reporter):
-    """
-    Correlaciona experiência do contribuidor com complexidade do código.
-
-    Retorna dict {"label", "p"} do teste Spearman para correção BH.
-    """
     activities, complexities = [], []
 
     for relation in data:
@@ -119,11 +104,9 @@ def code_complexity_vs_contributor_experience(data, reporter):
     reporter.write("")
     return result
 
-
-
 if __name__ == "__main__":
     os.makedirs("./results/rq5_i", exist_ok=True)
-    import pandas as pd # Pode colocar no topo do arquivo junto com os outros imports
+    import pandas as pd 
 
     OUTPUT_TEXT_PATH = "./results/rq5_i/relatorio_texto.txt"
     OUTPUT_CSV_PATH = "./results/rq5_i/tabela_resultados.csv"
@@ -135,14 +118,16 @@ if __name__ == "__main__":
     
     dados_tabela = []
 
-    for file in sorted(os.listdir("./relations")):
+    for file in sorted(os.listdir("./dataset/4-metricas/with_bic")):
         if not file.endswith(".json"):
             continue
 
         FOLDER_REPO_PATH = file.replace(".json", "")
-        INPUT_PATH      = f"./relations/{file}"
+        INPUT_PATH      = f"./dataset/4-metricas/with_bic/{file}" # MUDANÇA: Caminho corrigido
 
-        data = load_data(INPUT_PATH)
+        # MUDANÇA: Processando os dados nativos
+        raw_data = load_data(INPUT_PATH)
+        data = preprocess_raw_data(raw_data)
 
         reporter.write("RQ5 (i): Análise de fatores que afetam a presença de bugs\n")
         reporter.write("\n" + "="*80)
@@ -152,7 +137,6 @@ if __name__ == "__main__":
         linha_projeto = {"Projeto": FOLDER_REPO_PATH}
         pvalores = []
 
-        # Coletar métricas
         r1 = calculate_proportion_bugs_asserts_types(data, reporter)
         pvalores.append(r1)
 
@@ -162,7 +146,6 @@ if __name__ == "__main__":
         r3 = code_complexity_vs_contributor_experience(data, reporter)
         pvalores.append(r3)
 
-        # Preencher os valores na linha do CSV
         for resultado in pvalores:
             if resultado is not None and "label" in resultado:
                 nome_coluna = resultado["label"]
@@ -173,13 +156,11 @@ if __name__ == "__main__":
                 else:
                     linha_projeto[f"{nome_coluna} (p-value)"] = valor_p
 
-        # --- correção BH ---
         aplicar_correcao_bh(pvalores, reporter, label="RQ5 (i)")
 
         dados_tabela.append(linha_projeto)
         print(f"Processado RQ5_i: {file}")
 
-    # Salvar tabela final
     if dados_tabela:
         df_resultados = pd.DataFrame(dados_tabela)
         df_resultados.to_csv(OUTPUT_CSV_PATH, index=False, encoding='utf-8')

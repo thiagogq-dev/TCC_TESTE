@@ -4,7 +4,7 @@ import numpy as np
 from collections import defaultdict, deque
 import matplotlib.pyplot as plt
 
-from utils.utils import Reporter, load_data
+from utils.utils import Reporter, load_data, preprocess_raw_data
 
 OUTPUT_FOLDER = "./results/chain_description"
 
@@ -50,21 +50,14 @@ def compute_global_all_depths(graph_dict):
     # Começamos APENAS com as raízes absolutas (não corrigem ninguém) -> Nível 1
     queue = deque([(node, 1) for node in all_nodes if indegree[node] == 0])
     
-    # Em vez de um único número, guardamos um SET (conjunto) para armazenar 
-    # as diferentes profundidades em que um commit pode ser atingido
     depths = defaultdict(set)
 
     while queue:
         u, current_depth = queue.popleft()
-        
-        # Registra a profundidade atual para este commit
         depths[u].add(current_depth)
         
         for v in graph_dict.get(u, []):
             if v is None: continue
-            
-            # Se ainda não passamos por este commit nesta profundidade, adicionamos na fila
-            # (O if evita loops infinitos no grafo)
             if (current_depth + 1) not in depths[v]:
                 queue.append((v, current_depth + 1))
 
@@ -95,54 +88,23 @@ def summarize_bic(bic, graph_dict, bic_cache):
 # ==========================================================
 
 def aggregate_propagation(graph_dict, title, reporter):
-    """
-    Agrega contagens de propagação por nível de profundidade usando o grafo pré-construído.
-    Gera no output_file um resumo formatado e retorna os dicionários de contagem geral e com correção presentes por nível.
-    """
     overall = defaultdict(int)
     with_fix = defaultdict(int)
-
-    # all_depths_map é um dicionário onde a chave é o commit e o valor é um SET de profundidades
     all_depths_map = compute_global_all_depths(graph_dict)
 
     for commit, depths_set in all_depths_map.items():
-        # Adicionamos este loop interno para passar por todas as profundidades em que o commit aparece
         for depth in depths_set:
             overall[depth] += 1
-
-            # commit que gerou correção
             if graph_dict.get(commit):
                 with_fix[depth] += 1
 
-    # reporter.write(f"=== {title} ===")
-
-    # for depth in sorted(overall.keys()):
-    #     total = overall[depth]
-    #     fix   = with_fix.get(depth, 0)
-
-    #     pct = (fix / total * 100) if total else 0
-
-    #     reporter.write(
-    #         f"Level {depth}: total={total} | with_fix={fix} ({pct:.1f}%)"
-    #     )
-
-    # reporter.write("")
-
-    # print("Geral total:", sum(overall.values()))
-    # print("with_fix_total:", sum(with_fix.values()))
-
     return overall, with_fix
-
 
 # ==========================================================
 # 2 - ANÁLISE DE PROFUNDIDADE MÁXIMA
 # ==========================================================
 
 def analyze_max_chain_depth(graph_dict, reporter):
-    """
-    Análise 1: Qual é a pior cadeia de correção?
-    Mostra quanto tempo um bug se propaga antes de ser corrigido.
-    """
     all_depths = compute_global_all_depths(graph_dict)
     
     max_per_bug = {}
@@ -151,20 +113,11 @@ def analyze_max_chain_depth(graph_dict, reporter):
             max_per_bug[commit] = max(depths_set)
     
     if not max_per_bug:
-        # reporter.write("=== Análise de Profundidade Máxima ===")
-        # reporter.write("Sem dados disponíveis")
-        # reporter.write("")
         return {}
     
     longest_chain = max(max_per_bug.values())
     avg_max_depth = np.mean(list(max_per_bug.values()))
     pct_chains_gt_5 = sum(1 for d in max_per_bug.values() if d > 5) / len(max_per_bug) * 100
-    
-    # reporter.write("=== Análise de Profundidade Máxima da Cadeia ===")
-    # reporter.write(f"Cadeia mais longa (profundidade): {longest_chain}")
-    # reporter.write(f"Profundidade média máxima: {avg_max_depth:.2f}")
-    # reporter.write(f"% de cadeias com profundidade > 5: {pct_chains_gt_5:.1f}%")
-    # reporter.write("")
     
     print(f"  Max chain depth: {longest_chain}")
     print(f"  Avg max depth: {avg_max_depth:.2f}")
@@ -176,34 +129,19 @@ def analyze_max_chain_depth(graph_dict, reporter):
         "pct_chains_gt_5": pct_chains_gt_5
     }
 
-
 # ==========================================================
 # 3 - ANÁLISE DE BIFURCAÇÃO
 # ==========================================================
 
 def analyze_bifurcation_rate(graph_dict, reporter):
-    """
-    Análise 2: Taxa de Bifurcação
-    Qual porcentagem de bugs precisa MÚLTIPLAS correções?
-    Bugs que precisam múltiplas correções = baixa qualidade de fix.
-    """
     children_counts = [len(fixes) for fixes in graph_dict.values() if fixes]
     
     if not children_counts:
-        # reporter.write("=== Análise de Taxa de Bifurcação ===")
-        # reporter.write("Sem dados de correções disponíveis")
-        # reporter.write("")
         return {}
     
     avg_fixes = np.mean(children_counts)
     pct_multiple_fixes = sum(1 for c in children_counts if c > 1) / len(children_counts) * 100
     max_fixes = max(children_counts)
-    
-    # reporter.write("=== Análise de Taxa de Bifurcação ===")
-    # reporter.write(f"Média de correções por bug: {avg_fixes:.2f}")
-    # reporter.write(f"% de bugs com múltiplas correções: {pct_multiple_fixes:.1f}%")
-    # reporter.write(f"Máximo de correções para um único bug: {max_fixes}")
-    # reporter.write("")
     
     print(f"  Avg fixes per bug: {avg_fixes:.2f}")
     print(f"  % bugs with multiple fixes: {pct_multiple_fixes:.1f}%")
@@ -215,22 +153,12 @@ def analyze_bifurcation_rate(graph_dict, reporter):
         "max_fixes": max_fixes
     }
 
-
 # ==========================================================
 # 4 - ANÁLISE DE VELOCIDADE DE CORREÇÃO
 # ==========================================================
 
 def analyze_fix_velocity(data, reporter):
-    """
-    Análise 3: Velocidade de Correção
-    Quanto tempo entre bug introduzido e correção?
-    
-    Nota: Busca a data do commit de correção nos dados.
-    Um mesmo commit pode ter múltiplas correções relacionadas.
-    """
     from datetime import datetime
-    
-    # Passo 1: Construir mapa de commit → data
     commit_to_date = {}
     for record in data:
         commit = record.get("commit")
@@ -246,7 +174,6 @@ def analyze_fix_velocity(data, reporter):
     latencies = []
     valid_records = 0
     
-    # Passo 2: Para cada bug, procurar seus commits de correção
     for record in data:
         try:
             commit = record.get("commit")
@@ -256,7 +183,6 @@ def analyze_fix_velocity(data, reporter):
             if not commit or not commit_date_str:
                 continue
             
-            # Parse da data do bug
             try:
                 if isinstance(commit_date_str, str) and len(commit_date_str) >= 10:
                     bug_date = datetime.fromisoformat(commit_date_str[:10])
@@ -265,7 +191,6 @@ def analyze_fix_velocity(data, reporter):
             except (ValueError, TypeError):
                 continue
             
-            # Passo 3: Para cada correção deste bug
             for fixed_by_commit in fixed_by:
                 if not fixed_by_commit or fixed_by_commit not in commit_to_date:
                     continue
@@ -273,7 +198,6 @@ def analyze_fix_velocity(data, reporter):
                 fix_date = commit_to_date[fixed_by_commit]
                 latency = (fix_date - bug_date).days
                 
-                # Aceita apenas latências positivas
                 if latency >= 0:
                     latencies.append(latency)
                     valid_records += 1
@@ -282,28 +206,12 @@ def analyze_fix_velocity(data, reporter):
             continue
     
     if not latencies:
-        # reporter.write("=== Análise de Velocidade de Correção ===")
-        # reporter.write("Dados de datas insuficientes para análise")
-        # reporter.write("")
         return {}
     
     median_days = np.median(latencies)
     p95_days = np.percentile(latencies, 95)
     pct_fixed_7days = sum(1 for x in latencies if x <= 7) / len(latencies) * 100
     avg_days = np.mean(latencies)
-    
-    # reporter.write("=== Análise de Velocidade de Correção ===")
-    # reporter.write(f"Tempo mediano para fix (dias): {median_days:.0f}")
-    # reporter.write(f"Tempo médio para fix (dias): {avg_days:.1f}")
-    # reporter.write(f"P95 - tempo para fix (dias): {p95_days:.0f}")
-    # reporter.write(f"% bugs corrigidos em ≤7 dias: {pct_fixed_7days:.1f}%")
-    # reporter.write(f"Total de relações bug→fix com dados de data: {valid_records}")
-    # reporter.write("")
-    
-    # print(f"  Median days to fix: {median_days:.0f}")
-    # print(f"  Avg days to fix: {avg_days:.1f}")
-    # print(f"  P95 days to fix: {p95_days:.0f}")
-    # print(f"  % fixed within 7 days: {pct_fixed_7days:.1f}%")
     
     return {
         "median_days": median_days,
@@ -314,9 +222,6 @@ def analyze_fix_velocity(data, reporter):
 
 
 def generate_comparison_table(results_summary):
-    """
-    Gera uma tabela simples no formato MS Excel (.xlsx) sem formatação.
-    """
     import json
     import os
     try:
@@ -329,16 +234,13 @@ def generate_comparison_table(results_summary):
         print("Sem dados para comparação.")
         return
     
-    # Cria o arquivo Excel
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Resumo"
 
-    # 1. Inserir Cabeçalho
     headers = ["Repositório", "Max Depth", "Avg Depth", "% Multi-Fix", "Median Dias", "% em 7 dias"]
     ws.append(headers)
 
-    # 2. Inserir Dados
     for repo_name in sorted(results_summary.keys()):
         results = results_summary[repo_name]
         
@@ -348,17 +250,12 @@ def generate_comparison_table(results_summary):
         median_days = results.get("velocity", {}).get("median_days", "N/A")
         fix_7days = results.get("velocity", {}).get("pct_fixed_7days", "N/A")
         
-        # Joga a linha direto na planilha
         ws.append([repo_name, max_d, avg_d, multi_fix, median_days, fix_7days])
 
-    # 3. Salvar os arquivos
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-    
-    # Salvar tabela em Excel
     summary_excel_path = os.path.join(OUTPUT_FOLDER, "comparison_summary.xlsx")
     wb.save(summary_excel_path)
         
-    # Salvar resumo em JSON
     summary_json_path = os.path.join(OUTPUT_FOLDER, "comparison_summary.json")
     with open(summary_json_path, "w", encoding="utf-8") as f:
         json.dump(results_summary, f, indent=2, ensure_ascii=False)
@@ -368,15 +265,16 @@ def generate_comparison_table(results_summary):
 # ==========================================================
 
 def main():
-    results_summary = {}  # Armazena resultados para comparação
+    results_summary = {}  
     
-    for relations_file in sorted(os.listdir("./relations")):
-        if not relations_file.endswith(".json"):
+    for file in sorted(os.listdir("./dataset/4-metricas/with_bic")):
+        if not file.endswith(".json"):
             continue
 
-        print(f"\nProcessando: {relations_file}")
+        print(f"\nProcessando: {file}")
         try:
-            data = load_data(os.path.join("./relations", relations_file))
+            raw_data = load_data(os.path.join("./dataset/4-metricas/with_bic", file))
+            data = preprocess_raw_data(raw_data)
         except Exception as e:
             print(f"  Erro ao carregar: {e}")
             continue
@@ -387,38 +285,20 @@ def main():
         if not os.path.exists(output_path):
             open(output_path, "w").close()
 
-        # reporter = Reporter(output_path)
-        repo_name = relations_file.replace(".json", "")
+        repo_name = file.replace(".json", "")
 
         commit_to_fix = build_commit_to_fix(data)
 
-        # 1. Análise de Propagação Geral (original)
         basic_counts, _ = aggregate_propagation(commit_to_fix, f"Propagação Geral - {repo_name}", reporter=None)
-
-        # 2. Análise de Profundidade Máxima
         max_depth_results = analyze_max_chain_depth(commit_to_fix, reporter=None)
-
-        # 3. Análise de Taxa de Bifurcação
         bifurcation_results = analyze_bifurcation_rate(commit_to_fix, reporter=None)
-
-        # 4. Análise de Velocidade de Correção
         velocity_results = analyze_fix_velocity(data, reporter=None)
 
-        # Armazena resultados para comparação final
         results_summary[repo_name] = {
             "max_depth": max_depth_results,
             "bifurcation": bifurcation_results,
             "velocity": velocity_results,
         }
-
-        # reporter.write("\n" + "="*60)
-        # reporter.write("FIM DO RELATÓRIO")
-        # reporter.write("="*60)
-
-    # Gera tabela comparativa em Excel
-    # print("\n" + "="*80)
-    # print("GERANDO TABELA COMPARATIVA ENTRE REPOSITÓRIOS")
-    # print("="*80)
     
     generate_comparison_table(results_summary)
 

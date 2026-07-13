@@ -4,6 +4,8 @@ import os
 import requests
 import glob
 from pydriller import Git, Repository
+from pydriller.domain.commit import DMMProperty
+
 from datetime import time, timedelta
 from bisect import bisect_right
 from utils.logger_config import log_message
@@ -82,6 +84,8 @@ def group_file_by_fix(data):
     """
     grouped_data = {}
 
+    original_len = len(data)
+
     for record in data:
         fix_hash = record["fix_commit_hash"]
         
@@ -95,6 +99,8 @@ def group_file_by_fix(data):
         {**values, "bic": list(values["bic"])}
         for values in grouped_data.values()
     ]
+
+    print(f"Original: {original_len} records, Grouped: {len(result)} records after grouping by fix_commit_hash.")
 
     return result 
 
@@ -138,11 +144,14 @@ def extract_metrics_from_commit(commit, author_commits_map, pranalyzer_fn=None):
     added_asserts = 0
     removed_asserts = 0
 
+    java_mods = []
 
     for mf in commit.modified_files:
         if mf.filename.endswith(".java"):
             java_lines_changed += mf.added_lines + mf.deleted_lines
             java_files += 1
+
+            java_mods.append(mf)
 
             is_test_file = (
                 "test" in mf.filename.lower()
@@ -160,7 +169,11 @@ def extract_metrics_from_commit(commit, author_commits_map, pranalyzer_fn=None):
                     test_files_with_asserts_changes += 1
                     added_asserts += file_added_asserts
                     removed_asserts += file_removed_asserts
-                    
+
+    dmm_size = calculate_dmm(java_mods, DMMProperty.UNIT_SIZE)
+    dmm_complexity = calculate_dmm(java_mods, DMMProperty.UNIT_COMPLEXITY)
+    dmm_interfacing = calculate_dmm(java_mods, DMMProperty.UNIT_INTERFACING)
+
     # Calcula contributor_activity para o autor até a data do commit - 1 dia
     author = commit.author.name
     commit_date = commit.author_date
@@ -180,15 +193,11 @@ def extract_metrics_from_commit(commit, author_commits_map, pranalyzer_fn=None):
         "committer": commit.committer.name,
         "commit_date": commit_date.isoformat(),
         "committer_date": commit.committer_date.isoformat(),
-        "changed_files": commit.files,
-        "deletions": commit.deletions,
-        "insertions": commit.insertions,
-        "lines": commit.lines,
         "java_lines_changed": java_lines_changed,
         "java_files": java_files,
-        "dmm_unit_size": commit.dmm_unit_size,
-        "dmm_unit_complexity": commit.dmm_unit_complexity,
-        "dmm_unit_interfacing": commit.dmm_unit_interfacing,
+        "dmm_unit_size": dmm_size,
+        "dmm_unit_complexity": dmm_complexity,
+        "dmm_unit_interfacing": dmm_interfacing,
         "contributor_activity": contributor_activity,
         "has_test_files": has_test_files,
         "has_asserts_changes": files_with_asserts_changes > 0,
@@ -201,11 +210,12 @@ def extract_metrics_from_commit(commit, author_commits_map, pranalyzer_fn=None):
     return data
 
 
-def preload_commits_index(repo_path):
+def preload_commits_index(repo_path, to_datetime):
     """
     Precarrega um índice de commits para um repositório específico, mapeando cada commit para sua data e agrupando commits por autor.
     Args:
         repo_path (str): Caminho para o repositório local.
+        to_datetime (datetime): Data limite para a travessia dos commits.
     Returns:
         tuple: Um dicionário mapeando hashes de commits para suas datas e um dicionário mapeando autores para listas de datas de commits.
     """
@@ -213,7 +223,7 @@ def preload_commits_index(repo_path):
     author_commits = defaultdict(list)
 
     try:
-        for commit in Repository(repo_path).traverse_commits():
+        for commit in Repository(repo_path, to=to_datetime).traverse_commits():
             commit_date[commit.hash] = commit.author_date
             author_commits[commit.author.name].append(commit.author_date)
     except Exception:
@@ -311,3 +321,58 @@ def get_activity_bucket(activity):
     if activity <= 20:   return "6-20"
     if activity <= 100:  return "21-100"
     return "100+"
+
+def calculate_dmm(java_mods, dmm_prop: DMMProperty):
+    
+    # Se não houver modificações em Java neste commit, o DMM é nulo
+    if not java_mods:
+        return None
+    
+    delta_low = 0
+    delta_high = 0
+    
+    # 2. Agregamos o "delta risk profile" (dl, dh) apenas dos arquivos Java
+    for mod in java_mods:
+        dl, dh = mod._delta_risk_profile(dmm_prop)
+        delta_low += dl
+        delta_high += dh
+        
+    # 3. Aplicamos a regra do PyDriller para converter os perfis em "Good Change" e "Bad Change"
+    good_change, bad_change = (0, 0)
+    
+    # Regras para código de BAIXO risco (low risk)
+    if delta_low >= 0:
+        good_change = delta_low  # Aumentos em código de baixo risco são bons
+    else:
+        bad_change = abs(delta_low) # Diminuições em código de baixo risco são ruins
+
+    if delta_high >= 0:
+        bad_change += delta_high  # Aumentos em código de alto risco são ruins
+    else:
+        good_change += abs(delta_high) # Diminuições em código de alto risco são boas
+
+    assert good_change >= 0 and bad_change >= 0, "Good Change e Bad Change devem ser não-negativos"
+
+    total_changes = good_change + bad_change
+    if total_changes == 0:
+        return None  # Evita divisão por zero se não houver mudanças
+    proportion =  good_change / total_changes
+        
+    assert 0.0 <= proportion <= 1.0, "Proporção de mudanças boas deve estar entre 0 e 1"
+    return proportion        
+
+def preprocess_raw_data(raw_data):
+    bic_index = defaultdict(list)
+    for item in raw_data:
+        for bug_causer in item.get("bic", []):
+            bic_index[bug_causer].append(item.get("fix_commit_hash"))
+            
+    processed_data = []
+    for item in raw_data:
+        possible_bic = item.get("fix_commit_hash")
+        new_item = item.copy() 
+        new_item["commit"] = possible_bic
+        new_item["fixed_by"] = bic_index.get(possible_bic, [])
+        processed_data.append(new_item)
+        
+    return processed_data

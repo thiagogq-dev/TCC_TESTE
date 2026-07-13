@@ -2,15 +2,11 @@ import os
 import numpy as np
 from collections import defaultdict, deque
 import matplotlib.pyplot as plt
-from utils.utils import load_data, Reporter, ACTIVITY_BUCKETS, get_activity_bucket
+from utils.utils import load_data, Reporter, ACTIVITY_BUCKETS, get_activity_bucket, preprocess_raw_data
 from utils.stats import (
     teste_mann_whitney, teste_kruskal, teste_spearman,
     aplicar_correcao_bh,
 )
-
-# ==========================================================
-# UTIL
-# ==========================================================
 
 def build_commit_to_fix(data):
     commit_to_fix = defaultdict(list)
@@ -28,7 +24,6 @@ def build_has_tests_map(data):
 # ==========================================================
 
 def bfs_unique(graph_dict, start_commit):
-    """Percorre o grafo via BFS garantindo que cada commit seja visitado uma vez."""
     visited = {}
     queue = deque([(start_commit, 1)])
     while queue:
@@ -42,10 +37,6 @@ def bfs_unique(graph_dict, start_commit):
     return visited
 
 def precompute_bfs(data, graph_dict):
-    """
-    Executa o BFS uma única vez para cada BIC único e armazena em cache.
-    Todas as funções de análise consomem este cache — nenhum BFS é refeito.
-    """
     cache = {}
     seen = set()
     for rec in data:
@@ -56,7 +47,6 @@ def precompute_bfs(data, graph_dict):
     return cache
 
 def summarize_bic_from_cache(visited):
-    """Calcula métricas de propagação a partir do dict `visited` já computado."""
     depths = list(visited.values())
     return {
         "n_commits":    len(depths),
@@ -65,9 +55,7 @@ def summarize_bic_from_cache(visited):
         "median_depth": float(np.median(depths)),
     }
 
-
 def iter_unique_bics(data):
-    """Itera sobre os registros retornando apenas BICs únicos (commit, rec)."""
     seen = set()
     for rec in data:
         bic = rec.get("commit")
@@ -80,17 +68,9 @@ def iter_unique_bics(data):
 # ==========================================================
 
 def collect_all_bic_metrics(data, bfs_cache, graph_dict, has_tests_map):
-    """
-    Percorre os BICs únicos uma única vez e coleta simultaneamente
-    todos os dados necessários para as análises 1–4.
-
-    A experiência é agora categorizada em buckets absolutos (0, 1-5, 6-20,
-    21-100, 100+), independente da distribuição da amostra.
-    """
     overall  = defaultdict(int)
     with_fix = defaultdict(int)
 
-    # Grupos por bucket: cada bucket armazena lista de avg_depth dos BICs
     bucket_depths = {b: [] for b in ACTIVITY_BUCKETS}
 
     prop_with_tests    = defaultdict(int)
@@ -100,7 +80,6 @@ def collect_all_bic_metrics(data, bfs_cache, graph_dict, has_tests_map):
     avg_depths_with_tests    = []
     avg_depths_without_tests = []
 
-    # Para o Spearman: atividade contínua e avg_depth na mesma ordem
     activities_all = []
     avg_depths_all = []
 
@@ -117,7 +96,6 @@ def collect_all_bic_metrics(data, bfs_cache, graph_dict, has_tests_map):
             if graph_dict.get(commit):
                 with_fix[depth] += 1
 
-        # Agrupa avg_depth por bucket (todos os buckets)
         if bucket is not None:
             bucket_depths[bucket].append(avg_depth)
 
@@ -126,7 +104,6 @@ def collect_all_bic_metrics(data, bfs_cache, graph_dict, has_tests_map):
         else:
             avg_depths_without_tests.append(avg_depth)
 
-        # Spearman: coleta atividade contínua e avg_depth na mesma ordem
         if activity is not None:
             activities_all.append(activity)
             avg_depths_all.append(avg_depth)
@@ -158,32 +135,7 @@ def collect_all_bic_metrics(data, bfs_cache, graph_dict, has_tests_map):
 # ANÁLISES
 # ==========================================================
 
-# def aggregate_propagation(metrics, title, reporter):
-#     overall  = metrics["overall"]
-#     with_fix = metrics["with_fix"]
-
-#     reporter.write(f"=== {title} ===")
-#     for depth in sorted(overall.keys()):
-#         total = overall[depth]
-#         fix   = with_fix.get(depth, 0)
-#         pct   = (fix / total * 100) if total else 0
-#         reporter.write(f"Level {depth}: total={total} | with_fix={fix} ({pct:.1f}%)")
-#     reporter.write("")
-
-#     return overall, with_fix
-
-
 def aggregate_by_experience(metrics, reporter):
-    """
-    Análise de experiência × profundidade usando buckets absolutos.
-
-    Estratégia estatística:
-      1. Kruskal-Wallis sobre todos os 5 buckets → verifica se há diferença global
-      2. Spearman entre atividade contínua e avg_depth → direção e força da
-         relação ao longo de toda a escala, sem dicotomização
-
-    Retorna lista de dicts {"label", "p"} para correção BH.
-    """
     bucket_depths  = metrics["bucket_depths"]
     activities_all = metrics["activities_all"]
     avg_depths_all = metrics["avg_depths_all"]
@@ -198,15 +150,12 @@ def aggregate_by_experience(metrics, reporter):
         reporter.write(f"  [{b}] n_bics={len(depths)}  avg_depth={avg:.4f}")
     reporter.write("")
 
-    # 1 — Kruskal-Wallis global (todos os buckets com pelo menos 2 obs.)
     r_kw = teste_kruskal(
         bucket_depths,
         "avg_depth por BIC: todos os buckets de experiência",
         reporter
     )
 
-    # 2 — Spearman: atividade contínua × avg_depth (todos os BICs)
-    #     Complementa o MW mostrando se a relação é gradual ao longo da escala
     reporter.write("")
     reporter.write("  [Spearman] Atividade contínua × avg_depth (todos os BICs)")
     r_sp = teste_spearman(
@@ -219,9 +168,6 @@ def aggregate_by_experience(metrics, reporter):
     return [r_kw, r_sp]
 
 def aggregate_tests_vs_no_tests(metrics, reporter):
-    """
-    Retorna dict {"label", "p"} do Mann-Whitney para correção BH.
-    """
     avg_depths_with    = metrics["avg_depths_with_tests"]
     avg_depths_without = metrics["avg_depths_without_tests"]
     prop_with          = metrics["prop_with_tests"]
@@ -247,62 +193,6 @@ def aggregate_tests_vs_no_tests(metrics, reporter):
     reporter.write("")
     return result, prop_with, prop_without, depths_with
 
-# ==========================================================
-# PLOTS
-# ==========================================================
-
-# def save_bar(labels, values, filename, title="", xlabel="", ylabel=""):
-#     plt.figure(figsize=(8, 4))
-#     plt.bar(labels, values, color="#1f77b4", alpha=0.8)
-#     if xlabel: plt.xlabel(xlabel)
-#     if ylabel: plt.ylabel(ylabel)
-#     plt.title(title)
-#     if labels and isinstance(labels[0], str):
-#         plt.xticks(rotation=20)
-#     else:
-#         plt.xticks(labels)
-#     plt.grid(axis="y", linestyle="--", alpha=0.5)
-#     plt.tight_layout()
-#     plt.savefig(filename)
-#     plt.close()
-
-
-# def save_histogram(counts, filename, title="Histogram", xlabel="Level", ylabel="Count"):
-#     if not counts:
-#         return
-#     levels = sorted(counts.keys())
-#     vals   = [counts[l] for l in levels]
-#     save_bar(levels, vals, filename, title=title, xlabel=xlabel, ylabel=ylabel)
-
-
-# def save_bucket_depth_plot(bucket_depths, filename, repo_name=""):
-#     """
-#     Gráfico de barras: avg_depth por bucket de experiência.
-#     Inclui anotação com n de BICs por bucket.
-#     """
-#     avgs   = [float(np.mean(bucket_depths[b])) if bucket_depths[b] else 0.0
-#               for b in ACTIVITY_BUCKETS]
-#     counts = [len(bucket_depths[b]) for b in ACTIVITY_BUCKETS]
-
-#     fig, ax = plt.subplots(figsize=(9, 5), dpi=150)
-#     bars = ax.bar(ACTIVITY_BUCKETS, avgs, color="#1f77b4", alpha=0.85)
-
-#     for bar, avg, n in zip(bars, avgs, counts):
-#         ax.text(
-#             bar.get_x() + bar.get_width() / 2,
-#             bar.get_height() + 0.02,
-#             f"{avg:.2f}\n(n={n})",
-#             ha="center", va="bottom", fontsize=9
-#         )
-
-#     ax.set_xlabel("Commits anteriores do autor (experiência)")
-#     ax.set_ylabel("Profundidade média da cadeia (avg_depth)")
-#     ax.set_title(f"Profundidade de propagação por faixa de experiência — {repo_name}")
-#     ax.grid(axis="y", linestyle="--", alpha=0.4)
-#     plt.tight_layout()
-#     plt.savefig(filename, dpi=300, bbox_inches="tight")
-#     plt.close()
-
 
 # ==========================================================
 # MAIN
@@ -321,13 +211,14 @@ def main():
     reporter = Reporter(OUTPUT_TEXT_PATH)
     dados_tabela = []
 
-    for relations_file in sorted(os.listdir("./relations")):
+    for relations_file in sorted(os.listdir("./dataset/4-metricas/with_bic")):
         if not relations_file.endswith(".json"):
             continue
 
         print(f"\nProcessando: {relations_file}")
         try:
-            data = load_data(os.path.join("./relations", relations_file))
+            raw_data = load_data(os.path.join("./dataset/4-metricas/with_bic", relations_file))
+            data = preprocess_raw_data(raw_data)
         except Exception as e:
             print(f"  Erro ao carregar: {e}")
             continue
@@ -351,30 +242,12 @@ def main():
 
         pvalores = []
 
-        # 1 — Propagação geral (descritivo)
-        # basic_counts, _ = aggregate_propagation(metrics, "PROPAGACAO", reporter)
-        # save_histogram(basic_counts, f"./results/{OUTPUT_REPO_FOLDER}/histograma_general.png",
-                    #    title="General Propagation Histogram")
-        # 2 — Experiência (buckets) x profundidade
         rs = aggregate_by_experience(metrics, reporter)
         pvalores.extend(rs)
-        # save_bucket_depth_plot(
-        #     metrics["bucket_depths"],
-        #     f"./results/{OUTPUT_REPO_FOLDER}/exp_buckets_vs_depth.png",
-        #     repo_name=repo_name
-        # )
 
-        # 3 — Propagação: com testes vs sem testes
         r, with_tests, without_tests, depths_with_tests = aggregate_tests_vs_no_tests(metrics, reporter)
         pvalores.append(r)
-        # save_histogram(with_tests,    f"./results/{OUTPUT_REPO_FOLDER}/propagation_with_tests.png",
-        #                title="Propagation (commits with tests)")
-        # save_histogram(without_tests, f"./results/{OUTPUT_REPO_FOLDER}/propagation_without_tests.png",
-        #                title="Propagation (commits without tests)")
 
-        # --- correção BH sobre toda a família depth_analyses ---
-
-        # Preencher os valores na linha do CSV
         for resultado in pvalores:
             if resultado is not None and "label" in resultado:
                 nome_coluna = resultado["label"]
@@ -385,13 +258,11 @@ def main():
                 else:
                     linha_projeto[f"{nome_coluna} (p-value)"] = valor_p
 
-        # --- correção BH ---
         aplicar_correcao_bh(pvalores, reporter, label="RQ5 (ii)")
 
         dados_tabela.append(linha_projeto)
         print(f"  Concluído -> Adicionado à tabela unificada.")
 
-    # Salvar tabela final
     if dados_tabela:
         df_resultados = pd.DataFrame(dados_tabela)
         df_resultados.to_csv(OUTPUT_CSV_PATH, index=False, encoding='utf-8')

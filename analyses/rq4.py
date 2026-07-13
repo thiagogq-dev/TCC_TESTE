@@ -195,12 +195,12 @@ if __name__ == "__main__":
     # 2. Instanciar o Reporter uma única vez FORA do loop
     reporter = Reporter(OUTPUT_FILE)
 
-    for file in sorted(os.listdir("./relations")):
+    for file in sorted(os.listdir("./dataset/4-metricas/without_bic")):
         if not file.endswith(".json"):
             continue
 
         FOLDER_REPO_PATH = file.replace(".json", "")
-        INPUT_PATH      = f"./relations/{file}"
+        INPUT_PATH      = f"./dataset/4-metricas/without_bic/{file}"
         RESULTS_FOLDER  = "./results/rq4"  # Pasta base para gráficos ou outros outputs se necessário
 
         data = load_data(INPUT_PATH)

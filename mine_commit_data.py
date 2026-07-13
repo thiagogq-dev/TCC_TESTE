@@ -1,9 +1,10 @@
-from utils.utils import extract_metrics_from_commit, preload_commits_index
+from utils.utils import extract_metrics_from_commit, preload_commits_index, group_file_by_fix, remove_duplicates
 from pydriller import Git
 import json
 import os
 from PRANALYZER.run_analyses import analyze_diff
 import argparse
+import datetime
 
 parser = argparse.ArgumentParser()
 parser.add_argument("data_folder", help="Pasta contendo os arquivos JSON a serem processados.")
@@ -14,20 +15,20 @@ DATA_FOLDER = args.data_folder
 for file in os.listdir(DATA_FOLDER):
     if not file.endswith(".json"):
         continue
-
+    
     folder_path = os.path.join(DATA_FOLDER, file)
 
     with open(folder_path, "r") as f:
         data = json.load(f)
 
-    if len(data) == 0:
-        continue
-
     real_repo_name = data[0]["repo_name"].split("/")[-1]
     repo_path = f"repos_dir/{real_repo_name}"
 
     print(f"Precarregando index para {real_repo_name}...")
-    commit_date_map, author_commits_map = preload_commits_index(repo_path)
+
+    # definir para 13 de maio de 2026
+    to_datetime = datetime.datetime(2026, 5, 13, 23, 59, 59)
+    commit_date_map, author_commits_map = preload_commits_index(repo_path, to_datetime)
 
     fix_hashes = [d["fix_commit_hash"] for d in data]
 
@@ -37,7 +38,11 @@ for file in os.listdir(DATA_FOLDER):
 
     git_repo = Git(repo_path)
 
+    current_index = 0
+    total_commits = len(set(fix_hashes))
     for commit_hash in set(fix_hashes):
+        current_index += 1
+        print(f"Processando commit {commit_hash}... ({current_index}/{total_commits})")
         try:
             commit = git_repo.get_commit(commit_hash)
 
@@ -58,9 +63,17 @@ for file in os.listdir(DATA_FOLDER):
         else:
             print(f"Aviso: Commit {commit_hash} de {d['repo_name']} não encontrado.")
 
-    data = [d for d in data if d.get("java_files", 0) > 0] # Manter apenas registros com arquivos Java modificados
+    # java_files_data = [d for d in data if d.get("java_files", 0) > 0]
+    java_files_data = []
+    for d in data:
+        if d.get("java_files", 0) == 0:
+            print(f"Aviso: Commit {d['fix_commit_hash']} de {d['repo_name']} não contém arquivos Java.")
+        else:
+            java_files_data.append(d)
+
+    print(f"Arquivos removidos por não conter arquivos Java: {len(data) - len(java_files_data)}")
 
     with open(folder_path, "w") as f:
-        json.dump(data, f, indent=4)
+        json.dump (java_files_data, f, indent=4)
 
     print(f"Arquivo processado e salvo em: {folder_path}\n")

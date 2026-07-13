@@ -8,17 +8,19 @@ OUTPUT_FOLDER = "./results/rq3"
 if __name__ == "__main__":
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-    json_files = glob.glob('./relations/*.json')
     dados_tabela = []
 
-    for json_file in sorted(json_files):
+    for json_file in os.listdir('./dataset/4-metricas/with_bic'):
+        if not json_file.endswith('.json'):
+            continue
         repo_name = os.path.basename(json_file).replace('.json', '')
         
-        with open(json_file, 'r') as f:
+        path = os.path.join('./dataset/4-metricas/with_bic', json_file)
+        with open(path, 'r') as f:
             data = json.load(f)
 
         commit_map = {
-            entry['commit']: entry
+            entry['fix_commit_hash']: entry
             for entry in data
         }
 
@@ -30,18 +32,19 @@ if __name__ == "__main__":
 
         # Para cada BIC no dataset
         for entry in data:
-            bic_has_asserts_changes = entry.get('test_files_with_asserts_changes', 0) > 0
-            fix_hashes = entry.get('fixed_by', [])
+            fix_has_asserts_changes = entry.get('test_files_with_asserts_changes', 0) > 0
+            bics = entry.get('bic', [])
 
-            # Para cada FIX associado ao BIC
-            for fix_hash in fix_hashes:
-                fix_entry = commit_map.get(fix_hash)
+            # Para cada BIC associado ao FIX
+            for bic_hash in bics:
+                bic_entry = commit_map.get(bic_hash)
 
-                # Se o FIX não estiver no dataset, ignora
-                if not fix_entry:
+                # Se o BIC não estiver no dataset, ignora
+                if not bic_entry:
+                    print(f"AVISO: BIC {bic_hash} não encontrado no dataset para o repositório {repo_name}.")
                     continue
 
-                fix_has_asserts_changes = fix_entry.get('test_files_with_asserts_changes', 0) > 0
+                bic_has_asserts_changes = bic_entry.get('test_files_with_asserts_changes', 0) > 0
 
                 # Classificação do par (FIX, BIC)
                 if fix_has_asserts_changes and bic_has_asserts_changes: # Ambos tem alterações em testes
