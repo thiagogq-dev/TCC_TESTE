@@ -4,11 +4,18 @@ import numpy as np
 from collections import defaultdict, deque
 import matplotlib.pyplot as plt
 
-from utils.utils import Reporter, load_data, preprocess_raw_data
+from utils.utils import load_data, preprocess_raw_data
 
 OUTPUT_FOLDER = "./results/chain_description"
 
 def build_commit_to_fix(data):
+    """
+    Constrói um dicionário que mapeia cada commit para a lista de commits que o corrigem (fixed_by).
+    Args:
+        data (list): Lista de registros de commits.
+    Returns:
+        defaultdict(list): Dicionário onde a chave é o commit e o valor é uma lista
+    """
     commit_to_fix = defaultdict(list)
     for record in data:
         commit = record.get("commit")
@@ -17,7 +24,14 @@ def build_commit_to_fix(data):
     return commit_to_fix
 
 def bfs_unique(graph_dict, start_commit):
-    """Percorre o grafo via BFS garantindo que cada commit seja visitado uma vez."""
+    """
+    Percorre o grafo via BFS garantindo que cada commit seja visitado uma vez.
+    Args:
+        graph_dict (dict): Dicionário representando o grafo de commits.
+        start_commit (str): Commit inicial para a travessia.
+    Returns:
+        dict: Dicionário com commits visitados e suas respectivas profundidades.
+    """
     visited = {}
     queue = deque([(start_commit, 1)])
     while queue:
@@ -34,6 +48,10 @@ def compute_global_all_depths(graph_dict):
     """
     Calcula TODAS as profundidades absolutas em que um commit aparece,
     partindo das raízes reais do repositório (nível 1).
+    Args:
+        graph_dict (dict): Dicionário representando o grafo de commits.
+    Returns:
+        dict: Dicionário onde a chave é o commit e o valor é um conjunto de profundidades em que ele aparece.
     """
     if not graph_dict:
         return {}
@@ -64,7 +82,15 @@ def compute_global_all_depths(graph_dict):
     return depths
 
 def summarize_bic(bic, graph_dict, bic_cache):
-    """Retorna métricas agregadas de propagação para um único BIC."""
+    """
+    Retorna métricas agregadas de propagação para um único BIC.
+    Args:
+        bic (str): Commit BIC.
+        graph_dict (dict): Dicionário representando o grafo de commits.
+        bic_cache (dict): Cache para armazenar resultados já calculados.
+    Returns:
+        dict: Dicionário com métricas de propagação para o BIC.
+    """
     if not bic:
         return {"n_commits": 0, "max_depth": 1, "avg_depth": 1.0, "median_depth": 1.0}
 
@@ -87,7 +113,14 @@ def summarize_bic(bic, graph_dict, bic_cache):
 # 1 - PROPAGAÇÃO GERAL
 # ==========================================================
 
-def aggregate_propagation(graph_dict, title, reporter):
+def aggregate_propagation(graph_dict):
+    """
+    Agrega métricas de propagação para todos os BICs no grafo.
+    Args:
+        graph_dict (dict): Dicionário representando o grafo de commits.
+    Returns:
+        tuple: Dois dicionários (overall, with_fix) com contagens de profundidade
+    """
     overall = defaultdict(int)
     with_fix = defaultdict(int)
     all_depths_map = compute_global_all_depths(graph_dict)
@@ -104,7 +137,14 @@ def aggregate_propagation(graph_dict, title, reporter):
 # 2 - ANÁLISE DE PROFUNDIDADE MÁXIMA
 # ==========================================================
 
-def analyze_max_chain_depth(graph_dict, reporter):
+def analyze_max_chain_depth(graph_dict):
+    """
+    Analisa a profundidade máxima das cadeias de commits no grafo.
+    Args:
+        graph_dict (dict): Dicionário representando o grafo de commits.
+    Returns:
+        dict: Dicionário com métricas de profundidade máxima.
+    """
     all_depths = compute_global_all_depths(graph_dict)
     
     max_per_bug = {}
@@ -133,7 +173,14 @@ def analyze_max_chain_depth(graph_dict, reporter):
 # 3 - ANÁLISE DE BIFURCAÇÃO
 # ==========================================================
 
-def analyze_bifurcation_rate(graph_dict, reporter):
+def analyze_bifurcation_rate(graph_dict):
+    """
+    Analisa a taxa de bifurcação no grafo, ou seja, quantos commits têm múltiplos filhos (fixes).
+    Args:
+        graph_dict (dict): Dicionário representando o grafo de commits.
+    Returns:
+        dict: Dicionário com métricas de bifurcação.
+    """
     children_counts = [len(fixes) for fixes in graph_dict.values() if fixes]
     
     if not children_counts:
@@ -157,7 +204,14 @@ def analyze_bifurcation_rate(graph_dict, reporter):
 # 4 - ANÁLISE DE VELOCIDADE DE CORREÇÃO
 # ==========================================================
 
-def analyze_fix_velocity(data, reporter):
+def analyze_fix_velocity(data):
+    """
+    Analisa a velocidade de correção dos bugs, calculando métricas como mediana de dias para correção, percentil 95 e porcentagem de bugs corrigidos em até 7 dias.
+    Args:
+        data (list): Lista de registros de commits.
+    Returns:
+        dict: Dicionário com métricas de velocidade de correção.
+    """
     from datetime import datetime
     commit_to_date = {}
     for record in data:
@@ -267,13 +321,13 @@ def generate_comparison_table(results_summary):
 def main():
     results_summary = {}  
     
-    for file in sorted(os.listdir("./dataset/4-metricas/with_bic")):
+    for file in sorted(os.listdir("./dataset/4-metricas/pair_bic_fix")):
         if not file.endswith(".json"):
             continue
 
         print(f"\nProcessando: {file}")
         try:
-            raw_data = load_data(os.path.join("./dataset/4-metricas/with_bic", file))
+            raw_data = load_data(os.path.join("./dataset/4-metricas/pair_bic_fix", file))
             data = preprocess_raw_data(raw_data)
         except Exception as e:
             print(f"  Erro ao carregar: {e}")
@@ -289,10 +343,10 @@ def main():
 
         commit_to_fix = build_commit_to_fix(data)
 
-        basic_counts, _ = aggregate_propagation(commit_to_fix, f"Propagação Geral - {repo_name}", reporter=None)
-        max_depth_results = analyze_max_chain_depth(commit_to_fix, reporter=None)
-        bifurcation_results = analyze_bifurcation_rate(commit_to_fix, reporter=None)
-        velocity_results = analyze_fix_velocity(data, reporter=None)
+        basic_counts, _ = aggregate_propagation(commit_to_fix, f"Propagação Geral - {repo_name}")
+        max_depth_results = analyze_max_chain_depth(commit_to_fix)
+        bifurcation_results = analyze_bifurcation_rate(commit_to_fix)
+        velocity_results = analyze_fix_velocity(data)
 
         results_summary[repo_name] = {
             "max_depth": max_depth_results,

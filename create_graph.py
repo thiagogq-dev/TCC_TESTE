@@ -1,3 +1,11 @@
+"""
+Este script cria um grafo interativo usando a biblioteca PyVis, representando as relações entre commits de correção (fix commits) e commits de introdução de bugs (BICs). 
+Ele lê arquivos JSON de um diretório especificado, extrai os commits e suas relações, e gera um arquivo HTML contendo o grafo interativo.
+O grafo é direcionado, com setas apontando dos BICs para os fix commits, e cada nó representa um commit, com informações adicionais exibidas ao passar o mouse sobre ele.
+O script também garante que cada nó e aresta seja adicionado apenas uma vez, evitando duplicações no grafo. Além disso, cada BIC é colorido aleatoriamente para facilitar a visualização das relações.
+O resultado final é salvo em arquivos HTML na pasta "./results/graph", permitindo a visualização interativa das relações entre commits de correção e commits de introdução de bugs.
+"""
+
 from pyvis.network import Network
 import json
 import os
@@ -8,7 +16,7 @@ def generate_random_color():
     r = lambda: random.randint(0, 255)
     return '#%02X%02X%02X' % (r(), r(), r())
 
-INPUT_FOLDER = "./dataset/4-metricas/with_bic"
+INPUT_FOLDER = "./dataset2/4-metricas/final_pairs"
 
 for file in os.listdir(INPUT_FOLDER):
     if file.endswith('.json'):
@@ -62,6 +70,6 @@ for file in os.listdir(INPUT_FOLDER):
                 if edge_key not in existing_edges:
                     net.add_edge(bic, fix_commit, arrowStrikethrough=False)
                     existing_edges.add(edge_key)
-        print(f"Quantidade de pares (arestas) no arquivo {file}: {len(existing_edges)}")
+
         os.makedirs("./results/graph", exist_ok=True)
-        net.show(f"./results/graph/{output_base_file}_v2.html")
+        net.show(f"./results/graph/{output_base_file}.html")

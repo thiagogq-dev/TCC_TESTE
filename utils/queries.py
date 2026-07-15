@@ -15,6 +15,7 @@ Args:
 Returns:
     dict: Dicionário contendo informações sobre as issues fechadas e seus eventos de fechamento.
 """
+
 REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY = """
 query ($owner: String!, $name: String!, $after: String) {
   repository(owner: $owner, name: $name) {

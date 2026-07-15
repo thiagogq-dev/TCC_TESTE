@@ -9,6 +9,13 @@ from utils.stats import (
 )
 
 def build_commit_to_fix(data):
+    """
+    Constrói um dicionário que mapeia cada commit para a lista de commits que o corrigem (fixed_by).
+    Args:
+        data (list): Lista de registros de commits.
+    Returns:
+        dict: Dicionário onde a chave é o commit e o valor é uma lista de
+    """
     commit_to_fix = defaultdict(list)
     for record in data:
         commit = record.get("commit")
@@ -17,6 +24,13 @@ def build_commit_to_fix(data):
     return commit_to_fix
 
 def build_has_tests_map(data):
+    """
+    Constrói um dicionário que mapeia cada commit para um booleano indicando se ele possui testes com asserts.
+    Args:
+        data (list): Lista de registros de commits.
+    Returns:
+        dict: Dicionário onde a chave é o commit e o valor é True se o commit possui testes com asserts, caso contrário False.
+    """
     return {rec.get("commit"): (rec.get("test_files_with_asserts_changes") > 0) for rec in data}
 
 # ==========================================================
@@ -24,6 +38,14 @@ def build_has_tests_map(data):
 # ==========================================================
 
 def bfs_unique(graph_dict, start_commit):
+    """
+    Realiza uma busca em largura (BFS) a partir de um commit inicial, retornando um dicionário com a profundidade de cada commit visitado.
+    Args:
+        graph_dict (dict): Dicionário representando o grafo de commits, onde a chave é o commit e o valor é uma lista de commits que ele corrige.
+        start_commit (str): Commit inicial para a BFS.
+    Returns:
+        dict: Dicionário onde a chave é o commit visitado e o valor é a profundidade (nível) do commit em relação ao commit inicial.
+    """
     visited = {}
     queue = deque([(start_commit, 1)])
     while queue:
@@ -37,6 +59,14 @@ def bfs_unique(graph_dict, start_commit):
     return visited
 
 def precompute_bfs(data, graph_dict):
+    """
+    Pré-computa a BFS para cada commit único no dataset, armazenando os resultados em um cache.
+    Args:
+        data (list): Lista de registros de commits.
+        graph_dict (dict): Dicionário representando o grafo de commits.
+    Returns:
+        dict: Dicionário onde a chave é o commit e o valor é o resultado da BFS (dicionário de commits visitados e suas profundidades).
+    """
     cache = {}
     seen = set()
     for rec in data:
@@ -47,6 +77,13 @@ def precompute_bfs(data, graph_dict):
     return cache
 
 def summarize_bic_from_cache(visited):
+    """
+    Resume as informações de profundidade de um BIC a partir do cache da BFS.
+    Args:
+        visited (dict): Dicionário de commits visitados e suas profundidades.
+    Returns:
+        dict: Dicionário contendo o número total de commits, profundidade máxima, média e mediana das profundidades.
+    """
     depths = list(visited.values())
     return {
         "n_commits":    len(depths),
@@ -56,6 +93,13 @@ def summarize_bic_from_cache(visited):
     }
 
 def iter_unique_bics(data):
+    """
+    Itera sobre os commits únicos (BICs) no dataset, garantindo que cada BIC seja processado apenas uma vez.
+    Args:
+        data (list): Lista de registros de commits.
+    Yields:
+        tuple: Tupla contendo o commit (BIC) e o registro correspondente.
+    """
     seen = set()
     for rec in data:
         bic = rec.get("commit")
@@ -68,6 +112,16 @@ def iter_unique_bics(data):
 # ==========================================================
 
 def collect_all_bic_metrics(data, bfs_cache, graph_dict, has_tests_map):
+    """
+    Coleta todas as métricas relevantes para cada BIC no dataset, incluindo profundidade da cadeia, presença de testes e experiência do contribuidor.
+    Args:
+        data (list): Lista de registros de commits.
+        bfs_cache (dict): Cache da BFS pré-computada para cada commit.
+        graph_dict (dict): Dicionário representando o grafo de commits.
+        has_tests_map (dict): Dicionário mapeando cada commit para um booleano indicando se possui testes com asserts.
+    Returns:
+        dict: Dicionário contendo várias métricas agregadas, incluindo profundidade geral, profundidade com FIX, profundidade por bucket de experiência e proporção de commits com/sem testes.
+    """
     overall  = defaultdict(int)
     with_fix = defaultdict(int)
 
@@ -136,6 +190,14 @@ def collect_all_bic_metrics(data, bfs_cache, graph_dict, has_tests_map):
 # ==========================================================
 
 def aggregate_by_experience(metrics, reporter):
+    """
+    Agrega métricas por bucket de experiência do contribuidor, realizando testes estatísticos (Kruskal-Wallis e Spearman) para verificar diferenças entre os buckets.
+    Args:
+        metrics (dict): Dicionário contendo métricas coletadas para cada BIC.
+        reporter (Reporter): Instância de Reporter para registrar resultados.
+    Returns:
+        list: Lista de resultados dos testes estatísticos realizados.
+    """
     bucket_depths  = metrics["bucket_depths"]
     activities_all = metrics["activities_all"]
     avg_depths_all = metrics["avg_depths_all"]

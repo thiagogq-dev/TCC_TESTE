@@ -8,6 +8,15 @@ from utils.stats import (
 )
 
 def calculate_proportion_bugs_asserts_types(data, reporter):
+    """
+    Calcula a proporção de commits que introduziram bugs (fixed_by) em relação aos tipos de alterações em asserts (Added, Removed, Maintained, None).
+    Realiza teste estatístico (Chi²) para verificar associação entre tipo de alteração em asserts e introdução de bugs.
+    Args:
+        data (list): Lista de registros de commits.
+        reporter (Reporter): Instância de Reporter para registrar resultados.
+    Returns:
+        dict: Resultado do teste Chi² com correção BH.
+    """
     no_caused_bug_with_weaker_tests = 0
     no_caused_bug_with_stronger_tests = 0
     no_caused_bug_with_equal_tests = 0
@@ -63,6 +72,15 @@ def calculate_proportion_bugs_asserts_types(data, reporter):
     return result
 
 def calculate_experience_vs_recurrence(data, reporter):
+    """
+    Analisa a proporção de commits que introduziram bugs (fixed_by) em relação à experiência do contribuidor.   
+    Realiza teste estatístico (Spearman) para verificar associação entre experiência e recorrência de bugs.
+    Args:
+        data (list): Lista de registros de commits.
+        reporter (Reporter): Instância de Reporter para registrar resultados.
+    Returns:
+        dict: Resultado do teste Spearman com correção BH.
+    """
     bins = {b: [] for b in ACTIVITY_BUCKETS}
     activities, fix_counts_all = [], []
 
@@ -90,6 +108,15 @@ def calculate_experience_vs_recurrence(data, reporter):
     return result
 
 def code_complexity_vs_contributor_experience(data, reporter):
+    """
+    Analisa a correlação entre a complexidade do código (dmm_unit_complexity) e a experiência do contribuidor (contributor_activity).
+    Realiza teste estatístico (Spearman) para verificar associação entre complexidade e experiência.
+    Args:
+        data (list): Lista de registros de commits.
+        reporter (Reporter): Instância de Reporter para registrar resultados.
+    Returns:
+        dict: Resultado do teste Spearman com correção BH.
+    """
     activities, complexities = [], []
 
     for relation in data:

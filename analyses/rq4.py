@@ -12,8 +12,13 @@ RESULTS_FOLDER = "./results/rq4"  # Pasta base para gráficos ou outros outputs 
 def calculate_avg_metrics_by_tests(data, reporter):
     """
     Calcula a média de complexidade, interfacing e size, comparando commits com e sem testes.
+    Realiza testes estatísticos (Mann-Whitney) para verificar diferenças significativas.
 
-    Retorna lista de dicts {"label", "p"} para correção BH.
+    Args:
+        data (list): Lista de registros de commits.
+        reporter (Reporter): Instância de Reporter para registrar resultados.
+    Returns:
+        list: Lista de dicionários com resultados dos testes estatísticos.
     """
     asserts_complexity = []
     no_asserts_complexity = []
@@ -69,9 +74,14 @@ def calculate_avg_metrics_by_tests(data, reporter):
 
 def calculate_added_asserts_churn(data, reporter):
     """
-    Calcula a correlação entre a quantidade de asserts adicionados e o churn.
+    Calcula a correlação entre a quantidade de asserts adicionados/removidos (churn) e a quantidade de linhas alteradas no commit.
+    Realiza testes estatísticos (Spearman) para verificar correlação.
 
-    Retorna dict {"label", "p"} para correção BH.
+    Args:
+        data (list): Lista de registros de commits.
+        reporter (Reporter): Instância de Reporter para registrar resultados.
+    Returns:
+        tuple: Resultados dos testes de correlação para churn e crescimento de asserts.
     """
     asserts_growth_list, asserts_churn_list, lines_changed = [], [], []
 
@@ -121,12 +131,17 @@ def calculate_added_asserts_churn(data, reporter):
     reporter.write("")
     return r1, r2
 
-def calculate_experience_vs_tests(data, reporter, results_folder):
+def calculate_experience_vs_tests(data, reporter):
     """
     Analisa a proporção de commits com testes por faixa de experiência do contribuidor.
-
-    Retorna dict {"label", "p"} do Chi² para correção BH.
+    Realiza teste estatístico (Chi²) para verificar associação entre experiência e presença de testes.
+    Args:
+        data (list): Lista de registros de commits.
+        reporter (Reporter): Instância de Reporter para registrar resultados.
+    Returns:
+        dict: Resultado do teste Chi² com correção BH.
     """
+
     bucket_with  = defaultdict(int)
     bucket_total = defaultdict(int)
 
@@ -220,7 +235,7 @@ if __name__ == "__main__":
         pvalores.append(r1)
         pvalores.append(r2)
 
-        r = calculate_experience_vs_tests(data, reporter, RESULTS_FOLDER)
+        r = calculate_experience_vs_tests(data, reporter)
         pvalores.append(r)
 
         # --- correção BH sobre toda a família tests_analyses ---

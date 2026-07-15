@@ -1,6 +1,7 @@
 import os
 import pandas as pd
-from utils.utils import load_data
+from utils.utils import load_data, format_percentage
+import argparse
 
 OUTPUT_FOLDER = "./results/rq1_rq2"
 
@@ -23,7 +24,7 @@ def calculate_test_changes(data):
 
     for d in data:
         changes_type = d.get("asserts_changes_type")
-        
+            
         if changes_type == "Added":
             stronger_asserts += 1
         elif changes_type == "Removed":
@@ -32,8 +33,6 @@ def calculate_test_changes(data):
             maintenance_asserts += 1
         elif changes_type == "None": 
             no_asserts += 1
-            if d.get("has_test_files"):
-                no_real_tests += 1
 
     return {
         "Total": total,
@@ -41,21 +40,25 @@ def calculate_test_changes(data):
         "Remoção": weaker_asserts,
         "Manutenção": maintenance_asserts,
         "Negligenciado": no_asserts,
-        "Negligenciado com arquivo de teste": no_real_tests
     }
 
-
 if __name__ == "__main__":
+    arg_parser = argparse.ArgumentParser(description="Calcula a qualidade efetiva das alterações em testes nos commits.")
+    arg_parser.add_argument("input_folder", type=str, help="Pasta contendo os arquivos JSON de entrada.")
+    args = arg_parser.parse_args()
+
+    last_subfolder = os.path.basename(os.path.normpath(args.input_folder))
+
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
     
     dados_tabela = []
 
-    for file in sorted(os.listdir("./relations")):
+    for file in sorted(os.listdir(args.input_folder)):
         if not file.endswith(".json"):
             continue
 
         repo_name = file.replace(".json", "")
-        input_path = f"./relations/{file}"
+        input_path = f"{args.input_folder}/{file}"
 
         # Carrega os dados
         data = load_data(input_path)
@@ -72,14 +75,34 @@ if __name__ == "__main__":
     # ==========================================================
     if dados_tabela:
         df = pd.DataFrame(dados_tabela)
+
+        total_row = {
+            "Repositório": "Total",
+            "Total": df["Total"].sum(),
+            "Adição": df["Adição"].sum(),
+            "Remoção": df["Remoção"].sum(),
+            "Manutenção": df["Manutenção"].sum(),
+            "Negligenciado": df["Negligenciado"].sum(),
+        }
+
+        df = pd.concat([df, pd.DataFrame([total_row])], ignore_index=True)
+
+        df["Adição %"] = (df["Adição"] / df["Total"] * 100).apply(format_percentage)
+        df["Remoção %"] = (df["Remoção"] / df["Total"] * 100).apply(format_percentage)
+        df["Adaptação. %"] = (df["Manutenção"] / df["Total"] * 100).apply(format_percentage)
+        df["Neglig. %"] = (df["Negligenciado"] / df["Total"] * 100).apply(format_percentage)
+
+        colunas_ordenadas = [
+            "Repositório", "Total", 
+            "Adição", "Adição %", 
+            "Remoção", "Remoção %", 
+            "Manutenção", "Adaptação. %", 
+            "Negligenciado", "Neglig. %"
+        ]
+
+        df = df[colunas_ordenadas]
         
         # CSV
-        csv_path = os.path.join(OUTPUT_FOLDER, "rq1_rq2.csv")
+        csv_path = os.path.join(OUTPUT_FOLDER, f"rq1_rq2_{last_subfolder}.csv")
         df.to_csv(csv_path, index=False)
         print(f"\nTabela consolidada salva em: {csv_path}")
-
-        # LaTeX (ideal para copiar e colar no artigo)
-        # latex_path = "./results/tabela_rq1_rq2.tex"
-        # with open(latex_path, "w") as f:
-        #     f.write(df.to_latex(index=False, column_format="lrrrrr"))
-        # print(f"Código LaTeX gerado em: {latex_path}")

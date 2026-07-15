@@ -290,6 +290,7 @@ def get_data():
                     "fix_commit_hash": final_fix_commit,
                     "commit_type": commit_type,
                     "commit_message": commit_message,
+                    "closer_url": issue["closedEvents"]["nodes"][0]["closer"].get("url") if issue["closedEvents"]["nodes"] and issue["closedEvents"]["nodes"][0]["closer"] else None,
                     "earliest_issue_date": issue.get("createdAt"),
                 }
 

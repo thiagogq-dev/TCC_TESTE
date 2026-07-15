@@ -323,7 +323,14 @@ def get_activity_bucket(activity):
     return "100+"
 
 def calculate_dmm(java_mods, dmm_prop: DMMProperty):
-    
+    """"
+    Calcula o DMM (Design Metric Matrix) para um conjunto de modificações em Java.
+    Args:
+        java_mods (list): Lista de modificações em Java.
+        dmm_prop (DMMProperty): Propriedade do DMM.
+    Returns:
+        float or None: O valor do DMM ou None se não houver modificações.
+    """
     # Se não houver modificações em Java neste commit, o DMM é nulo
     if not java_mods:
         return None
@@ -362,6 +369,13 @@ def calculate_dmm(java_mods, dmm_prop: DMMProperty):
     return proportion        
 
 def preprocess_raw_data(raw_data):
+    """
+    Preprocessa os dados brutos para criar um índice de BICs e adicionar a lista de commits que corrigem cada commit.
+    Args:
+        raw_data (list): Lista de registros brutos de commits.
+    Returns:
+        list: Lista de registros processados com informações de BICs e commits que corrigem cada commit.
+    """
     bic_index = defaultdict(list)
     for item in raw_data:
         for bug_causer in item.get("bic", []):
@@ -376,3 +390,13 @@ def preprocess_raw_data(raw_data):
         processed_data.append(new_item)
         
     return processed_data
+
+def format_percentage(value):
+    """
+    Formata um valor float como uma porcentagem com duas casas decimais, substituindo o ponto por vírgula.
+    Args:
+        value (float): Valor a ser formatado.
+    Returns:
+        str: Valor formatado como string.
+    """
+    return f"{value:.2f}".replace(".", ",")
