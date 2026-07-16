@@ -40,6 +40,5 @@ for file in filenames:
         if fix_commit_hash not in seen_fix_commit_hashes:
             seen_fix_commit_hashes.add(fix_commit_hash)
             final_result.append(entry)
-    # Salva usando a variável correta (new_data)
-    with open(f"./dataset2/4-metricas/without_bic/{file}", "w", encoding="utf-8") as n:
+    with open(f"./dataset/4-metricas/without_bic/{file}", "w", encoding="utf-8") as n:
         json.dump(final_result, n, indent=4)

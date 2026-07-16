@@ -6,7 +6,7 @@ from pydriller import Repository
 import os
 import json
 
-INPUT_FOLDER = "./dataset2/3-szz/"
+INPUT_FOLDER = "./dataset/3-szz/"
 
 for file in os.listdir(INPUT_FOLDER):
     if not file.endswith(".json"):

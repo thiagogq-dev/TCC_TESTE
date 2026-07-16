@@ -39,4 +39,4 @@ def main(input_folder: str) -> None:
                 print(f"Arquivo JSON com commits sem BICs salvo em: {output_file_path}")
 
 if __name__ == "__main__":
-    main("./dataset2/3-szz")
+    main("./dataset/3-szz")
