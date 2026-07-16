@@ -66,7 +66,7 @@
 9. Mover arquivo gerado na pasta out/ do pyszz para a pasta do estudo
 
     ```bash
-    mv .out/<nome_arquivop> ../dataset/3-szz/
+    cp .out/<nome_arquivop> ../dataset/3-szz/
     ```
 
 10. Verificar se algum BIC retornado é um *merge commit* para atualizar os BIC
