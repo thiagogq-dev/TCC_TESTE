@@ -1,3 +1,7 @@
+"""
+Este script combina os arquivos JSON de "no_bug" e "no_bic" em um único arquivo JSON para cada repositório, garantindo que não haja duplicatas com base no campo "fix_commit_hash". O resultado é salvo na pasta "./dataset/4-metricas/without_bic/".
+Esta lista conterá os commits de "não correção", pos combina commits de issues não classificadas como bugs e commits que não possuem BICs.
+"""
 import os
 import json
 
@@ -36,9 +40,6 @@ for file in filenames:
         if fix_commit_hash not in seen_fix_commit_hashes:
             seen_fix_commit_hashes.add(fix_commit_hash)
             final_result.append(entry)
-    os.makedirs("./dataset/4-metricas/without_bic", exist_ok=True)  # Garante que a pasta de saída exista
     # Salva usando a variável correta (new_data)
-    with open(f"./dataset/4-metricas/without_bic/{file}", "w", encoding="utf-8") as n:
+    with open(f"./dataset2/4-metricas/without_bic/{file}", "w", encoding="utf-8") as n:
         json.dump(final_result, n, indent=4)
-
-print("Processamento concluído!")

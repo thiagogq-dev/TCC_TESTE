@@ -52,7 +52,6 @@ if __name__ == "__main__":
 
                 # Se o BIC não estiver no dataset, ignora
                 if not bic_entry:
-                    print(f"AVISO: BIC {bic_hash} não encontrado no dataset para o repositório {repo_name}.")
                     continue
 
                 bic_has_asserts_changes = bic_entry.get('test_files_with_asserts_changes', 0) > 0

@@ -58,9 +58,9 @@ def process_folder(input_folder: str, output_folder: str) -> None:
 
             grouped_data = group_file_by_fix(result_pair)
             final_result = remove_duplicates(grouped_data)
-            os.makedirs(os.path.join(output_folder, "final_pairs"), exist_ok=True)
-            with open(os.path.join(output_folder, "final_pairs", filename), "w", encoding="utf-8") as f:
+            os.makedirs(os.path.join(output_folder, "pair_bic_fix"), exist_ok=True)
+            with open(os.path.join(output_folder, "pair_bic_fix", filename), "w", encoding="utf-8") as f:
                 json.dump(final_result, f, indent=4, ensure_ascii=False)
 
 if __name__ == "__main__":
-    process_folder("./dataset/3-szz/with_bic", "./dataset2/4-szz")
+    process_folder("./dataset/3-szz/with_bic", "./dataset/4-metricas")

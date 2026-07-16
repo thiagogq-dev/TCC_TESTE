@@ -21,7 +21,7 @@ setup_loggers(repo_name)
 
 # Definicão de constantes
 API_TOKENS = [v for k, v in os.environ.items() if k.startswith("API_TOKEN_") and v]
-OUTPUT_DIR = "dataset/coleta_issues"
+OUTPUT_DIR = "dataset/1-coleta_issues"
 OUTPUT_FILE = os.path.join(OUTPUT_DIR, f"{repo_name}.json")
 CLOSED_UNTIL = "2026-05-13"
 GRAPHQL_URL="https://api.github.com/graphql"
@@ -270,7 +270,6 @@ def get_data():
                         log_message(f"Issue #{issue.get('number')} de {repo_name} fechada em {issue_closed_date} é posterior a {closed_until_date}. Pulando...", "info")
                         continue
 
-                # if issue["timelineItems"]["nodes"] and issue["timelineItems"]["nodes"][0]["closer"] is not None:
                 issue_number = issue.get("number", "N/A")
 
                 final_fix_commit, commit_type, commit_message = resolve_fix_commit(issue, repo_owner, repo_name)

@@ -1,6 +1,8 @@
+import argparse
+import csv
 import os
 import numpy as np
-from utils.utils import safe_float, load_data, get_activity_bucket, Reporter, ACTIVITY_BUCKETS
+from utils.utils import safe_float, load_data, get_activity_bucket, Reporter, ACTIVITY_BUCKETS, get_metrics
 from utils.stats import (
     teste_chi2, teste_mann_whitney, teste_spearman, aplicar_correcao_bh,
 )
@@ -195,27 +197,33 @@ def calculate_experience_vs_tests(data, reporter):
 # ==========================================================
 
 if __name__ == "__main__":
+    arg_parser = argparse.ArgumentParser(description="Calcula a qualidade efetiva das alterações em testes nos commits.")
+    arg_parser.add_argument("input_folder", type=str, help="Pasta contendo os arquivos JSON de entrada.")
+    args = arg_parser.parse_args()
+    
+    last_subfolder = os.path.basename(os.path.normpath(args.input_folder))
+ 
     os.makedirs("./results", exist_ok=True)
-
-    # 1. Definir o caminho do arquivo final único FORA do loop
-    OUTPUT_FILE = os.path.join(RESULTS_FOLDER, "rq4_results.txt")
+    OUTPUT_FILE = os.path.join(RESULTS_FOLDER, f"rq4_results_{last_subfolder}.txt")
 
     # Limpar o arquivo final apenas uma vez caso ele já exista de execuções anteriores
     if os.path.exists(OUTPUT_FILE):
         open(OUTPUT_FILE, "w").close()
 
+
     if not os.path.exists(RESULTS_FOLDER):
         os.makedirs(RESULTS_FOLDER)
 
-    # 2. Instanciar o Reporter uma única vez FORA do loop
     reporter = Reporter(OUTPUT_FILE)
 
-    for file in sorted(os.listdir("./dataset/4-metricas/without_bic")):
+    table_rows = []
+
+    for file in sorted(os.listdir(args.input_folder)):
         if not file.endswith(".json"):
             continue
 
         FOLDER_REPO_PATH = file.replace(".json", "")
-        INPUT_PATH      = f"./dataset/4-metricas/without_bic/{file}"
+        INPUT_PATH      = f"{args.input_folder}/{file}"
         RESULTS_FOLDER  = "./results/rq4"  # Pasta base para gráficos ou outros outputs se necessário
 
         data = load_data(INPUT_PATH)
@@ -238,5 +246,59 @@ if __name__ == "__main__":
         r = calculate_experience_vs_tests(data, reporter)
         pvalores.append(r)
 
-        # --- correção BH sobre toda a família tests_analyses ---
-        aplicar_correcao_bh(pvalores, reporter, label="RQ4")
+        # --- correção BH sobre toda a família de testes ---
+        results = aplicar_correcao_bh(pvalores, reporter, label="RQ4")
+
+        complexidade = get_metrics("Complexidade com vs sem asserts", results)
+        interfacing  = get_metrics("Interfacing com vs sem asserts", results)
+        size         = get_metrics("Size com vs sem asserts", results)
+        ass_churn    = get_metrics("assert churn × linhas alteradas", results)
+        ass_growth   = get_metrics("crescimento de asserts × linhas alteradas", results)
+        experiencia  = get_metrics("experiência × presença de testes", results)
+        
+        # Adiciona a linha formatada para este repositório
+        table_rows.append({
+            "Repositorio": FOLDER_REPO_PATH,
+            "C_r": complexidade[0], "C_p": complexidade[1],
+            "I_r": interfacing[0], "I_p": interfacing[1],
+            "S_r": size[0], "S_p": size[1],
+            "AC_r": ass_churn[0], "AC_p": ass_churn[1],
+            "AG_r": ass_growth[0], "AG_p": ass_growth[1],
+            "E_V": experiencia[0], "E_p": experiencia[1],
+        })
+
+    csv_file = os.path.join(RESULTS_FOLDER, f"rq4_results_{last_subfolder}.csv")
+
+    colunas = [
+        "Repositório",
+        "Complexidade_r_MW", "Complexidade_p",
+        "Interfacing_r_MW", "Interfacing_p",
+        "Size_r_MW", "Size_p",
+        "Assert_Churn_Lines_r_Sp", "Assert_Churn_Lines_p",
+        "Assert_Growth_Lines_r_Sp", "Assert_Growth_Lines_p",
+        "Experiencia_V_Cramer", "Experiencia_p"
+    ]
+
+    linhas_csv = []
+    for row in table_rows:
+        linhas_csv.append({
+            "Repositório": row["Repositorio"],
+            "Complexidade_r_MW": f"{row['C_r']:.4f}",
+            "Complexidade_p": f"{row['C_p']:.4f}",
+            "Interfacing_r_MW": f"{row['I_r']:.4f}",
+            "Interfacing_p": f"{row['I_p']:.4f}",
+            "Size_r_MW": f"{row['S_r']:.4f}",
+            "Size_p": f"{row['S_p']:.4f}",
+            "Assert_Churn_Lines_r_Sp": f"{row['AC_r']:.4f}",
+            "Assert_Churn_Lines_p": f"{row['AC_p']:.4f}",
+            "Assert_Growth_Lines_r_Sp": f"{row['AG_r']:.4f}",
+            "Assert_Growth_Lines_p": f"{row['AG_p']:.4f}",
+            "Experiencia_V_Cramer": f"{row['E_V']:.4f}",
+            "Experiencia_p": f"{row['E_p']:.4f}"
+        })
+
+    with open(csv_file, mode="w", newline="", encoding="utf-8") as f:
+        # Usando ponto e vírgula como separador para facilitar abertura no Excel em pt-BR
+        writer = csv.DictWriter(f, fieldnames=colunas, delimiter=',') 
+        writer.writeheader()
+        writer.writerows(linhas_csv)

@@ -1,10 +1,9 @@
 import os
 import numpy as np
-from collections import defaultdict # <-- Adicionado
 from utils.utils import safe_float, load_data, get_activity_bucket, Reporter, ACTIVITY_BUCKETS, preprocess_raw_data
 from utils.stats import (
     teste_chi2, teste_spearman,
-    aplicar_correcao_bh, teste_pointbiserial
+    aplicar_correcao_bh
 )
 
 def calculate_proportion_bugs_asserts_types(data, reporter):
@@ -86,7 +85,7 @@ def calculate_experience_vs_recurrence(data, reporter):
 
     for relation in data:
         activity = relation.get("contributor_activity")
-        count = len(relation.get("fixed_by", []))
+        count = len(relation.get("fixed_by", [])) # Número de correções (fixed_by) para o commit
         activities.append(activity)
         bucket = get_activity_bucket(activity)
         fix_counts_all.append(count)
@@ -107,30 +106,6 @@ def calculate_experience_vs_recurrence(data, reporter):
     reporter.write("")
     return result
 
-def code_complexity_vs_contributor_experience(data, reporter):
-    """
-    Analisa a correlação entre a complexidade do código (dmm_unit_complexity) e a experiência do contribuidor (contributor_activity).
-    Realiza teste estatístico (Spearman) para verificar associação entre complexidade e experiência.
-    Args:
-        data (list): Lista de registros de commits.
-        reporter (Reporter): Instância de Reporter para registrar resultados.
-    Returns:
-        dict: Resultado do teste Spearman com correção BH.
-    """
-    activities, complexities = [], []
-
-    for relation in data:
-        activity   = relation.get("contributor_activity")
-        complexity = safe_float(relation.get("dmm_unit_complexity"))
-        if activity is not None and complexity is not None:
-            activities.append(activity)
-            complexities.append(complexity)
-
-    reporter.write("=== EXPERIÊNCIA DO CONTRIBUIDOR X COMPLEXIDADE ===")
-    result = teste_spearman(activities, complexities, "experiência do contribuidor × complexidade", reporter)
-    reporter.write("")
-    return result
-
 if __name__ == "__main__":
     os.makedirs("./results/rq5_i", exist_ok=True)
     import pandas as pd 
@@ -142,23 +117,22 @@ if __name__ == "__main__":
         open(OUTPUT_TEXT_PATH, "w").close()
 
     reporter = Reporter(OUTPUT_TEXT_PATH)
-    
     dados_tabela = []
 
-    for file in sorted(os.listdir("./dataset/4-metricas/with_bic")):
+    for file in sorted(os.listdir("./dataset/4-metricas/pair_bic_fix/")):
         if not file.endswith(".json"):
             continue
 
         FOLDER_REPO_PATH = file.replace(".json", "")
-        INPUT_PATH      = f"./dataset/4-metricas/with_bic/{file}" # MUDANÇA: Caminho corrigido
+        INPUT_PATH      = f"./dataset/4-metricas/pair_bic_fix/{file}" # MUDANÇA: Caminho corrigido
 
         # MUDANÇA: Processando os dados nativos
         raw_data = load_data(INPUT_PATH)
         data = preprocess_raw_data(raw_data)
 
-        reporter.write("RQ5 (i): Análise de fatores que afetam a presença de bugs\n")
+        reporter.write("RQ5 (i): Análise de fatores que afetam a presença de bugs")
         reporter.write("\n" + "="*80)
-        reporter.write(f"PROJETO: {FOLDER_REPO_PATH}\n\n")
+        reporter.write(f"PROJETO: {FOLDER_REPO_PATH}")
         reporter.write("="*80 + "\n")
 
         linha_projeto = {"Projeto": FOLDER_REPO_PATH}
@@ -170,19 +144,6 @@ if __name__ == "__main__":
         r2 = calculate_experience_vs_recurrence(data, reporter)
         pvalores.append(r2)
 
-        r3 = code_complexity_vs_contributor_experience(data, reporter)
-        pvalores.append(r3)
-
-        for resultado in pvalores:
-            if resultado is not None and "label" in resultado:
-                nome_coluna = resultado["label"]
-                valor_p = resultado.get("p")
-                
-                if isinstance(valor_p, float):
-                    linha_projeto[f"{nome_coluna} (p-value)"] = round(valor_p, 4)
-                else:
-                    linha_projeto[f"{nome_coluna} (p-value)"] = valor_p
-
         aplicar_correcao_bh(pvalores, reporter, label="RQ5 (i)")
 
         dados_tabela.append(linha_projeto)
@@ -190,4 +151,4 @@ if __name__ == "__main__":
 
     if dados_tabela:
         df_resultados = pd.DataFrame(dados_tabela)
-        df_resultados.to_csv(OUTPUT_CSV_PATH, index=False, encoding='utf-8')
+        df_resultados.to_csv(OUTPUT_CSV_PATH, index=False, encoding='utf-8', sep=';', decimal='.')

@@ -273,13 +273,13 @@ def main():
     reporter = Reporter(OUTPUT_TEXT_PATH)
     dados_tabela = []
 
-    for relations_file in sorted(os.listdir("./dataset/4-metricas/with_bic")):
+    for relations_file in sorted(os.listdir("./dataset/4-metricas/pair_bic_fix/")):
         if not relations_file.endswith(".json"):
             continue
 
         print(f"\nProcessando: {relations_file}")
         try:
-            raw_data = load_data(os.path.join("./dataset/4-metricas/with_bic", relations_file))
+            raw_data = load_data(os.path.join("./dataset/4-metricas/pair_bic_fix/", relations_file))
             data = preprocess_raw_data(raw_data)
         except Exception as e:
             print(f"  Erro ao carregar: {e}")

@@ -16,7 +16,7 @@ def generate_random_color():
     r = lambda: random.randint(0, 255)
     return '#%02X%02X%02X' % (r(), r(), r())
 
-INPUT_FOLDER = "./dataset2/4-metricas/final_pairs"
+INPUT_FOLDER = "./dataset/4-metricas/pair_bic_fix"
 
 for file in os.listdir(INPUT_FOLDER):
     if file.endswith('.json'):
@@ -50,7 +50,7 @@ for file in os.listdir(INPUT_FOLDER):
                 net.add_node(
                     fix_commit,
                     label=fix_commit,
-                    title=f"Repository: {item.get('repo_name', 'Unknown')}\nCommit: {fix_commit}"
+                    title=f"Repositório: {item.get('repo_name', 'Unknown')}\nCommit: {fix_commit}\n Tipo de modificação de assert: {item.get('asserts_changes_type', 'Unknown')}",
                 )
                 existing_nodes.add(fix_commit)
 
@@ -62,7 +62,7 @@ for file in os.listdir(INPUT_FOLDER):
                         bic,
                         label=bic,
                         color=generate_random_color(),
-                        title=f"Repository: {repo}\nCommit: {bic}"
+                        title=f"Repositório: {repo}\nCommit: {bic}\n Tipo de modificação de assert: {bic_meta.get('asserts_changes_type', 'Unknown') if bic_meta else 'Unknown'}",
                     )
                     existing_nodes.add(bic)
 

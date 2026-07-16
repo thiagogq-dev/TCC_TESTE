@@ -400,3 +400,14 @@ def format_percentage(value):
         str: Valor formatado como string.
     """
     return f"{value:.2f}".replace(".", ",")
+
+def get_metrics(label, results):
+    """
+    Retorna as métricas (effect_size, p_adj) para um rótulo específico a partir dos resultados do teste estatístico.
+    Args:
+        label (str): Rótulo do teste estatístico.
+        results (dict): Resultados do teste estatístico com rótulos como chaves.
+    Returns:
+        tuple: Tupla contendo (effect_size, p_adj) ou (NaN, NaN) se o rótulo não estiver presente nos resultados.
+    """
+    return results.get(label, (float('nan'), float('nan')))

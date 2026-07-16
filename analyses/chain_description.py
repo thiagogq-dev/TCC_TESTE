@@ -3,8 +3,8 @@ import os
 import numpy as np
 from collections import defaultdict, deque
 import matplotlib.pyplot as plt
-
 from utils.utils import load_data, preprocess_raw_data
+import openpyxl
 
 OUTPUT_FOLDER = "./results/chain_description"
 
@@ -81,34 +81,6 @@ def compute_global_all_depths(graph_dict):
 
     return depths
 
-def summarize_bic(bic, graph_dict, bic_cache):
-    """
-    Retorna métricas agregadas de propagação para um único BIC.
-    Args:
-        bic (str): Commit BIC.
-        graph_dict (dict): Dicionário representando o grafo de commits.
-        bic_cache (dict): Cache para armazenar resultados já calculados.
-    Returns:
-        dict: Dicionário com métricas de propagação para o BIC.
-    """
-    if not bic:
-        return {"n_commits": 0, "max_depth": 1, "avg_depth": 1.0, "median_depth": 1.0}
-
-    if bic in bic_cache:
-        return bic_cache[bic]
-
-    visited = bfs_unique(graph_dict, bic)
-    depths = list(visited.values())
-
-    result = {
-        "n_commits":     len(depths),
-        "max_depth":     max(depths),
-        "avg_depth":     float(np.mean(depths)),
-        "median_depth":  float(np.median(depths)),
-    }
-    bic_cache[bic] = result
-    return result
-
 # ==========================================================
 # 1 - PROPAGAÇÃO GERAL
 # ==========================================================
@@ -139,33 +111,55 @@ def aggregate_propagation(graph_dict):
 
 def analyze_max_chain_depth(graph_dict):
     """
-    Analisa a profundidade máxima das cadeias de commits no grafo.
+    Analisa a profundidade máxima das cadeias de commits no grafo,
+    tratando cada cascata como uma única entidade.
     Args:
         graph_dict (dict): Dicionário representando o grafo de commits.
     Returns:
         dict: Dicionário com métricas de profundidade máxima.
     """
-    all_depths = compute_global_all_depths(graph_dict)
+    # 1. Encontrar o grau de entrada (indegree) para saber quem é raiz
+    indegree = defaultdict(int)
+    for parent, children in graph_dict.items():
+        for child in children:
+            if child:
+                indegree[child] += 1
+                
+    max_chain_lengths = []
+    all_chain_lengths = []
     
-    max_per_bug = {}
-    for commit, depths_set in all_depths.items():
-        if depths_set:
-            max_per_bug[commit] = max(depths_set)
-    
-    if not max_per_bug:
+    # 2. Iterar apenas sobre os commits que são raízes e possuem filhos
+    for commit in graph_dict:
+        is_root = (indegree[commit] == 0)
+        has_fixes = len(graph_dict.get(commit, [])) > 0
+        
+        if is_root and has_fixes:
+            # Encontra todos os nós desta cadeia usando a função bfs_unique que já existe no seu código
+            visited = bfs_unique(graph_dict, commit)
+                
+            # O tamanho da cadeia é a profundidade máxima alcançada partindo desta raiz
+            max_depth = max(visited.values())
+            max_chain_lengths.append(max_depth)
+
+            for visited_commit, depth in visited.items(): # Adiciona todas as profundidades absolutas em que cada commit aparece
+                if not graph_dict.get(visited_commit):  # Se não tem filhos, é uma folha
+                    all_chain_lengths.append(depth)
+            
+    if not max_chain_lengths:
         return {}
-    
-    longest_chain = max(max_per_bug.values())
-    avg_max_depth = np.mean(list(max_per_bug.values()))
-    pct_chains_gt_5 = sum(1 for d in max_per_bug.values() if d > 5) / len(max_per_bug) * 100
-    
-    print(f"  Max chain depth: {longest_chain}")
-    print(f"  Avg max depth: {avg_max_depth:.2f}")
-    print(f"  % chains > 5 levels: {pct_chains_gt_5:.1f}%")
+        
+    # 3. Calcula as métricas usando apenas o tamanho final de cada cadeia
+    longest_chain = max(max_chain_lengths)
+    avg_max_depth = np.mean(max_chain_lengths)
+    avg_all_depth = np.mean(all_chain_lengths)
+
+    # pct_chains_gt_5 = sum(1 for d in max_chain_lengths if d > 5) / len(max_chain_lengths) * 100
+    pct_chains_gt_5 = sum(1 for d in all_chain_lengths if d > 5) / len(all_chain_lengths) * 100
     
     return {
         "longest_chain": longest_chain,
         "avg_max_depth": avg_max_depth,
+        "avg_all_depth": avg_all_depth,
         "pct_chains_gt_5": pct_chains_gt_5
     }
 
@@ -189,10 +183,6 @@ def analyze_bifurcation_rate(graph_dict):
     avg_fixes = np.mean(children_counts)
     pct_multiple_fixes = sum(1 for c in children_counts if c > 1) / len(children_counts) * 100
     max_fixes = max(children_counts)
-    
-    print(f"  Avg fixes per bug: {avg_fixes:.2f}")
-    print(f"  % bugs with multiple fixes: {pct_multiple_fixes:.1f}%")
-    print(f"  Max fixes for single bug: {max_fixes}")
     
     return {
         "avg_fixes_per_bug": avg_fixes,
@@ -276,14 +266,6 @@ def analyze_fix_velocity(data):
 
 
 def generate_comparison_table(results_summary):
-    import json
-    import os
-    try:
-        import openpyxl
-    except ImportError:
-        print("A biblioteca 'openpyxl' não está instalada. Execute: pip install openpyxl")
-        return
-
     if not results_summary:
         print("Sem dados para comparação.")
         return
@@ -292,19 +274,25 @@ def generate_comparison_table(results_summary):
     ws = wb.active
     ws.title = "Resumo"
 
-    headers = ["Repositório", "Max Depth", "Avg Depth", "% Multi-Fix", "Median Dias", "% em 7 dias"]
+    headers = ["Projeto", "Máx.", "Média", "> 5 Níveis (%)", "Múltiplas (%)", "Máx. FIX", "Média", "Mediana", "<= 7 dias (%)"]
     ws.append(headers)
 
     for repo_name in sorted(results_summary.keys()):
         results = results_summary[repo_name]
         
         max_d = results.get("max_depth", {}).get("longest_chain", "N/A")
-        avg_d = results.get("max_depth", {}).get("avg_max_depth", "N/A")
+        avg_max_depth = results.get("max_depth", {}).get("avg_max_depth", "N/A") # Separado de avg_days
+        avg_all_depth = results.get("max_depth", {}).get("avg_all_depth", "N/A") # Nova variável para média de todas as profundidades
+        pct_chains_gt_5 = results.get("max_depth", {}).get("pct_chains_gt_5", "N/A")
+        
         multi_fix = results.get("bifurcation", {}).get("pct_multiple_fixes", "N/A")
+        max_fixes = results.get("bifurcation", {}).get("max_fixes", "N/A")
+        
+        avg_days = results.get("velocity", {}).get("avg_days", "N/A") # Nova variável para média de dias
         median_days = results.get("velocity", {}).get("median_days", "N/A")
         fix_7days = results.get("velocity", {}).get("pct_fixed_7days", "N/A")
         
-        ws.append([repo_name, max_d, avg_d, multi_fix, median_days, fix_7days])
+        ws.append([repo_name, max_d, avg_all_depth, pct_chains_gt_5, multi_fix, max_fixes, avg_days, median_days, fix_7days])
 
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
     summary_excel_path = os.path.join(OUTPUT_FOLDER, "comparison_summary.xlsx")
@@ -312,8 +300,7 @@ def generate_comparison_table(results_summary):
         
     summary_json_path = os.path.join(OUTPUT_FOLDER, "comparison_summary.json")
     with open(summary_json_path, "w", encoding="utf-8") as f:
-        json.dump(results_summary, f, indent=2, ensure_ascii=False)
-    
+        json.dump(results_summary, f, indent=2, ensure_ascii=False)   
 # ==========================================================
 # MAIN
 # ==========================================================
@@ -334,16 +321,12 @@ def main():
             continue
 
         os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-        output_path = os.path.join(OUTPUT_FOLDER, "chain_description.txt")
-
-        if not os.path.exists(output_path):
-            open(output_path, "w").close()
 
         repo_name = file.replace(".json", "")
 
         commit_to_fix = build_commit_to_fix(data)
 
-        basic_counts, _ = aggregate_propagation(commit_to_fix, f"Propagação Geral - {repo_name}")
+        basic_counts, _ = aggregate_propagation(commit_to_fix)
         max_depth_results = analyze_max_chain_depth(commit_to_fix)
         bifurcation_results = analyze_bifurcation_rate(commit_to_fix)
         velocity_results = analyze_fix_velocity(data)

@@ -26,6 +26,8 @@ def aplicar_correcao_bh(resultados, reporter, label=""):
     labels = [r["label"] for r in validos]
     pvals  = [r["p"]     for r in validos]
 
+    effects = [r.get("effect_size", float('nan')) for r in validos]
+
     reject, pvals_corrigidos, _, _ = multipletests(pvals, method="fdr_bh", alpha=0.05)
 
     reporter.write(f"\n=== CORREÇÃO BH — {label} ===")
@@ -38,6 +40,8 @@ def aplicar_correcao_bh(resultados, reporter, label=""):
             f"  {lbl}: p_orig={p_orig:.4f} → p_adj={p_corr:.4f} | {status}"
         )
     reporter.write("")
+
+    return {lbl: (eff, p_adj) for lbl, eff, p_adj in zip(labels, effects, pvals_corrigidos)}
 
 
 def teste_mann_whitney(grupo_a, grupo_b, label, reporter):
@@ -60,7 +64,7 @@ def teste_mann_whitney(grupo_a, grupo_b, label, reporter):
         f"U={stat:.2f} | p={p:.4f} | "
         f"effect size r={r:.4f} ({magnitude})"
     )
-    return {"label": label, "p": p}
+    return {"label": label, "p": p, "effect_size": r, "magnitude": magnitude}
 
 
 def rank_biserial(stat, n_a, n_b):
@@ -106,7 +110,8 @@ def teste_chi2(tabela, label, reporter):
             f"Cramér's V={cramers_v:.4f} | {magnitude}"
         )
 
-        return {"label": label, "p": p}
+        return {"label": label, "p": p, "effect_size": cramers_v, "magnitude": magnitude, "chi2": chi2}
+    
     except Exception as e:
         reporter.write(f"  [Chi-quadrado | {label}] Erro: {e}")
         return {"label": label, "p": None}
@@ -134,7 +139,7 @@ def teste_spearman(lista_x, lista_y, label, reporter):
         f"  [Spearman | {label}] "
         f"p={p:.4f} | r={corr:.4f} | {magnitude}"
     )
-    return {"label": label, "p": p}
+    return {"label": label, "p": p, "effect_size": corr, "magnitude": magnitude}
 
 
 def teste_pointbiserial(lista_binaria, lista_continua, label, reporter):
@@ -160,7 +165,7 @@ def teste_pointbiserial(lista_binaria, lista_continua, label, reporter):
         f"  [Point-Biserial | {label}] "
         f"p={p:.4f} | r={corr:.4f} | {magnitude}"
     )
-    return {"label": label, "p": p}
+    return {"label": label, "p": p, "effect_size": corr, "magnitude": magnitude}
 
 
 def teste_kruskal(grupos_dict, label, reporter):
@@ -193,4 +198,4 @@ def teste_kruskal(grupos_dict, label, reporter):
         f"  [Kruskal-Wallis | {label}] "
         f"H={stat:.4f} | p={p:.4f} | ε²={epsilon_sq:.4f} ({magnitude})"
     )
-    return {"label": label, "p": p}
+    return {"label": label, "p": p, "effect_size": epsilon_sq, "magnitude": magnitude}
