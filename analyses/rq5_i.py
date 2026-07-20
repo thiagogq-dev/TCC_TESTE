@@ -126,7 +126,6 @@ if __name__ == "__main__":
         FOLDER_REPO_PATH = file.replace(".json", "")
         INPUT_PATH      = f"./dataset/4-metricas/pair_bic_fix/{file}" # MUDANÇA: Caminho corrigido
 
-        # MUDANÇA: Processando os dados nativos
         raw_data = load_data(INPUT_PATH)
         data = preprocess_raw_data(raw_data)
 
@@ -144,11 +143,34 @@ if __name__ == "__main__":
         r2 = calculate_experience_vs_recurrence(data, reporter)
         pvalores.append(r2)
 
-        aplicar_correcao_bh(pvalores, reporter, label="RQ5 (i)")
+        resultados_corrigidos= aplicar_correcao_bh(pvalores, reporter, label="RQ5 (i)")
+
+        if resultados_corrigidos:
+            label_chi2 = "tipo de mudança de assert × introdução de bug"
+            label_spearman = "experiência do contribuidor × fixed_by"
+
+            # Modificação de Asserções
+            linha_projeto["chi2"] = r1.get("chi2")
+            linha_projeto["v_cramer"] = r1.get("effect_size")
+            linha_projeto["p_asserts"] = resultados_corrigidos.get(label_chi2, (None, None))[1]
+
+            # Experiência x Recorrência
+            linha_projeto["r_spearman"] = r2.get("effect_size")
+            linha_projeto["p_experiencia"] = resultados_corrigidos.get(label_spearman, (None, None))[1]
 
         dados_tabela.append(linha_projeto)
         print(f"Processado RQ5_i: {file}")
 
     if dados_tabela:
+        # df_resultados = pd.DataFrame(dados_tabela)
+        # df_resultados.to_csv(OUTPUT_CSV_PATH, index=False, encoding='utf-8', sep=';', decimal='.')
         df_resultados = pd.DataFrame(dados_tabela)
-        df_resultados.to_csv(OUTPUT_CSV_PATH, index=False, encoding='utf-8', sep=';', decimal='.')
+        
+        # 1. Arredondar as colunas numéricas para 4 casas decimais
+        colunas_numericas = ["chi2", "v_cramer", "p_asserts", "r_spearman", "p_experiencia"]
+        for col in colunas_numericas:
+            if col in df_resultados.columns:
+                df_resultados[col] = df_resultados[col].astype(float).round(4)
+        
+        # 2. Exportar usando vírgula como separador (padrão de CSV)
+        df_resultados.to_csv(OUTPUT_CSV_PATH, index=False, encoding='utf-8', sep=',')

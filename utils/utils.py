@@ -30,7 +30,7 @@ def remove_duplicates(data):
             seen.add(identifier)
             unique_data.append(item)
     
-    print(f'Removed {tam - len(unique_data)} duplicate items.')
+    print(f'Removidos {tam - len(unique_data)} itens duplicados.')
     return unique_data
 
 def split_json_file(input_data, output_folder, file_prefix, max_items_per_file=10):
@@ -54,7 +54,7 @@ def split_json_file(input_data, output_folder, file_prefix, max_items_per_file=1
         output_file = os.path.join(output_folder, f"{file_prefix}_{idx + 1}.json")
         with open(output_file, 'w') as f:
             json.dump(chunk, f, indent=4)
-        print(f"File {output_file} created with {len(chunk)} items.")
+        print(f"Arquivo {output_file} criado com {len(chunk)} itens.")
               
 def merge_files(folder_path):
     """
@@ -69,9 +69,9 @@ def merge_files(folder_path):
     for file in json_files:
         with open(file, 'r') as f:
             data = json.load(f)
-            print(f'Processing {file} with {len(data)} items')
+            print(f'Processando {file} com {len(data)} itens')
             combined_data.extend(data)
-    print(f'Dados combinados contêm {len(combined_data)} items')
+    print(f'Dados combinados contêm {len(combined_data)} itens')
     return combined_data
 
 def group_file_by_fix(data):
@@ -100,7 +100,7 @@ def group_file_by_fix(data):
         for values in grouped_data.values()
     ]
 
-    print(f"Original: {original_len} records, Grouped: {len(result)} records after grouping by fix_commit_hash.")
+    print(f"Original: {original_len} registros, Agrupados: {len(result)} registros após agrupar por 'fix_commit_hash'.")
 
     return result 
 
@@ -227,7 +227,6 @@ def preload_commits_index(repo_path, to_datetime):
             commit_date[commit.hash] = commit.author_date
             author_commits[commit.author.name].append(commit.author_date)
     except Exception:
-        # fallback: return empty maps if repo not available or pydriller missing
         return {}, defaultdict(list)
 
     for author in author_commits:

@@ -4,7 +4,7 @@ import os
 
 def main(input_folder: str) -> None:
     """
-   Divide os arquivos JSON de entrada em dois grupos: issues classificadas como 'bug' e issues não relacionadas a bugs. Em seguida, salva cada grupo em arquivos JSON separados na pasta de saída.
+    Divide os arquivos JSON de entrada em dois grupos: issues classificadas como 'bug' e issues não relacionadas a bugs. Em seguida, salva cada grupo em arquivos JSON separados na pasta de saída.
     Args:
         input_folder (str): Caminho para a pasta contendo os arquivos JSON de entrada.
     """

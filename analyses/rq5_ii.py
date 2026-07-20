@@ -271,6 +271,7 @@ def main():
         open(OUTPUT_TEXT_PATH, "w").close()
 
     reporter = Reporter(OUTPUT_TEXT_PATH)
+    reporter.write("Características das cadeias de propagação")
     dados_tabela = []
 
     for relations_file in sorted(os.listdir("./dataset/4-metricas/pair_bic_fix/")):
@@ -287,7 +288,6 @@ def main():
 
         OUTPUT_REPO_FOLDER = relations_file.replace(".json", "")
 
-        reporter.write("Características das cadeias de propagação\n\n")
         reporter.write("\n" + "="*80)
         reporter.write(f"PROJETO: {OUTPUT_REPO_FOLDER}")
         reporter.write("="*80 + "\n")
@@ -307,27 +307,42 @@ def main():
         rs = aggregate_by_experience(metrics, reporter)
         pvalores.extend(rs)
 
-        r, with_tests, without_tests, depths_with_tests = aggregate_tests_vs_no_tests(metrics, reporter)
-        pvalores.append(r)
+        rmw, with_tests, without_tests, depths_with_tests = aggregate_tests_vs_no_tests(metrics, reporter)
+        pvalores.append(rmw)
 
-        for resultado in pvalores:
-            if resultado is not None and "label" in resultado:
-                nome_coluna = resultado["label"]
-                valor_p = resultado.get("p")
-                
-                if isinstance(valor_p, float):
-                    linha_projeto[f"{nome_coluna} (p-value)"] = round(valor_p, 4)
-                else:
-                    linha_projeto[f"{nome_coluna} (p-value)"] = valor_p
+        resultados_corrigidos = aplicar_correcao_bh(pvalores, reporter, label="RQ5 (ii)")
 
-        aplicar_correcao_bh(pvalores, reporter, label="RQ5 (ii)")
+        if resultados_corrigidos:
+            label_kw = "avg_depth por BIC: todos os buckets de experiência"
+            label_sp = "atividade contínua do contribuidor x avg_depth por BIC"
+            label_mw = "avg_depth por BIC: com testes vs sem testes"
+
+            # Kruskal-Wallis (Experiência - Buckets)
+            linha_projeto["p_kw"] = resultados_corrigidos.get(label_kw, (None, None))[1]
+            linha_projeto["eps2_kw"] = rs[0].get("effect_size") if rs[0] else None
+
+            # Spearman (Experiência - Contínua)
+            linha_projeto["p_sp"] = resultados_corrigidos.get(label_sp, (None, None))[1]
+            linha_projeto["rho_sp"] = rs[1].get("effect_size") if rs[1] else None
+
+            # Mann-Whitney (Asserts x Extensão)
+            linha_projeto["p_mw"] = resultados_corrigidos.get(label_mw, (None, None))[1]
+            linha_projeto["r_mw"] = rmw.get("effect_size") if rmw else None
 
         dados_tabela.append(linha_projeto)
         print(f"  Concluído -> Adicionado à tabela unificada.")
 
     if dados_tabela:
         df_resultados = pd.DataFrame(dados_tabela)
-        df_resultados.to_csv(OUTPUT_CSV_PATH, index=False, encoding='utf-8')
+        
+        # Arredondar as colunas numéricas para 4 casas decimais
+        colunas_numericas = ["p_kw", "eps2_kw", "p_sp", "rho_sp", "p_mw", "r_mw"]
+        for col in colunas_numericas:
+            if col in df_resultados.columns:
+                df_resultados[col] = df_resultados[col].astype(float).round(4)
+                
+        # Exportar com separador de vírgula
+        df_resultados.to_csv(OUTPUT_CSV_PATH, index=False, encoding='utf-8', sep=',')
 
 if __name__ == "__main__":
     main()

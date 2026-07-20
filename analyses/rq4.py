@@ -215,6 +215,7 @@ if __name__ == "__main__":
         os.makedirs(RESULTS_FOLDER)
 
     reporter = Reporter(OUTPUT_FILE)
+    reporter.write("R4: Quais fatores estão associados à presença de alterações em testes?")
 
     table_rows = []
 
@@ -228,7 +229,6 @@ if __name__ == "__main__":
 
         data = load_data(INPUT_PATH)
 
-        reporter.write("R4: Quais fatores estão associados à presença de alterações em testes?\n")
         # 3. Adicionar um separador visual claro para identificar o projeto atual no arquivo único
         reporter.write("\n" + "="*80)
         reporter.write(f"PROJETO: {FOLDER_REPO_PATH}")
