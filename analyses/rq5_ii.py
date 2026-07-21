@@ -8,6 +8,8 @@ from utils.stats import (
     aplicar_correcao_bh,
 )
 
+INPUT_FOLDER = "./dataset/4-metricas/pair_bic_fix"
+
 def build_commit_to_fix(data):
     """
     Constrói um dicionário que mapeia cada commit para a lista de commits que o corrigem (fixed_by).
@@ -274,13 +276,13 @@ def main():
     reporter.write("Características das cadeias de propagação")
     dados_tabela = []
 
-    for relations_file in sorted(os.listdir("./dataset/4-metricas/pair_bic_fix/")):
+    for relations_file in sorted(os.listdir(INPUT_FOLDER)):
         if not relations_file.endswith(".json"):
             continue
 
         print(f"\nProcessando: {relations_file}")
         try:
-            raw_data = load_data(os.path.join("./dataset/4-metricas/pair_bic_fix/", relations_file))
+            raw_data = load_data(os.path.join(INPUT_FOLDER, relations_file))
             data = preprocess_raw_data(raw_data)
         except Exception as e:
             print(f"  Erro ao carregar: {e}")

@@ -29,15 +29,15 @@
     git clone https://github.com/spring-projects/spring-boot.git
     ```
 
-4.  Copie o arquivo .env.example e adicione o dono e o repositório a ser analisado, além dos tokens a serem usados, por exemplo:
+4.  Copie o arquivo .env.example para um `.env` e crie os tokens de API necessários para fazer as requisições. 
+Para o caso do `START_CURSOR`, deixe vazio para a primeira requisição
 
     ```env
-    REPO_OWNER=elastic
-    REPO_NAME=elasticsearch
-
     START_CURSOR=
 
     API_TOKEN_1=ghp_...
+    API_TOKEN_2=ghp_...
+    API_TOKEN_3=ghp_...
     ```
 
 5. Realizar a coleta de dados
@@ -45,8 +45,6 @@
     ```bash
     python3 collect_issues.py
     ```
-
-    Os arquivos gerados serão armazenados. em dataset/1-coleta-issues
 
 6. Usar o modelo BERT citado no ESTUDO para classificar as issues em issues de defeito ou não
 
@@ -104,3 +102,7 @@
     ```bash
     bash run_analyses.sh
     ````
+
+# IMPORTANTE 
+
+Para todos os scripts, as pastas de entrada e saída estão configuradas para utilizar os diretórios originais do projeto (./dataset e ./results). Essa configuração ocorre diretamente no código (seja em Python ou shell script). Caso os arquivos a serem processados ou salvos precisem ficar em um caminho diferente, será necessário alterar as variáveis nos scripts.

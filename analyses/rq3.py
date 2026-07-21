@@ -15,18 +15,19 @@ import pandas as pd
 from utils.utils import format_percentage
 
 OUTPUT_FOLDER = "./results/rq3"
+INPUT_FOLDER = "./dataset/4-metricas/pair_bic_fix"
 
 if __name__ == "__main__":
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
     dados_tabela = []
 
-    for json_file in os.listdir('./dataset/4-metricas/pair_bic_fix'):
+    for json_file in os.listdir(INPUT_FOLDER):
         if not json_file.endswith('.json'):
             continue
         repo_name = os.path.basename(json_file).replace('.json', '')
         
-        path = os.path.join('./dataset/4-metricas/pair_bic_fix', json_file)
+        path = os.path.join(INPUT_FOLDER, json_file)
         with open(path, 'r') as f:
             data = json.load(f)
 

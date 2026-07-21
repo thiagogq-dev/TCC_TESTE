@@ -6,6 +6,8 @@ from utils.stats import (
     aplicar_correcao_bh
 )
 
+INPUT_FOLDER = "./dataset/4-metricas/pair_bic_fix"
+
 def calculate_proportion_bugs_asserts_types(data, reporter):
     """
     Calcula a proporção de commits que introduziram bugs (fixed_by) em relação aos tipos de alterações em asserts (Added, Removed, Maintained, None).
@@ -119,12 +121,12 @@ if __name__ == "__main__":
     reporter = Reporter(OUTPUT_TEXT_PATH)
     dados_tabela = []
 
-    for file in sorted(os.listdir("./dataset/4-metricas/pair_bic_fix/")):
+    for file in sorted(os.listdir(INPUT_FOLDER)):
         if not file.endswith(".json"):
             continue
 
         FOLDER_REPO_PATH = file.replace(".json", "")
-        INPUT_PATH      = f"./dataset/4-metricas/pair_bic_fix/{file}" # MUDANÇA: Caminho corrigido
+        INPUT_PATH      = f"{INPUT_FOLDER}/{file}"
 
         raw_data = load_data(INPUT_PATH)
         data = preprocess_raw_data(raw_data)

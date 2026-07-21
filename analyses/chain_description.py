@@ -7,6 +7,7 @@ from utils.utils import load_data, preprocess_raw_data
 import openpyxl
 
 OUTPUT_FOLDER = "./results/chain_description"
+INPUT_FILE = "./dataset/4-metricas/pair_bic_fix"
 
 def build_commit_to_fix(data):
     """
@@ -308,13 +309,13 @@ def generate_comparison_table(results_summary):
 def main():
     results_summary = {}  
     
-    for file in sorted(os.listdir("./dataset/4-metricas/pair_bic_fix")):
+    for file in sorted(os.listdir(INPUT_FILE)):
         if not file.endswith(".json"):
             continue
 
         print(f"\nProcessando: {file}")
         try:
-            raw_data = load_data(os.path.join("./dataset/4-metricas/pair_bic_fix", file))
+            raw_data = load_data(os.path.join(INPUT_FILE, file))
             data = preprocess_raw_data(raw_data)
         except Exception as e:
             print(f"  Erro ao carregar: {e}")

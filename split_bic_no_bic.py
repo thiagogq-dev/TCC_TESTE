@@ -1,5 +1,4 @@
 import json
-import argparse
 import os
 
 def main(input_folder: str) -> None:

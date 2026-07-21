@@ -14,20 +14,23 @@ from utils.utils import is_commit_valid
 
 dotenv.load_dotenv()
 
-repo_name = os.getenv('REPO_NAME')
-repo_owner = os.getenv('REPO_OWNER')
-
-setup_loggers(repo_name)
-
-# Definicão de constantes
+# Definição de constantes
 API_TOKENS = [v for k, v in os.environ.items() if k.startswith("API_TOKEN_") and v]
-OUTPUT_DIR = "dataset/1-coleta_issues"
-OUTPUT_FILE = os.path.join(OUTPUT_DIR, f"{repo_name}.json")
+OUTPUT_DIR = "./dataset/1-coleta_issues"
 CLOSED_UNTIL = "2026-05-13"
-GRAPHQL_URL="https://api.github.com/graphql"
+GRAPHQL_URL = "https://api.github.com/graphql"
+
+REPOSITORIES = [
+    "apache/pulsar",
+    "elastic/elasticsearch",
+    "JabRef/jabref",
+    "junit-team/junit-framework",
+    "keycloak/keycloak",
+    "spring-projects/spring-boot",
+]
 
 if not API_TOKENS:
-    log_message("Nenhum token de API encontrado nas variáveis de ambiente.", "error")
+    print("Nenhum token de API encontrado nas variáveis de ambiente.")
     exit(1)
 
 token_index = 0
@@ -37,20 +40,10 @@ try:
 except ValueError:
     log_message(
         f"Data inválida em CLOSED_UNTIL: {CLOSED_UNTIL}. Use o formato YYYY-MM-DD.",
-        "error"
+          "error"
     )
     exit(1)
 
-query = {
-    "query": REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY,
-    "variables": {
-        "owner": repo_owner,
-        "name": repo_name,
-        "after": None
-    }
-}
-
-# Configure a session with retries and backoff to handle transient network errors
 session = requests.Session()
 retries = Retry(
     total=5,
@@ -94,7 +87,7 @@ def execute_query(query, headers):
             response = session.post(GRAPHQL_URL, headers=headers, json=query, timeout=30)
 
             if response.status_code == 403:
-                log_message(f"Status 403 received. Switching token and retrying (attempt {attempt}).", "warning")
+                log_message(f"Status 403. Trocando de token e nova tentativa (tentativa {attempt}).", "warning")
                 switch_token()
                 headers = get_headers()
                 continue
@@ -102,10 +95,9 @@ def execute_query(query, headers):
             return response.json()
 
         except requests.exceptions.RequestException as e:
-            log_message(f"Request error on attempt {attempt}/{max_attempts}: {e}", "warning")
+            log_message(f"Erro de requisição na tentativa {attempt}/{max_attempts}: {e}", "warning")
             switch_token()
             headers = get_headers()
-            # exponential backoff
             sleep_time = min(60, 2 ** attempt)
             time.sleep(sleep_time)
 
@@ -138,40 +130,38 @@ def resolve_fix_commit(issue, repo_owner, repo_name):
 
     nodes = issue.get("closedEvents", {}).get("nodes", [])
     node = nodes[0].get("closer") if nodes else None
-    if node: # Se ter um closer, então é um evento de fechamento com commit ou PR
+    if node: 
         closer_type = node.get("__typename", "")
 
-        if closer_type == "PullRequest": # Fechamento via PR
+        if closer_type == "PullRequest": 
             merge_commit = node.get("mergeCommit", {}).get("oid") if node.get("mergeCommit") else None
             if merge_commit:
                 valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", merge_commit)
                 if valid:
                     return merge_commit, "pr", node.get("mergeCommit", {}).get("message") if node.get("mergeCommit") else None
 
-            # Fallback "commit que referencia a PR" t
             pr_ref_commit, pr_ref_message = _first_referenced_commit(node.get("referencedCommit"))
             if pr_ref_commit:
                 valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", pr_ref_commit)
                 if valid:
                     return pr_ref_commit, "commit_ref_pr", pr_ref_message
 
-            # Fallback "commit que referencia a issue" t
             if issue_ref_commit:
                 valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", issue_ref_commit)
                 if valid:
                     return issue_ref_commit, "commit_ref_issue", issue_ref_message
-        else: # Fechamento direto com commit (não PR)
+        else: 
             fix_commit = node.get("oid", None)
             if fix_commit:
                 valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", fix_commit)
                 if valid:
                     return fix_commit, "commit", node.get("message", None)
 
-            if issue_ref_commit: # Fallback "commit que referencia a issue" t
+            if issue_ref_commit: 
                 valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", issue_ref_commit)
                 if valid:
                     return issue_ref_commit, "commit_ref_issue", issue_ref_message
-    else: # Sem evento de fechamento, mas pode ter commit referenciado na issue
+    else: 
         if issue_ref_commit:
             valid, _ = is_commit_valid(f"./repos_dir/{repo_name}", issue_ref_commit)
             if valid:
@@ -200,18 +190,16 @@ def _ensure_output_dir():
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
 
-def save_progress(all_data, after_cursor, total_count, read_issues):
+def save_progress(output_file, all_data, after_cursor, total_count, read_issues, repo_name):
     _ensure_output_dir()
     try:
-        with open(OUTPUT_FILE, "w") as f:
+        with open(output_file, "w") as f:
             json.dump(all_data, f, indent=2)
-        log_message(f" ({repo_name}) Progresso salvo. after={after_cursor} total_count={total_count} read_issues={read_issues}", "info")
+        log_message(f"({repo_name}) Progresso salvo. after={after_cursor} total_count={total_count} read_issues={read_issues}", "info")
     except Exception as e:
-        log_message(f" ({repo_name}) Erro ao salvar progresso: {e} - ", "error")
+        log_message(f"({repo_name}) Erro ao salvar progresso: {e}", "error")
 
-    return None
-
-def get_data():
+def get_data(repo_owner, repo_name, output_file):
     """"
     Coleta issues fechadas de um repositório GitHub usando a API GraphQL, filtrando por data de fechamento e resolvendo o commit de correção associado a cada issue.
     Retorna uma lista de dicionários contendo informações relevantes sobre cada issue.
@@ -220,11 +208,19 @@ def get_data():
     """
     _ensure_output_dir()
 
-    # restore previous data if exists
+    query = {
+        "query": REPO_CLOSED_ISSUES_AND_CLOSED_EVENTS_QUERY,
+        "variables": {
+            "owner": repo_owner,
+            "name": repo_name,
+            "after": None
+        }
+    }
+
     all_data = []
-    if os.path.exists(OUTPUT_FILE):
+    if os.path.exists(output_file):
         try:
-            with open(OUTPUT_FILE, "r") as f:
+            with open(output_file, "r") as f:
                 all_data = json.load(f)
         except Exception:
             all_data = []
@@ -252,7 +248,7 @@ def get_data():
             if total_count is None:
                 total_count = issues_data.get('totalCount', 0)
                 if tqdm:
-                    progress = tqdm(total=total_count, desc="Processando issues", unit="issue")
+                    progress = tqdm(total=total_count, desc=f"Processando {repo_name}", unit="issue")
                     if read_issues:
                         progress.update(read_issues)
 
@@ -296,30 +292,47 @@ def get_data():
                 all_data.append(issue_data)
 
             if not page_info.get("hasNextPage"):
-                save_progress(all_data, None, total_count, read_issues)
+                save_progress(output_file, all_data, None, total_count, read_issues, repo_name)
                 break
 
             after_cursor = page_info.get("endCursor")
+            save_progress(output_file, all_data, after_cursor, total_count, read_issues, repo_name)
 
-            save_progress(all_data, after_cursor, total_count, read_issues)
-
-            time.sleep(2)  # To avoid hitting rate limits
+            time.sleep(2)
 
         except KeyboardInterrupt:
             log_message("Interrompido pelo usuário (Ctrl+C). Salvando progresso...", "info")
-            save_progress(all_data, after_cursor, total_count, read_issues)
+            save_progress(output_file, all_data, after_cursor, total_count, read_issues, repo_name)
             if progress:
                 progress.close()
             return all_data
 
-    log_message(f"Total issues fetched from {repo_name}: {len(all_data)}", "info")
+    log_message(f"Issues coletadas para {repo_name}: {len(all_data)}", "info")
     if progress:
         progress.close()
 
     return all_data
 
+def process_repos(repos_list):
+    for repo in repos_list:
+        repo_owner, repo_name = repo.split('/')
+        
+        # Configura os logs para o repositório atual
+        setup_loggers(repo_name)
+        
+        output_file = os.path.join(OUTPUT_DIR, f"{repo_name}.json")
+        log_message(f"\n--- Iniciando coleta para o repositório: {repo_owner}/{repo_name} ---", "info")
+        
+        # Executa a coleta passando as variáveis específicas
+        data = get_data(repo_owner, repo_name, output_file)
+        
+        # O save_final já ocorre dentro de get_data, mas garantimos aqui
+        _ensure_output_dir()
+        with open(output_file, "w") as f:
+            json.dump(data, f, indent=2)
+            
+        log_message(f"--- Coleta finalizada para: {repo_owner}/{repo_name} ---\n", "info")
+
 if __name__ == "__main__":
-    data = get_data()
     _ensure_output_dir()
-    with open(OUTPUT_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+    process_repos(REPOSITORIES)

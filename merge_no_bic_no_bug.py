@@ -8,7 +8,7 @@ import json
 filenames = [
     "elasticsearch.json",
     "jabref.json",
-    "junit.json",
+    "junit-framework.json",
     "keycloak.json",
     "pulsar.json",
     "spring-boot.json"
