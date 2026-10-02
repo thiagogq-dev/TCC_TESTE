@@ -9,6 +9,7 @@ from utils.stats import (
 )
 
 INPUT_FOLDER = "./dataset/4-metricas/pair_bic_fix"
+RESULTS_FOLDER = "./results/rq5_ii"
 
 def build_commit_to_fix(data):
     """
@@ -263,11 +264,11 @@ def aggregate_tests_vs_no_tests(metrics, reporter):
 # ==========================================================
 
 def main():
-    os.makedirs("./results/rq5_ii", exist_ok=True)
+    os.makedirs(RESULTS_FOLDER, exist_ok=True)
     import pandas as pd
 
-    OUTPUT_TEXT_PATH = "./results/rq5_ii/relatorio_texto.txt"
-    OUTPUT_CSV_PATH = "./results/rq5_ii/tabela_resultados.csv"
+    OUTPUT_TEXT_PATH = f"{RESULTS_FOLDER}/relatorio_texto.txt"
+    OUTPUT_CSV_PATH = f"{RESULTS_FOLDER}/tabela_resultados.csv"
 
     if os.path.exists(OUTPUT_TEXT_PATH):
         open(OUTPUT_TEXT_PATH, "w").close()

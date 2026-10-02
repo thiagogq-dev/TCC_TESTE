@@ -7,6 +7,7 @@ from utils.stats import (
 )
 
 INPUT_FOLDER = "./dataset/4-metricas/pair_bic_fix"
+RESULTS_FOLDER = "./results/rq5_i"
 
 def calculate_proportion_bugs_asserts_types(data, reporter):
     """
@@ -109,11 +110,11 @@ def calculate_experience_vs_recurrence(data, reporter):
     return result
 
 if __name__ == "__main__":
-    os.makedirs("./results/rq5_i", exist_ok=True)
+    os.makedirs(RESULTS_FOLDER, exist_ok=True)
     import pandas as pd 
 
-    OUTPUT_TEXT_PATH = "./results/rq5_i/relatorio_texto.txt"
-    OUTPUT_CSV_PATH = "./results/rq5_i/tabela_resultados.csv"
+    OUTPUT_TEXT_PATH = f"{RESULTS_FOLDER}/relatorio_texto.txt"
+    OUTPUT_CSV_PATH = f"{RESULTS_FOLDER}/tabela_resultados.csv"
 
     if os.path.exists(OUTPUT_TEXT_PATH):
         open(OUTPUT_TEXT_PATH, "w").close()

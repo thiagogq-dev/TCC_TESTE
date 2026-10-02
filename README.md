@@ -46,7 +46,32 @@ Para o caso do `START_CURSOR`, deixe vazio para a primeira requisição
     python3 collect_issues.py
     ```
 
-6. Usar o modelo BERT citado no ESTUDO para classificar as issues em issues de defeito ou não
+6. Usar o [modelo BERT](https://github.com/s2e-lab/BERT-Based-GitHub-Issue-Classification) usado para classificar as issues em issues de defeito ou não:
+    - Nesse passo, ao rodar o software citado, é importante que o arquivo json que será passado como entrada para classificar seja modificado ao obter a classificação, para que a classificação atribuída seja adicionada na chave `predicted_class` do json, ficando da seguinte forma:
+
+    ```json
+    {
+        "repo_name":"elasticsearch",
+        "issue_number":2,
+        "issue_title":"Discovery: Support local (JVM level) discovery",
+        "issue_body":"Allow to have a JVM (well, actually class loader) level discovery for simple testing \/ embedding of a single node (which, potentially exists with other nodes in the same class loader).\n\nEnable it using:\n\n```\ndiscovery:\n    type: local\n```\n\nOr using:\n\n```\nnode:\n    local: true\n```\n\n(which will also enable other modules to be local, such as the transport - once we have that...)\n",
+        "issue_url":"https:\/\/github.com\/elastic\/elasticsearch\/issues\/2",
+        "assignees":[
+
+        ],
+        "labels":[
+            ">feature",
+            "v0.05.0"
+        ],
+        "issue_closed_at":"2010-02-10T22:12:58.000Z",
+        "fix_commit_hash":"55a7227f67c308f0141e384e9553e759995e4189",
+        "commit_type":"commit_ref_issue_no_event",
+        "commit_message":"ESQL: external multi-file warm COUNT survives schema-TTL expiry and many-stripe cache pressure (#153085) (#153216)\n\n* ESQL: warm short-circuit...",
+        "closer_url":null,
+        "earliest_issue_date":"2010-02-10T22:10:55Z",
+        "predicted_class":"enhancement"
+    },
+    ```
 
 7. Separar as issues de defeito das de não defeito
 
@@ -61,10 +86,11 @@ Para o caso do `START_CURSOR`, deixe vazio para a primeira requisição
     bash ./run_docker.sh <arquivo_entrada> ./conf/asserts_article.yml ../repos_dir/
     ````
 
-9. Mover arquivo gerado na pasta out/ do pyszz para a pasta do estudo
+utf9. Mover arquivo gerado na pasta out/ do pyszz para a pasta de destino
 
     ```bash
-    cp .out/<nome_arquivop> ../dataset/3-szz/
+    mkdir -p ../dataset/3-szz
+    cp ./out/<nome_arquivop> ../dataset/3-szz/
     ```
 
 10. Verificar se algum BIC retornado é um *merge commit* para atualizar os BIC

@@ -225,7 +225,6 @@ if __name__ == "__main__":
 
         FOLDER_REPO_PATH = file.replace(".json", "")
         INPUT_PATH      = f"{args.input_folder}/{file}"
-        RESULTS_FOLDER  = "./results/rq4"  # Pasta base para gráficos ou outros outputs se necessário
 
         data = load_data(INPUT_PATH)
 
